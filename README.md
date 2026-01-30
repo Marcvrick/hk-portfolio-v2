@@ -1,37 +1,64 @@
 # Portfolio HK Tracker v2 - Firebase
 
-Version avec backend **Firebase Firestore** pour une synchronisation fiable multi-appareils.
+Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for reliable multi-device sync.
 
-## Pourquoi v2 ?
+**Live:** https://marcvrick.github.io/hk-portfolio-v2/
 
-La v1 (hk-portfolio-cron) utilise localStorage + GitHub sync manuel, ce qui cause :
-- Conflits de données entre appareils
-- Positions "disparues" après sync
-- Snapshots non mis à jour
+---
 
-## Différences v1 vs v2
+## Features
 
-| | v1 (localStorage + GitHub) | v2 (Firebase) |
-|---|---|---|
-| Stockage | localStorage + data.json | Firebase Firestore |
-| Sync | Manuel (Push/Pull) | **Automatique temps réel** |
-| Conflits | Fréquents | Aucun |
-| Multi-device | Fragile | Natif |
-| Cron | Écrit dans data.json | Écrit dans Firestore |
-| Offline | Oui | Oui (avec sync auto) |
+### Core
+- Real-time portfolio tracking with live Yahoo Finance prices
+- Multi-device sync via Firebase Firestore
+- Daily P&L calendar with performance history
+- Position duration tracking with visual alerts
+- Closed trades history with win rate analytics
+
+### UI/UX (v2.1)
+- **Dark mode** (default) with light mode toggle
+- Modern donut pie chart with muted color palette
+- Compact, dense table layout
+- Responsive design for mobile/desktop
+
+---
+
+## Tech Stack
+
+**Frontend:**
+- React 18 (CDN)
+- Firebase JS SDK 10.x
+- Recharts (charts)
+- Tailwind CSS (styling)
+
+**Backend:**
+- Firebase Firestore (database)
+- GitHub Actions (daily cron)
+- Python + firebase-admin (price updates)
+
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `index.html` | Production app (dark mode default) |
+| `index-dev.html` | Development version |
+| `update.py` | Cron script for Yahoo Finance prices |
+| `.github/workflows/daily-update.yml` | GitHub Actions workflow |
 
 ---
 
 ## Setup Firebase
 
-### 1. Créer projet Firebase
-1. Aller sur https://console.firebase.google.com
-2. Créer un nouveau projet "hk-portfolio-tracker"
-3. Activer **Firestore Database** (mode production, région asia-east1)
-4. Aller dans Project Settings > Your apps > Web app
-5. Copier la config Firebase
+### 1. Create Firebase Project
+1. Go to https://console.firebase.google.com
+2. Create project "hk-portfolio-tracker"
+3. Enable **Firestore Database** (production mode, asia-east1)
+4. Project Settings > Your apps > Add Web app
+5. Copy Firebase config to `index.html`
 
-### 2. Structure Firestore
+### 2. Firestore Structure
 
 ```
 portfolios/
@@ -44,7 +71,7 @@ portfolios/
       └── priceCache: {}
 ```
 
-### 3. Règles de sécurité Firestore (dev)
+### 3. Security Rules (dev)
 
 ```javascript
 rules_version = '2';
@@ -57,85 +84,112 @@ service cloud.firestore {
 }
 ```
 
-> Note: À sécuriser avec authentification pour production
+### 4. Cron Setup (update.py)
 
-### 4. Config pour le cron (update.py)
-
-Créer un Service Account:
 1. Firebase Console > Project Settings > Service Accounts
 2. Generate new private key
-3. Sauvegarder comme `firebase-credentials.json`
-4. Ajouter en secret GitHub Actions
+3. Add as GitHub secret: `FIREBASE_CREDENTIALS_JSON`
 
 ---
 
-## Migration Plan
-
-### Phase 1: Setup
-- [ ] Créer projet Firebase
-- [ ] Configurer Firestore
-- [ ] Ajouter Firebase SDK à index.html
-
-### Phase 2: Frontend
-- [ ] Remplacer localStorage par Firestore
-- [ ] Implémenter listeners temps réel
-- [ ] Supprimer logique GitHub sync (Push/Pull buttons)
-- [ ] Garder export JSON pour backup
-
-### Phase 3: Cron
-- [ ] Installer firebase-admin pour Python
-- [ ] Modifier update.py pour écrire dans Firestore
-- [ ] Configurer GitHub Actions avec credentials
-
-### Phase 4: Deploy
-- [ ] Créer nouveau repo GitHub
-- [ ] Configurer GitHub Pages
-- [ ] Tester sync multi-appareils
-- [ ] Importer données existantes
-
----
-
-## Fichiers
-
-- `index.html` — App React (à modifier pour Firebase)
-- `update.py` — Cron Yahoo Finance (à modifier pour Firebase)
-- `data.json` — Données v1 (pour import initial)
-- `.github/workflows/daily-update.yml` — GitHub Actions cron
-
----
-
-## Tech Stack
-
-**Frontend:**
-- React 18 (CDN)
-- Firebase JS SDK 10.x
-- Recharts
-- Tailwind CSS
-
-**Backend:**
-- Firebase Firestore (database)
-- GitHub Actions (cron)
-- Python + firebase-admin
-
----
-
-## Commandes utiles
+## Deployment
 
 ```bash
-# Installer firebase-admin pour Python
-pip install firebase-admin
+# Push changes to deploy via GitHub Pages
+git add .
+git commit -m "Update"
+git push
+```
 
-# Tester le cron localement
+GitHub Pages auto-deploys from `main` branch.
+
+---
+
+## Roadmap / TODO
+
+### Completed ✅
+- [x] Firebase Firestore integration
+- [x] Real-time multi-device sync
+- [x] Dark mode with toggle switch
+- [x] Modern donut pie chart
+- [x] Compact table layout
+- [x] Daily P&L calendar
+- [x] Position duration alerts
+
+### Planned 🚧
+
+#### US Portfolio Version
+Create a separate US stock portfolio tracker with the same layout.
+
+**Changes required:**
+
+| Component | HK Version | US Version |
+|-----------|------------|------------|
+| Ticker format | `9961.HK` | `AAPL`, `MSFT` |
+| Currency | HKD | USD |
+| Firebase collection | `portfolios/main` | `portfolios/us` |
+| Title | "Portfolio HK" | "Portfolio US" |
+| Market hours | HKT | EST/EDT |
+
+**Implementation steps:**
+1. Duplicate `index.html` → `index-us.html`
+2. Update currency formatting (`HKD` → `USD`)
+3. Remove `.HK` suffix logic from ticker handling
+4. Create new Firebase collection `portfolios/us`
+5. Update page title and labels
+6. Deploy to new repo or subfolder
+
+**Estimated effort:** ~1-2 hours
+
+#### Future Enhancements
+- [ ] Authentication (Firebase Auth)
+- [ ] Multiple portfolios per user
+- [ ] Dividend tracking improvements
+- [ ] Export to CSV/Excel
+- [ ] Profit target alerts
+- [ ] Sector allocation chart
+- [ ] Benchmark comparison (HSI, S&P500)
+
+---
+
+## Firebase Costs (Spark Plan - Free)
+
+| Resource | Limit |
+|----------|-------|
+| Reads | 50K/day |
+| Writes | 20K/day |
+| Storage | 1GB |
+| Transfer | 10GB/month |
+
+Sufficient for personal portfolio tracking.
+
+---
+
+## Local Development
+
+```bash
+# Test cron locally
 GOOGLE_APPLICATION_CREDENTIALS=firebase-credentials.json python update.py
+
+# Serve locally (optional)
+python -m http.server 8000
 ```
 
 ---
 
-## Coûts Firebase (Spark plan - gratuit)
+## Changelog
 
-- 50K lectures/jour
-- 20K écritures/jour
-- 1GB stockage
-- 10GB transfert/mois
+### v2.1 (Jan 2025)
+- Added dark mode with toggle (sun/moon icon)
+- Dark mode enabled by default
+- Modern donut pie chart with muted colors
+- Compact positions table layout
+- Improved text readability in dark mode
+- Blue active tab styling
+- Reordered tabs: Positions/Performance/Trades/History/Settings
 
-Largement suffisant pour un portfolio personnel.
+### v2.0 (Jan 2025)
+- Migrated from localStorage to Firebase Firestore
+- Real-time multi-device sync
+- Removed manual Push/Pull sync buttons
+- Daily cron via GitHub Actions
