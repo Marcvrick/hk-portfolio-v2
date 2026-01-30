@@ -52,8 +52,11 @@
     }
   </script>
   <style>
-    body { margin: 0; background: #ffffff; transition: background-color 0.3s ease; }
+    body { margin: 0; background: #f4f6ef; transition: background-color 0.3s ease; }
     .dark body, body.dark-mode { background: #111827; }
+
+    /* Light mode lime-tinted background */
+    body:not(.dark-mode) .bg-gray-50 { background: #f4f6ef !important; }
 
     /* Dark mode overrides - using Tailwind gray-900/800/700 palette */
     .dark-mode { background: #111827 !important; color: #ffffff !important; }
@@ -1211,7 +1214,7 @@
       };
 
       return (
-        <div className={`min-h-screen ${darkMode ? 'bg-[#111827]' : 'bg-gray-50'} text-dark-text p-4 md:p-8`}>
+        <div className={`min-h-screen ${darkMode ? 'bg-[#111827]' : 'bg-[#f4f6ef]'} text-dark-text p-4 md:p-8`}>
           <div className="max-w-7xl mx-auto space-y-6">
             {/* Header - Modern style */}
             <div className="flex flex-wrap justify-between items-start gap-4">
