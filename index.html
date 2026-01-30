@@ -1253,56 +1253,56 @@
               </div>
             </div>
 
-            {/* Metrics Cards - Modern elevated style */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Engagé</div>
-                <div className="text-lg font-bold text-dark-text">{fmt(m.capitalEngaged)}</div>
+            {/* Metrics Cards - Compact on mobile, 4 per row */}
+            <div className="grid grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-2 md:gap-4">
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Engagé</div>
+                <div className="text-xs md:text-lg font-bold text-dark-text">{fmt(m.capitalEngaged)}</div>
               </div>
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Valeur</div>
-                <div className="text-lg font-bold text-dark-text">{fmt(m.totalValue)}</div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Valeur</div>
+                <div className="text-xs md:text-lg font-bold text-dark-text">{fmt(m.totalValue)}</div>
               </div>
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Latent</div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold ${m.totalPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Latent</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.totalPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {m.totalPnL >= 0 ? '+' : ''}{fmt(m.totalPnL)}
                 </span>
               </div>
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Return</div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold ${m.overallReturn >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Return</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.overallReturn >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {m.overallReturn >= 0 ? '+' : ''}{m.overallReturn.toFixed(1)}%
                 </span>
               </div>
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Réalisé</div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold ${m.realizedPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Réalisé</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.realizedPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {fmt(m.realizedPnL)}
                 </span>
               </div>
-              <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-xs uppercase tracking-wide mb-1">Aujourd'hui</div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Aujourd'hui</div>
                 {dailyGain.hasYesterday ? (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {dailyGain.value >= 0 ? '+' : ''}{fmt(dailyGain.value)}
                   </span>
                 ) : (
-                  <div className="text-lg font-bold text-muted">-</div>
+                  <div className="text-xs md:text-lg font-bold text-muted">-</div>
                 )}
               </div>
               <InfoTooltip text="% de trades CLÔTURÉS gagnants (prix vente > prix achat)">
-                <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
-                  <div className="text-muted text-xs uppercase tracking-wide mb-1">Win Rate</div>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold bg-lime-accent/20 text-lime-hover">{m.winRate.toFixed(0)}%</span>
+                <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
+                  <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Win Rate</div>
+                  <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-lime-accent/20 text-lime-hover">{m.winRate.toFixed(0)}%</span>
                 </div>
               </InfoTooltip>
               <InfoTooltip text="Positions OUVERTES en gain / en perte (prix actuel vs prix achat)">
-                <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
-                  <div className="text-muted text-xs uppercase tracking-wide mb-1">W / L</div>
+                <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
+                  <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">W / L</div>
                   <div className="flex gap-1">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold bg-green-100 text-green-700">{m.winners}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-semibold bg-red-100 text-red-700">{m.losers}</span>
+                    <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-green-100 text-green-700">{m.winners}</span>
+                    <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-red-100 text-red-700">{m.losers}</span>
                   </div>
                 </div>
               </InfoTooltip>
