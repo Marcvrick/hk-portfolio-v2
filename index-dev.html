@@ -542,7 +542,7 @@
       const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
       const [darkMode, setDarkMode] = useState(() => {
         const saved = localStorage.getItem('portfolioDarkMode');
-        return saved !== null ? JSON.parse(saved) : true;
+        return saved ? JSON.parse(saved) : false;
       });
 
       // Apply dark mode class to body
