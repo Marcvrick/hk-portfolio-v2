@@ -1,5 +1,5 @@
-  name: Daily Portfolio Update
-  on:
+name: Daily Portfolio Update
+on:
     schedule:
       - cron: '30 8 * * 1-5'
     workflow_dispatch:
