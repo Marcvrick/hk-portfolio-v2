@@ -122,6 +122,10 @@
     .dark-mode .row-danger { background: rgba(153, 27, 27, 0.5) !important; }
     .dark-mode .row-warning { background: rgba(154, 52, 18, 0.4) !important; }
 
+    /* Danger/Warning row backgrounds in light mode - more visible */
+    body:not(.dark-mode) .row-danger { background: rgba(254, 202, 202, 0.8) !important; }
+    body:not(.dark-mode) .row-warning { background: rgba(254, 215, 170, 0.8) !important; }
+
     /* Smooth transition */
     * { transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
   </style>
