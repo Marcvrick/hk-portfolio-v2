@@ -15,10 +15,13 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 - Position duration tracking with visual alerts
 - Closed trades history with win rate analytics
 
-### UI/UX (v2.1)
-- **Dark mode** (default) with light mode toggle
+### UI/UX (v2.2)
+- **Dark mode** (default) with light mode toggle (sun/moon icon)
+- **Light mode** with soft lime-tinted background (#f4f6ef)
 - Modern donut pie chart with muted color palette
 - Compact, dense table layout
+- Danger row highlighting (🚨) on Positions & Performance tabs
+- Visual alerts for positions down ≥10% (red) or 8-10% (orange)
 - Responsive design for mobile/desktop
 
 ---
@@ -111,10 +114,13 @@ GitHub Pages auto-deploys from `main` branch.
 - [x] Firebase Firestore integration
 - [x] Real-time multi-device sync
 - [x] Dark mode with toggle switch
+- [x] Light mode with lime-tinted background
 - [x] Modern donut pie chart
 - [x] Compact table layout
 - [x] Daily P&L calendar
 - [x] Position duration alerts
+- [x] Danger/warning row highlighting (Positions & Performance tabs)
+- [x] Stop-loss visual alerts (🚨 for ≥10% loss)
 
 ### Planned 🚧
 
@@ -178,6 +184,12 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.2 (Jan 2025)
+- Light mode: soft lime-tinted background (#f4f6ef) inspired by Zentry app
+- Danger row highlighting on Performance tab (same as Positions)
+- More visible red/orange backgrounds for danger/warning rows in light mode
+- Stop-loss emoji (🚨) visible on both Positions and Performance tabs
 
 ### v2.1 (Jan 2025)
 - Added dark mode with toggle (sun/moon icon)
