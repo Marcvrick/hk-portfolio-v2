@@ -1,0 +1,26 @@
+name: Daily Portfolio Update
+
+  on:
+    schedule:
+      # 08:30 UTC = 16:30 HKT (HK market close)
+      - cron: '30 8 * * 1-5'  # Mon-Fri only
+    workflow_dispatch:  # Manual trigger
+
+  jobs:
+    update:
+      runs-on: ubuntu-latest
+
+      steps:
+        - uses: actions/checkout@v4
+
+        - uses: actions/setup-python@v5
+          with:
+            python-version: '3.12'
+
+        - name: Install dependencies
+          run: pip install firebase-admin
+
+        - name: Fetch prices and update Firestore
+          env:
+            FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+          run: python update.py
