@@ -1926,7 +1926,11 @@
                   ).sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
                   for (let i = 1; i < sortedSnaps.length; i++) {
-                    pnlMap[sortedSnaps[i].date] = sortedSnaps[i].portfolioValue - sortedSnaps[i - 1].portfolioValue;
+                    // Daily P&L = change in unrealizedPnL + change in realizedPnL
+                    // This properly accounts for realized gains from closed positions
+                    const unrealizedChange = (sortedSnaps[i].unrealizedPnL || 0) - (sortedSnaps[i - 1].unrealizedPnL || 0);
+                    const realizedChange = (sortedSnaps[i].realizedPnL || 0) - (sortedSnaps[i - 1].realizedPnL || 0);
+                    pnlMap[sortedSnaps[i].date] = unrealizedChange + realizedChange;
                   }
                   // Always show today's daily gain from live price data (sum of each position's daily P&L)
                   const todayPnl = positions.reduce((sum, p) => {
