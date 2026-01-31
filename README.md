@@ -16,13 +16,15 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 - Position duration tracking with visual alerts
 - Closed trades history with win rate analytics
 
-### UI/UX (v2.2)
+### UI/UX (v2.3)
 - **Dark mode** (default) with light mode toggle (sun/moon icon)
 - **Light mode** with soft lime-tinted background (#f4f6ef)
 - Modern donut pie chart with muted color palette
 - Compact, dense table layout
+- **Compact metric cards on mobile** (4 per row, responsive sizing)
 - Danger row highlighting (🚨) on Positions & Performance tabs
 - Visual alerts for positions down ≥10% (red) or 8-10% (orange)
+- **Failed tickers shown by name** in refresh alerts (not just count)
 - Responsive design for mobile/desktop
 
 ---
@@ -136,6 +138,10 @@ GitHub Pages auto-deploys from `main` branch.
 - [x] Position duration alerts
 - [x] Danger/warning row highlighting (Positions & Performance tabs)
 - [x] Stop-loss visual alerts (🚨 for ≥10% loss)
+- [x] Firebase Authentication (Email/Password)
+- [x] Multi-user support with data isolation
+- [x] Compact mobile metric cards (4 per row)
+- [x] Detailed error reporting (failed tickers by name)
 
 ### Planned 🚧
 
@@ -148,7 +154,7 @@ Create a separate US stock portfolio tracker with the same layout.
 |-----------|------------|------------|
 | Ticker format | `9961.HK` | `AAPL`, `MSFT` |
 | Currency | HKD | USD |
-| Firebase collection | `portfolios/main` | `portfolios/us` |
+| Firebase collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
 | Title | "Portfolio HK" | "Portfolio US" |
 | Market hours | HKT | EST/EDT |
 
@@ -156,11 +162,10 @@ Create a separate US stock portfolio tracker with the same layout.
 1. Duplicate `index.html` → `index-us.html`
 2. Update currency formatting (`HKD` → `USD`)
 3. Remove `.HK` suffix logic from ticker handling
-4. Create new Firebase collection `portfolios/us`
+4. Update Firestore path to `us-portfolios/{userId}`
 5. Update page title and labels
-6. Deploy to new repo or subfolder
-
-**Estimated effort:** ~1-2 hours
+6. Add new Firestore security rules for `us-portfolios`
+7. Deploy to new repo or subfolder
 
 #### Future Enhancements
 - [x] Authentication (Firebase Auth) ✅ v2.3
@@ -202,11 +207,13 @@ python -m http.server 8000
 
 ### v2.3 (Jan 2025)
 - **Firebase Authentication** - Email/password login required
-- Per-user data isolation (each user has their own portfolio)
+- **Multi-user support** - Each user has their own isolated portfolio
 - Secure Firestore rules (users can only access their own data)
-- Login screen with error handling
+- Login screen with error handling (French UI)
 - Logout button in Settings tab
-- Compact metric cards on mobile (4 per row)
+- Account info displayed in Settings
+- Compact metric cards on mobile (4 per row, smaller fonts)
+- Failed tickers shown by name in price refresh alerts
 
 ### v2.2 (Jan 2025)
 - Light mode: soft lime-tinted background (#f4f6ef) inspired by Zentry app
