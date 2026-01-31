@@ -9,8 +9,9 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 ## Features
 
 ### Core
+- **Firebase Authentication** (Email/Password) - Private, secure access
 - Real-time portfolio tracking with live Yahoo Finance prices
-- Multi-device sync via Firebase Firestore
+- Multi-device sync via Firebase Firestore (per-user data isolation)
 - Daily P&L calendar with performance history
 - Position duration tracking with visual alerts
 - Closed trades history with win rate analytics
@@ -61,11 +62,16 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 4. Project Settings > Your apps > Add Web app
 5. Copy Firebase config to `index.html`
 
-### 2. Firestore Structure
+### 2. Enable Authentication
+1. Firebase Console > Authentication > Get Started
+2. Enable **Email/Password** sign-in method
+3. Add users manually: Authentication > Users > Add user
+
+### 3. Firestore Structure (per-user)
 
 ```
 portfolios/
-  └── main/
+  └── {userId}/           ← Each user has their own data
       ├── positions: []
       ├── closedTrades: []
       ├── transactions: []
@@ -74,20 +80,29 @@ portfolios/
       └── priceCache: {}
 ```
 
-### 3. Security Rules (dev)
+### 4. Security Rules (IMPORTANT!)
+
+**Copy these rules to Firestore > Rules:**
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /portfolios/{portfolioId} {
-      allow read, write: if true;
+    match /portfolios/{userId}/{document=**} {
+      // Only authenticated users can access their own data
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
     }
   }
 }
 ```
 
-### 4. Cron Setup (update.py)
+This ensures:
+- ✅ Users can only read/write their own portfolio
+- ✅ No one can access another user's data
+- ✅ Unauthenticated users have no access
+
+### 5. Cron Setup (update.py)
 
 1. Firebase Console > Project Settings > Service Accounts
 2. Generate new private key
@@ -148,7 +163,7 @@ Create a separate US stock portfolio tracker with the same layout.
 **Estimated effort:** ~1-2 hours
 
 #### Future Enhancements
-- [ ] Authentication (Firebase Auth)
+- [x] Authentication (Firebase Auth) ✅ v2.3
 - [ ] Multiple portfolios per user
 - [ ] Dividend tracking improvements
 - [ ] Export to CSV/Excel
@@ -184,6 +199,14 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.3 (Jan 2025)
+- **Firebase Authentication** - Email/password login required
+- Per-user data isolation (each user has their own portfolio)
+- Secure Firestore rules (users can only access their own data)
+- Login screen with error handling
+- Logout button in Settings tab
+- Compact metric cards on mobile (4 per row)
 
 ### v2.2 (Jan 2025)
 - Light mode: soft lime-tinted background (#f4f6ef) inspired by Zentry app

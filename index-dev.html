@@ -6,6 +6,7 @@
   <title>Portfolio HK Tracker v2 - Firebase</title>
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script>
     // Firebase Configuration
@@ -20,6 +21,7 @@
     // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    const auth = firebase.auth();
   </script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -187,6 +189,8 @@
     const Settings = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
     const AlertCircle = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
     const Cloud = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>;
+    const User = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    const LogOut = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
 
     // ===== INITIAL DATA (v7 format with XXXX.HK tickers) =====
     // Updated from Excel 2026-01-26
@@ -282,18 +286,19 @@
     };
 
     // ===== FIREBASE STORAGE =====
-    const PORTFOLIO_DOC = 'portfolios/main';
+    // Dynamic path based on authenticated user
+    const getPortfolioDoc = (userId) => `portfolios/${userId}`;
 
-    // Firestore helper functions
-    const firestoreStorage = {
+    // Firestore helper functions - now require userId
+    const createFirestoreStorage = (userId) => ({
       // Save all data to Firestore
       saveToFirestore: async (data) => {
         try {
-          await db.doc(PORTFOLIO_DOC).set({
+          await db.doc(getPortfolioDoc(userId)).set({
             ...data,
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
           });
-          console.log('Saved to Firestore');
+          console.log('Saved to Firestore for user:', userId);
           return true;
         } catch (e) {
           console.error('Firestore save error:', e);
@@ -304,7 +309,7 @@
       // Load data from Firestore
       loadFromFirestore: async () => {
         try {
-          const doc = await db.doc(PORTFOLIO_DOC).get();
+          const doc = await db.doc(getPortfolioDoc(userId)).get();
           if (doc.exists) {
             return doc.data();
           }
@@ -317,7 +322,7 @@
 
       // Subscribe to real-time updates
       subscribeToUpdates: (callback) => {
-        return db.doc(PORTFOLIO_DOC).onSnapshot((doc) => {
+        return db.doc(getPortfolioDoc(userId)).onSnapshot((doc) => {
           if (doc.exists) {
             callback(doc.data());
           }
@@ -325,7 +330,7 @@
           console.error('Firestore subscription error:', error);
         });
       }
-    };
+    });
 
     // Legacy localStorage storage (kept for migration/backup)
     const storage = {
@@ -526,8 +531,142 @@
       return (twr - 1) * 100;
     };
 
+    // ===== LOGIN SCREEN =====
+    const LoginScreen = ({ onLogin, error, loading }) => {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onLogin(email, password);
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl p-8 w-full max-w-md">
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold text-dark-text mb-2">Portfolio HK Tracker</h1>
+              <p className="text-muted text-sm">Connectez-vous pour accéder à votre portfolio</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-muted uppercase tracking-wide">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none"
+                  placeholder="votre@email.com"
+                  required
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted uppercase tracking-wide">Mot de passe</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none"
+                  placeholder="••••••••"
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-lime-accent hover:bg-lime-hover text-dark-text font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Connexion...' : 'Se connecter'}
+              </button>
+            </form>
+
+            <p className="text-center text-muted text-xs mt-6">
+              Accès privé uniquement
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // ===== APP WRAPPER WITH AUTH =====
+    const App = () => {
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [loginError, setLoginError] = useState('');
+      const [loginLoading, setLoginLoading] = useState(false);
+
+      // Listen to auth state changes
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+          setUser(firebaseUser);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const handleLogin = async (email, password) => {
+        setLoginError('');
+        setLoginLoading(true);
+        try {
+          await auth.signInWithEmailAndPassword(email, password);
+        } catch (error) {
+          console.error('Login error:', error);
+          if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            setLoginError('Email ou mot de passe incorrect');
+          } else if (error.code === 'auth/invalid-email') {
+            setLoginError('Email invalide');
+          } else if (error.code === 'auth/too-many-requests') {
+            setLoginError('Trop de tentatives. Réessayez plus tard.');
+          } else {
+            setLoginError('Erreur de connexion. Réessayez.');
+          }
+        }
+        setLoginLoading(false);
+      };
+
+      const handleLogout = async () => {
+        try {
+          await auth.signOut();
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
+      };
+
+      // Show loading spinner while checking auth
+      if (authLoading) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-lime-accent border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-muted">Chargement...</p>
+            </div>
+          </div>
+        );
+      }
+
+      // Show login screen if not authenticated
+      if (!user) {
+        return <LoginScreen onLogin={handleLogin} error={loginError} loading={loginLoading} />;
+      }
+
+      // Show portfolio tracker if authenticated
+      return <PortfolioTracker userId={user.uid} userEmail={user.email} onLogout={handleLogout} />;
+    };
+
     // ===== MAIN COMPONENT =====
-    const PortfolioTracker = () => {
+    const PortfolioTracker = ({ userId, userEmail, onLogout }) => {
+      // Create firestore storage for this user
+      const firestoreStorage = useMemo(() => createFirestoreStorage(userId), [userId]);
       const [positions, setPositions] = useState([]);
       const [closedTrades, setClosedTrades] = useState([]);
       const [transactions, setTransactions] = useState([]);
@@ -2590,10 +2729,7 @@
                     </div>
                     <p className="text-muted text-xs">
                       Les données sont synchronisées automatiquement avec Firebase Firestore.
-                      Tous les appareils connectés reçoivent les mises à jour en temps réel.
-                    </p>
-                    <p className="text-muted text-xs">
-                      Projet: hk-portfolio-sync
+                      Vos appareils connectés avec ce compte reçoivent les mises à jour en temps réel.
                     </p>
                   </div>
                 </div>
@@ -2626,7 +2762,26 @@
                     <p>Snapshots: {snapshots.length}</p>
                     <p>Prix en cache: {Object.keys(priceCache).length}</p>
                     <p>Stockage: Firebase Firestore (hk-portfolio-sync)</p>
-                    <p className="text-green-600 text-xs mt-2">Les données sont partagées entre tous les appareils automatiquement.</p>
+                    <p className="text-green-600 text-xs mt-2">Les données sont privées et liées à votre compte.</p>
+                  </div>
+                </div>
+
+                {/* Account / Logout */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><User size={16}/> Compte</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-dark-text">{userEmail}</p>
+                        <p className="text-xs text-muted">Connecté</p>
+                      </div>
+                      <button
+                        onClick={onLogout}
+                        className="bg-gray-100 hover:bg-gray-200 text-dark-text font-medium px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                      >
+                        <LogOut size={16}/> Déconnexion
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2666,7 +2821,7 @@
       console.log('Recharts loaded:', RECHARTS_LOADED);
       ReactDOM.createRoot(document.getElementById('root')).render(
         React.createElement(ErrorBoundary, null,
-          React.createElement(PortfolioTracker)
+          React.createElement(App)
         )
       );
       console.log('App rendered');
