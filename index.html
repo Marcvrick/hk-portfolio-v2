@@ -965,6 +965,7 @@
           // Count successes and failures
           let successCount = 0;
           let failCount = 0;
+          const failedTickers = [];
 
           // Merge with existing cache
           const newCache = { ...priceCache };
@@ -974,6 +975,7 @@
               successCount++;
             } else {
               failCount++;
+              failedTickers.push(ticker.replace('.HK', ''));
               console.warn(`Failed to fetch ${ticker}: ${result.error}`);
             }
           });
@@ -995,7 +997,7 @@
 
           // Show result
           if (failCount > 0) {
-            alert(`Prix mis à jour: ${successCount} OK, ${failCount} échecs.\nVérifiez la console (F12) pour les détails.`);
+            alert(`Prix mis à jour: ${successCount} OK, ${failCount} échecs\n\nÉchecs: ${failedTickers.join(', ')}`);
           } else {
             console.log(`All ${successCount} prices updated successfully!`);
           }
