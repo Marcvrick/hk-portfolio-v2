@@ -1,8 +1,10 @@
-# Portfolio HK Tracker v2 - Firebase
+# Portfolio Tracker v2 - Firebase
 
-Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for reliable multi-device sync.
+Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore** backend for reliable multi-device sync.
 
-**Live:** https://marcvrick.github.io/hk-portfolio-v2/
+**Live:**
+- 🇭🇰 HK Portfolio: https://marcvrick.github.io/hk-portfolio-v2/
+- 🇺🇸 US Portfolio: https://marcvrick.github.io/hk-portfolio-v2/index-us.html
 
 ---
 
@@ -69,6 +71,22 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 1. Firebase Console > Authentication > Get Started
 2. Enable **Email/Password** sign-in method
 3. Add users manually: Authentication > Users > Add user
+
+### Adding New Users
+
+To give someone access to their own portfolio:
+
+1. Firebase Console → **Authentication** → **Users**
+2. Click **Add user**
+3. Enter their email + password
+4. Share the URL with them
+
+Each user gets their **own isolated portfolio** (HK and/or US). Users cannot see each other's data.
+
+| User | HK Portfolio | US Portfolio |
+|------|--------------|--------------|
+| User A | `portfolios/userA` | `us-portfolios/userA` |
+| User B | `portfolios/userB` | `us-portfolios/userB` |
 
 ### 3. Firestore Structure (per-user)
 
@@ -209,6 +227,8 @@ python -m http.server 8000
 - US ticker format (AAPL, MSFT) - no suffix required
 - Separate Firestore collection (`us-portfolios/{userId}`)
 - Updated security rules for both HK and US portfolios
+- **Portfolio switch** - Navigate between HK/US via Settings tab (🇭🇰/🇺🇸 buttons)
+- Separate localStorage keys to prevent data mixing
 
 ### v2.3 (Jan 2025)
 - **Firebase Authentication** - Email/password login required
