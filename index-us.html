@@ -1,0 +1,2803 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfolio US Tracker v2 - Firebase</title>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyAwFHD83riPsHlusFHv_mF-WV_1Qe_Qcio",
+      authDomain: "hk-portfolio-sync.firebaseapp.com",
+      projectId: "hk-portfolio-sync",
+      storageBucket: "hk-portfolio-sync.firebasestorage.app",
+      messagingSenderId: "718771708985",
+      appId: "1:718771708985:web:06f0e341fe0fa5649399e8"
+    };
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.5.0/umd/Recharts.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            // Modern light theme - inspired by dashboard screenshot
+            'bg-main': '#ffffff',
+            'bg-card': '#ffffff',
+            'bg-input': '#f5f5f5',
+            lime: {
+              accent: '#a3e635',  // Bright lime from screenshot
+              hover: '#84cc16',
+            },
+            dark: {
+              badge: '#1a1a1a',   // Dark badge background
+              text: '#0a0a0a',    // Primary text
+            },
+            muted: '#6b7280',     // Secondary text
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #f4f6ef; transition: background-color 0.3s ease; }
+    .dark body, body.dark-mode { background: #111827; }
+
+    /* Light mode lime-tinted background */
+    body:not(.dark-mode) .bg-gray-50 { background: #f4f6ef !important; }
+
+    /* Dark mode overrides - using Tailwind gray-900/800/700 palette */
+    .dark-mode { background: #111827 !important; color: #ffffff !important; }
+    .dark-mode .bg-white { background: #1F2937 !important; }
+    .dark-mode .bg-gray-50 { background: #111827 !important; }
+    .dark-mode .bg-gray-100 { background: #374151 !important; }
+    .dark-mode .text-dark-text { color: #ffffff !important; }
+    .dark-mode .text-gray-900 { color: #ffffff !important; }
+    .dark-mode .text-muted { color: #9CA3AF !important; }
+    .dark-mode .text-gray-500 { color: #9CA3AF !important; }
+    .dark-mode .text-gray-600 { color: #D1D5DB !important; }
+    .dark-mode .border-gray-100 { border-color: #374151 !important; }
+    .dark-mode .border-gray-200 { border-color: #4B5563 !important; }
+    .dark-mode .divide-gray-50 > * + * { border-color: #374151 !important; }
+    .dark-mode .hover\:bg-gray-50:hover { background: #374151 !important; }
+    .dark-mode input, .dark-mode select { background: #374151 !important; color: #ffffff !important; border-color: #4B5563 !important; }
+    .dark-mode input::placeholder { color: #6B7280 !important; }
+    .dark-mode .shadow-sm { box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3) !important; }
+    .dark-mode .bg-lime-accent { background: #a3e635 !important; }
+    .dark-mode .bg-dark-badge { background: #1E3A5F !important; border: 2px solid #3B82F6 !important; }
+    .dark-mode .bg-dark-badge.text-lime-accent { color: #a3e635 !important; }
+
+    /* Dark mode for status badges */
+    .dark-mode .bg-green-100 { background: rgba(16, 185, 129, 0.2) !important; }
+    .dark-mode .bg-red-100 { background: rgba(239, 68, 68, 0.2) !important; }
+    .dark-mode .bg-orange-100 { background: rgba(249, 115, 22, 0.2) !important; }
+    .dark-mode .bg-yellow-100 { background: rgba(251, 191, 36, 0.2) !important; }
+    .dark-mode .bg-green-50 { background: rgba(16, 185, 129, 0.15) !important; }
+    .dark-mode .bg-red-50 { background: rgba(239, 68, 68, 0.15) !important; }
+    .dark-mode .bg-orange-50 { background: rgba(249, 115, 22, 0.15) !important; }
+    .dark-mode .text-green-700 { color: #34D399 !important; }
+    .dark-mode .text-green-600 { color: #34D399 !important; }
+    .dark-mode .text-red-700 { color: #F87171 !important; }
+    .dark-mode .text-red-600 { color: #F87171 !important; }
+    .dark-mode .text-orange-700 { color: #FB923C !important; }
+    .dark-mode .text-yellow-700 { color: #FCD34D !important; }
+
+    /* Charts in dark mode */
+    .dark-mode .recharts-cartesian-grid line { stroke: #374151 !important; }
+    .dark-mode .recharts-text { fill: #9CA3AF !important; }
+
+    /* Tooltips in dark mode */
+    .dark-mode .tooltip-content { background: #1F2937 !important; border-color: #4B5563 !important; }
+
+    /* Calendar in dark mode */
+    .dark-mode .bg-cyan-900\/30 { background: rgba(6, 182, 212, 0.2) !important; }
+    .dark-mode .border-cyan-700 { border-color: rgba(6, 182, 212, 0.4) !important; }
+
+    /* Pie chart legend */
+    .dark-mode [style*="background: #f0f0f0"] { background: #374151 !important; color: #D1D5DB !important; }
+
+    /* Modal backdrop */
+    .dark-mode .bg-black\/50 { background: rgba(0, 0, 0, 0.7) !important; }
+
+    /* Lime accent adjustments */
+    .dark-mode .bg-lime-accent\/20 { background: rgba(163, 230, 53, 0.2) !important; }
+    .dark-mode .text-lime-hover { color: #a3e635 !important; }
+
+    /* Keep lime badges readable in dark mode - dark text on lime background */
+    .dark-mode .bg-lime-accent.text-dark-text { color: #0a0a0a !important; }
+    .dark-mode .bg-lime-accent { background: #a3e635 !important; }
+
+    /* Danger/Warning row backgrounds in dark mode */
+    .dark-mode tr.bg-red-50\/50, .dark-mode .bg-red-50\/50 { background: rgba(153, 27, 27, 0.5) !important; }
+    .dark-mode tr.bg-orange-50\/50, .dark-mode .bg-orange-50\/50 { background: rgba(154, 52, 18, 0.4) !important; }
+    .dark-mode .row-danger { background: rgba(153, 27, 27, 0.5) !important; }
+    .dark-mode .row-warning { background: rgba(154, 52, 18, 0.4) !important; }
+
+    /* Danger/Warning row backgrounds in light mode - more visible */
+    body:not(.dark-mode) .row-danger { background: rgba(254, 202, 202, 0.8) !important; }
+    body:not(.dark-mode) .row-warning { background: rgba(254, 215, 170, 0.8) !important; }
+
+    /* Smooth transition */
+    * { transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo } = React;
+
+    // Check if Recharts is loaded
+    const RECHARTS_LOADED = typeof window.Recharts !== 'undefined' && window.Recharts.AreaChart;
+
+    // Recharts components (with fallback if not loaded)
+    const RC = window.Recharts || {};
+    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell, AreaChart, Area, ScatterChart, Scatter, ReferenceLine, ZAxis, PieChart, Pie } = RC;
+
+    // Fallback chart component when Recharts not loaded
+    const ChartFallback = ({ message }) => (
+      <div className="h-64 flex flex-col items-center justify-center bg-gray-50 rounded-lg text-muted">
+        <p>Charts non disponibles</p>
+        <p className="text-xs mt-2">{message || 'Recharts failed to load. Try refreshing.'}</p>
+      </div>
+    );
+
+    // Custom Tooltip component
+    const InfoTooltip = ({ children, text }) => {
+      const [show, setShow] = React.useState(false);
+      return (
+        <div className="relative" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+          {children}
+          {show && (
+            <div className="absolute z-50 top-full left-1/2 transform -translate-x-1/2 mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-lg text-xs text-dark-text whitespace-normal w-48 text-center tooltip-content">
+              {text}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-600"></div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ===== ICON COMPONENTS =====
+    const Plus = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    const Trash2 = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2 0 0,1-2,2H7a2,2 0 0,1-2-2V6m3,0V4a2,2 0 0,1 2-2h4a2,2 0 0,1 2,2v2"/></svg>;
+    const TrendingUp = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/><polyline points="17,6 23,6 23,12"/></svg>;
+    const TrendingDown = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23,18 13.5,8.5 8.5,13.5 1,6"/><polyline points="17,18 23,18 23,12"/></svg>;
+    const Save = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19,21H5a2,2 0 0,1-2-2V5a2,2 0 0,1 2-2h11l5,5v11a2,2 0 0,1-2,2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>;
+    const Download = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21,15v4a2,2 0 0,1-2,2H5a2,2 0 0,1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
+    const Upload = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21,15v4a2,2 0 0,1-2,2H5a2,2 0 0,1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>;
+    const RefreshCw = ({ size = 16, className = "" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}><polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/><path d="M3.51,9a9,9 0 0,1 14.85-3.36L23,10M1,14l4.64,4.36A9,9 0 0,0 20.49,15"/></svg>;
+    const Sun = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>;
+    const Moon = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>;
+    const CheckCircle = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22,11.08V12a10,10 0 1,1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>;
+    const DollarSign = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17,5H9.5a3.5,3.5 0 0,0 0,7h5a3.5,3.5 0 0,1 0,7H6"/></svg>;
+    const ArrowUpCircle = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="16,12 12,8 8,12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>;
+    const ArrowDownCircle = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="8,12 12,16 16,12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>;
+    const Settings = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
+    const AlertCircle = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
+    const Cloud = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>;
+    const User = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    const LogOut = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
+
+    // ===== INITIAL DATA (v7 format with US tickers) =====
+    // Sample US positions - empty by default, will be loaded from Firebase
+    const INITIAL_POSITIONS = [];
+
+    // Closed Trades - empty by default
+    const INITIAL_CLOSED_TRADES = [];
+
+    // Initial transactions - empty by default
+    const INITIAL_TRANSACTIONS = [];
+
+    const DEFAULT_SETTINGS = {
+      corsProxy: 'https://api.allorigins.win/raw?url=',
+      autoRefresh: true,
+    };
+
+
+    // ===== UTILITY FUNCTIONS =====
+    // US tickers don't need conversion - just return as-is
+    const convertOldTicker = (ticker) => {
+      return ticker || '';
+    };
+
+    // Helper to clean ticker (no suffix needed for US)
+    const cleanTicker = (ticker) => ticker || '';
+
+    const migrateDataToV7 = (data) => {
+      // Convert positions tickers
+      const positions = (data.positions || []).map(p => ({
+        ...p,
+        ticker: convertOldTicker(p.ticker)
+      }));
+
+      // Convert closed trades tickers
+      const closedTrades = (data.closedTrades || []).map(t => ({
+        ...t,
+        ticker: convertOldTicker(t.ticker)
+      }));
+
+      // Keep or create transactions
+      const transactions = data.transactions || INITIAL_TRANSACTIONS;
+
+      // Keep or create priceCache
+      const priceCache = data.priceCache || {};
+
+      // Keep or create snapshots (renamed from equityHistory)
+      const snapshots = data.snapshots || data.equityHistory || [];
+
+      // Keep or create settings
+      const settings = data.settings || DEFAULT_SETTINGS;
+
+      return {
+        version: 7,
+        positions,
+        closedTrades,
+        transactions,
+        priceCache,
+        snapshots,
+        settings
+      };
+    };
+
+    // ===== FIREBASE STORAGE =====
+    // Dynamic path based on authenticated user
+    const getPortfolioDoc = (userId) => `us-portfolios/${userId}`;
+
+    // Firestore helper functions - now require userId
+    const createFirestoreStorage = (userId) => ({
+      // Save all data to Firestore
+      saveToFirestore: async (data) => {
+        try {
+          await db.doc(getPortfolioDoc(userId)).set({
+            ...data,
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          console.log('Saved to Firestore for user:', userId);
+          return true;
+        } catch (e) {
+          console.error('Firestore save error:', e);
+          return false;
+        }
+      },
+
+      // Load data from Firestore
+      loadFromFirestore: async () => {
+        try {
+          const doc = await db.doc(getPortfolioDoc(userId)).get();
+          if (doc.exists) {
+            return doc.data();
+          }
+          return null;
+        } catch (e) {
+          console.error('Firestore load error:', e);
+          return null;
+        }
+      },
+
+      // Subscribe to real-time updates
+      subscribeToUpdates: (callback) => {
+        return db.doc(getPortfolioDoc(userId)).onSnapshot((doc) => {
+          if (doc.exists) {
+            callback(doc.data());
+          }
+        }, (error) => {
+          console.error('Firestore subscription error:', error);
+        });
+      }
+    });
+
+    // Legacy localStorage storage (kept for migration/backup)
+    const storage = {
+      get: (key) => {
+        try {
+          const value = localStorage.getItem(key);
+          return { value };
+        } catch (e) {
+          return { value: null };
+        }
+      },
+      set: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          console.error('Storage error:', e);
+        }
+      }
+    };
+
+    // ===== PRICE FETCHING =====
+    const PROXY_LIST = [
+      { name: 'allorigins', build: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+      { name: 'corsproxy.io', build: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+      { name: 'cors.sh', build: (url) => `https://cors.sh/${url}` },
+    ];
+
+    const buildProxyUrl = (yahooUrl, corsProxy) => {
+      if (corsProxy.includes('allorigins')) return PROXY_LIST[0].build(yahooUrl);
+      if (corsProxy.includes('corsproxy.io')) return PROXY_LIST[1].build(yahooUrl);
+      if (corsProxy.includes('cors.sh')) return PROXY_LIST[2].build(yahooUrl);
+      return `${corsProxy}${encodeURIComponent(yahooUrl)}`;
+    };
+
+    const fetchWithProxy = async (cleanTicker, yahooUrl, proxyUrl) => {
+      const response = await fetch(proxyUrl);
+      console.log(`Response for ${cleanTicker}:`, response.status);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error(`JSON parse error for ${cleanTicker}:`, text.substring(0, 200));
+        throw new Error('Invalid JSON response');
+      }
+
+      if (data.chart?.error) {
+        throw new Error(data.chart.error.description || 'Yahoo API error');
+      }
+
+      const result = data.chart?.result?.[0];
+      const meta = result?.meta;
+      if (!meta) {
+        console.error(`No meta for ${cleanTicker}:`, data);
+        throw new Error('No data returned');
+      }
+
+      const price = meta.regularMarketPrice;
+      // Extract yesterday's close from time series (last completed trading day)
+      const closes = result?.indicators?.quote?.[0]?.close;
+      const timestamps = result?.timestamp;
+      let previousClose = price; // fallback
+      if (closes && timestamps && closes.length >= 2) {
+        // Find the second-to-last valid close (yesterday's close)
+        // The last entry is today (may be intraday), so we want the one before
+        for (let i = closes.length - 2; i >= 0; i--) {
+          if (closes[i] != null) {
+            previousClose = closes[i];
+            break;
+          }
+        }
+      } else {
+        previousClose = meta.previousClose || meta.chartPreviousClose || price;
+      }
+      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} ${meta.currency || 'USD'}`);
+
+      return {
+        success: true,
+        price: price,
+        previousClose: previousClose,
+        change: price - previousClose,
+        changePercent: ((price - previousClose) / previousClose) * 100,
+        currency: meta.currency || 'USD',
+        lastUpdated: new Date().toISOString()
+      };
+    };
+
+    const fetchYahooPrice = async (ticker, corsProxy) => {
+      const cleanTicker = ticker;
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+
+      // Try selected proxy first
+      const primaryUrl = buildProxyUrl(yahooUrl, corsProxy);
+      console.log(`Fetching ${cleanTicker}...`);
+
+      try {
+        return await fetchWithProxy(cleanTicker, yahooUrl, primaryUrl);
+      } catch (primaryError) {
+        console.warn(`Primary proxy failed for ${cleanTicker}: ${primaryError.message}, trying fallbacks...`);
+
+        // Try remaining proxies
+        for (const proxy of PROXY_LIST) {
+          const fallbackUrl = proxy.build(yahooUrl);
+          if (fallbackUrl === primaryUrl) continue;
+          try {
+            console.log(`Retrying ${cleanTicker} via ${proxy.name}...`);
+            return await fetchWithProxy(cleanTicker, yahooUrl, fallbackUrl);
+          } catch (e) {
+            console.warn(`Fallback ${proxy.name} also failed for ${cleanTicker}: ${e.message}`);
+          }
+        }
+
+        console.error(`All proxies failed for ${cleanTicker}`);
+        return { success: false, error: `All proxies failed: ${primaryError.message}` };
+      }
+    };
+
+    const fetchAllPrices = async (tickers, corsProxy, onProgress) => {
+      const results = {};
+      const uniqueTickers = [...new Set(tickers.map(t => t))];
+
+      for (let i = 0; i < uniqueTickers.length; i++) {
+        const ticker = uniqueTickers[i];
+        onProgress && onProgress(i + 1, uniqueTickers.length, ticker);
+        results[ticker] = await fetchYahooPrice(ticker, corsProxy);
+        // Rate limiting - 500ms between requests
+        if (i < uniqueTickers.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      return results;
+    };
+
+    const getPriceFreshness = (lastUpdated) => {
+      if (!lastUpdated) return 'unknown';
+      const hours = (Date.now() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60);
+      if (hours < 1) return 'fresh';
+      if (hours < 24) return 'stale';
+      return 'old';
+    };
+
+    // ===== CALCULATION FUNCTIONS =====
+    // Capital Engagé = somme des coûts d'entrée des positions ouvertes (automatique)
+    const calculateCapitalEngaged = (positions) => {
+      return positions.reduce((sum, p) => sum + (p.entryPrice * p.quantity), 0);
+    };
+
+    // Capital Total = capital engagé + cash from closed trades (si non retiré)
+    const calculateCapitalEmployed = (transactions, asOfDate = null) => {
+      return transactions
+        .filter(t => t.type === 'deposit' || t.type === 'withdrawal')
+        .filter(t => !asOfDate || t.date <= asOfDate)
+        .reduce((sum, t) => {
+          return t.type === 'deposit' ? sum + t.amount : sum - t.amount;
+        }, 0);
+    };
+
+    const calculateTotalDividends = (transactions, asOfDate = null) => {
+      return transactions
+        .filter(t => t.type === 'dividend')
+        .filter(t => !asOfDate || t.date <= asOfDate)
+        .reduce((sum, t) => sum + t.amount, 0);
+    };
+
+    const calculatePortfolioValue = (positions, priceCache) => {
+      return positions.reduce((sum, p) => {
+        const cleanTicker = p.ticker;
+        const cachedPrice = priceCache[cleanTicker];
+        const price = cachedPrice?.success ? cachedPrice.price : p.currentPrice;
+        return sum + (p.quantity * price);
+      }, 0);
+    };
+
+    const calculateCostBasis = (positions) => {
+      return positions.reduce((sum, p) => sum + (p.quantity * p.entryPrice), 0);
+    };
+
+    const calculateTWR = (snapshots) => {
+      if (snapshots.length < 2) return 0;
+
+      let twr = 1;
+      for (let i = 1; i < snapshots.length; i++) {
+        const prev = snapshots[i - 1];
+        const curr = snapshots[i];
+
+        // Adjust for cash flows between periods
+        const capitalChange = (curr.capitalEngaged || curr.capitalEmployed) - (prev.capitalEngaged || prev.capitalEmployed);
+        const adjustedPrevValue = prev.portfolioValue + capitalChange;
+
+        if (adjustedPrevValue > 0) {
+          const periodReturn = curr.portfolioValue / adjustedPrevValue;
+          twr *= periodReturn;
+        }
+      }
+
+      return (twr - 1) * 100;
+    };
+
+    // ===== LOGIN SCREEN =====
+    const LoginScreen = ({ onLogin, error, loading }) => {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onLogin(email, password);
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl p-8 w-full max-w-md">
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold text-dark-text mb-2">Portfolio US Tracker</h1>
+              <p className="text-muted text-sm">Connectez-vous pour accéder à votre portfolio</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-muted uppercase tracking-wide">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none"
+                  placeholder="votre@email.com"
+                  required
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted uppercase tracking-wide">Mot de passe</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none"
+                  placeholder="••••••••"
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-lime-accent hover:bg-lime-hover text-dark-text font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Connexion...' : 'Se connecter'}
+              </button>
+            </form>
+
+            <p className="text-center text-muted text-xs mt-6">
+              Accès privé uniquement
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // ===== APP WRAPPER WITH AUTH =====
+    const App = () => {
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [loginError, setLoginError] = useState('');
+      const [loginLoading, setLoginLoading] = useState(false);
+
+      // Listen to auth state changes
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+          setUser(firebaseUser);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const handleLogin = async (email, password) => {
+        setLoginError('');
+        setLoginLoading(true);
+        try {
+          await auth.signInWithEmailAndPassword(email, password);
+        } catch (error) {
+          console.error('Login error:', error);
+          if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            setLoginError('Email ou mot de passe incorrect');
+          } else if (error.code === 'auth/invalid-email') {
+            setLoginError('Email invalide');
+          } else if (error.code === 'auth/too-many-requests') {
+            setLoginError('Trop de tentatives. Réessayez plus tard.');
+          } else {
+            setLoginError('Erreur de connexion. Réessayez.');
+          }
+        }
+        setLoginLoading(false);
+      };
+
+      const handleLogout = async () => {
+        try {
+          await auth.signOut();
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
+      };
+
+      // Show loading spinner while checking auth
+      if (authLoading) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-lime-accent border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-muted">Chargement...</p>
+            </div>
+          </div>
+        );
+      }
+
+      // Show login screen if not authenticated
+      if (!user) {
+        return <LoginScreen onLogin={handleLogin} error={loginError} loading={loginLoading} />;
+      }
+
+      // Show portfolio tracker if authenticated
+      return <PortfolioTracker userId={user.uid} userEmail={user.email} onLogout={handleLogout} />;
+    };
+
+    // ===== MAIN COMPONENT =====
+    const PortfolioTracker = ({ userId, userEmail, onLogout }) => {
+      // Create firestore storage for this user
+      const firestoreStorage = useMemo(() => createFirestoreStorage(userId), [userId]);
+      const [positions, setPositions] = useState([]);
+      const [closedTrades, setClosedTrades] = useState([]);
+      const [transactions, setTransactions] = useState([]);
+      const [priceCache, setPriceCache] = useState({});
+      const [snapshots, setSnapshots] = useState([]);
+      const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+      const [activeTab, setActiveTab] = useState('portfolio');
+      const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+      const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+      const [dataLoaded, setDataLoaded] = useState(false);
+      const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
+      const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: new Date().toISOString().split('T')[0], sellQuantity: '' });
+      const [today] = useState(new Date().toISOString().split('T')[0]);
+      const [editingEntryDate, setEditingEntryDate] = useState(null);
+      const [isRefreshing, setIsRefreshing] = useState(false);
+      const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
+      const [lastRefresh, setLastRefresh] = useState(null);
+      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false });
+      const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+      const [darkMode, setDarkMode] = useState(() => {
+        const saved = localStorage.getItem('portfolioDarkMode');
+        return saved !== null ? JSON.parse(saved) : true;
+      });
+
+      // Apply dark mode class to body
+      useEffect(() => {
+        if (darkMode) {
+          document.body.classList.add('dark-mode');
+        } else {
+          document.body.classList.remove('dark-mode');
+        }
+        localStorage.setItem('portfolioDarkMode', JSON.stringify(darkMode));
+      }, [darkMode]);
+
+      // Load data on mount
+      useEffect(() => { loadData(); }, []);
+
+      // Real-time sync with Firestore (multi-device)
+      useEffect(() => {
+        if (!dataLoaded) return;
+
+        // Subscribe to real-time updates from Firestore
+        const unsubscribe = firestoreStorage.subscribeToUpdates((data) => {
+          if (!data) return;
+          const migrated = migrateDataToV7(data);
+          console.log('Real-time update from Firestore:', {
+            positions: migrated.positions?.length,
+            closedTrades: migrated.closedTrades?.length
+          });
+          // Update state only if data actually changed (avoid loops)
+          setPositions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.positions) ? migrated.positions : prev);
+          setClosedTrades(prev => JSON.stringify(prev) !== JSON.stringify(migrated.closedTrades) ? migrated.closedTrades : prev);
+          setTransactions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.transactions) ? migrated.transactions : prev);
+          setPriceCache(prev => JSON.stringify(prev) !== JSON.stringify(migrated.priceCache) ? migrated.priceCache : prev);
+          setSnapshots(prev => JSON.stringify(prev) !== JSON.stringify(migrated.snapshots) ? migrated.snapshots : prev);
+          // Don't update settings from remote to avoid overwriting local preferences
+        });
+
+        return () => unsubscribe();
+      }, [dataLoaded]);
+
+      const loadData = async () => {
+        try {
+          // Load from Firestore (primary source)
+          let data = await firestoreStorage.loadFromFirestore();
+
+          if (data) {
+            data = migrateDataToV7(data);
+            console.log('Data loaded from Firestore:', {
+              positions: data.positions?.length,
+              closedTrades: data.closedTrades?.length,
+              snapshots: data.snapshots?.length
+            });
+            setPositions(data.positions || INITIAL_POSITIONS);
+            setClosedTrades(data.closedTrades || INITIAL_CLOSED_TRADES);
+            setTransactions(data.transactions || INITIAL_TRANSACTIONS);
+            setPriceCache(data.priceCache || {});
+            setSnapshots(data.snapshots || []);
+            setSettings(data.settings || DEFAULT_SETTINGS);
+          } else {
+            // No Firestore data - try to migrate from localStorage
+            console.log('No Firestore data, checking localStorage for migration...');
+            let result = storage.get('hk-portfolio-v7');
+            if (result && result.value) {
+              data = JSON.parse(result.value);
+              data = migrateDataToV7(data);
+              // Save migrated data to Firestore
+              await firestoreStorage.saveToFirestore({
+                version: 7,
+                positions: data.positions,
+                closedTrades: data.closedTrades,
+                transactions: data.transactions,
+                priceCache: data.priceCache,
+                snapshots: data.snapshots,
+                settings: data.settings
+              });
+              console.log('Migrated localStorage data to Firestore');
+              setPositions(data.positions || INITIAL_POSITIONS);
+              setClosedTrades(data.closedTrades || INITIAL_CLOSED_TRADES);
+              setTransactions(data.transactions || INITIAL_TRANSACTIONS);
+              setPriceCache(data.priceCache || {});
+              setSnapshots(data.snapshots || []);
+              setSettings(data.settings || DEFAULT_SETTINGS);
+            } else {
+              console.warn('No data found, using defaults');
+              setPositions(INITIAL_POSITIONS);
+              setClosedTrades(INITIAL_CLOSED_TRADES);
+              setTransactions(INITIAL_TRANSACTIONS);
+            }
+          }
+          setDataLoaded(true);
+        } catch (e) {
+          console.error('Load error:', e);
+          setPositions(INITIAL_POSITIONS);
+          setClosedTrades(INITIAL_CLOSED_TRADES);
+          setTransactions(INITIAL_TRANSACTIONS);
+          setDataLoaded(true);
+        }
+      };
+
+      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings) => {
+        const dataToSave = {
+          version: 7,
+          positions: newPos ?? positions,
+          closedTrades: newClosed ?? closedTrades,
+          transactions: newTx ?? transactions,
+          priceCache: newCache ?? priceCache,
+          snapshots: newSnap ?? snapshots,
+          settings: newSettings ?? settings
+        };
+        // Save to Firestore (primary)
+        const saved = await firestoreStorage.saveToFirestore(dataToSave);
+        if (!saved) {
+          console.error('Firestore save failed, saving to localStorage as backup');
+          storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
+        }
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings]);
+
+      // ===== AUTO-REFRESH PRICES ON LOAD =====
+      useEffect(() => {
+        if (!dataLoaded || positions.length === 0) return;
+        // Auto-refresh prices when page loads (if no recent cache)
+        const cacheValues = Object.values(priceCache);
+        const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
+          if (!c?.lastUpdated) return false;
+          const age = Date.now() - new Date(c.lastUpdated).getTime();
+          return age < 30 * 60 * 1000; // less than 30 min old
+        });
+        if (!hasRecentCache && !isRefreshing) {
+          console.log('Auto-refreshing prices on load...');
+          refreshPrices();
+        }
+      }, [dataLoaded]);
+
+      // ===== AUTO DAILY SNAPSHOT =====
+      useEffect(() => {
+        if (!dataLoaded || positions.length === 0) return;
+
+        // Calculate current portfolio value
+        const currentValue = positions.reduce((sum, p) => {
+          const cleanTicker = p.ticker;
+          const price = priceCache[cleanTicker]?.price || p.currentPrice;
+          return sum + (p.quantity * price);
+        }, 0);
+
+        // Capital Engagé = coût d'achat des positions ouvertes (AUTOMATIQUE)
+        const capitalEngaged = positions.reduce((sum, p) => sum + (p.quantity * p.entryPrice), 0);
+
+        // Check if we have a snapshot for today
+        const todaySnapshot = snapshots.find(s => s.date === today);
+
+        // Find yesterday's snapshot (most recent before today)
+        const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
+
+        // Calculate daily gain — prefer price cache (price vs previousClose), fallback to snapshots
+        const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
+        if (hasPriceData) {
+          const gain = positions.reduce((sum, p) => {
+            const ct = p.ticker;
+            const cached = priceCache[ct];
+            const isNewToday = p.entryDate === today;
+            if (isNewToday) {
+              const curPrice = cached?.success ? cached.price : p.currentPrice;
+              return sum + (curPrice - p.entryPrice) * p.quantity;
+            }
+            if (cached?.success && cached.previousClose) {
+              return sum + (cached.price - cached.previousClose) * p.quantity;
+            }
+            return sum;
+          }, 0);
+          const prevTotal = positions.reduce((sum, p) => {
+            const ct = p.ticker;
+            const cached = priceCache[ct];
+            const isNewToday = p.entryDate === today;
+            const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+            return sum + prev * p.quantity;
+          }, 0);
+          // Add P&L from positions closed today (exitPrice - previousClose)
+          const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
+            const ct = t.ticker;
+            const cached = priceCache[ct];
+            const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+            return sum + (t.exitPrice - prevClose) * t.quantity;
+          }, 0);
+          const totalGain = gain + closedTodayGain;
+          const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
+          setDailyGain({ value: totalGain, percent, hasYesterday: true });
+        } else if (yesterdaySnapshot) {
+          const gain = currentValue - yesterdaySnapshot.portfolioValue;
+          const percent = yesterdaySnapshot.portfolioValue > 0
+            ? (gain / yesterdaySnapshot.portfolioValue) * 100
+            : 0;
+          setDailyGain({ value: gain, percent, hasYesterday: true });
+        } else {
+          setDailyGain({ value: 0, percent: 0, hasYesterday: false });
+        }
+
+        // Auto-save/update snapshot for today (always update to capture trade closures)
+        const closedWithCalc = closedTrades.map(t => ({
+          pnl: (t.exitPrice - t.entryPrice) * t.quantity
+        }));
+        const realizedPnL = closedWithCalc.reduce((s, t) => s + t.pnl, 0);
+        const totalDividends = transactions
+          .filter(t => t.type === 'dividend')
+          .reduce((sum, t) => sum + t.amount, 0);
+
+        const newSnapshot = {
+          date: today,
+          capitalEngaged,  // Coût d'achat des positions ouvertes
+          portfolioValue: currentValue,
+          unrealizedPnL: currentValue - capitalEngaged,
+          realizedPnL,
+          totalDividends,
+          positionCount: positions.length
+        };
+
+        // Check if snapshot changed (to avoid unnecessary saves)
+        const snapshotChanged = !todaySnapshot ||
+          todaySnapshot.realizedPnL !== realizedPnL ||
+          todaySnapshot.positionCount !== positions.length ||
+          Math.abs(todaySnapshot.capitalEngaged - capitalEngaged) > 1;
+
+        if (snapshotChanged) {
+          // Replace existing or add new snapshot
+          const filteredSnapshots = snapshots.filter(s => s.date !== today);
+          const newSnapshots = [...filteredSnapshots, newSnapshot].sort((a, b) => new Date(a.date) - new Date(b.date));
+          setSnapshots(newSnapshots);
+
+          // Save to localStorage
+          storage.set('hk-portfolio-v7', JSON.stringify({
+            version: 7,
+            positions,
+            closedTrades,
+            transactions,
+            priceCache,
+            snapshots: newSnapshots,
+            settings
+          }));
+
+          console.log('Snapshot updated for', today, todaySnapshot ? '(replaced)' : '(new)');
+        }
+      }, [dataLoaded, positions, priceCache, transactions, closedTrades, today]);
+
+      // ===== PRICE REFRESH =====
+      const refreshSinglePrice = async (ticker) => {
+        const cleanTicker = ticker;
+        try {
+          const result = await fetchYahooPrice(cleanTicker, settings.corsProxy);
+          if (result.success) {
+            const newCache = { ...priceCache, [cleanTicker]: result };
+            const newPositions = positions.map(p => {
+              const ct = p.ticker;
+              return ct === cleanTicker ? { ...p, currentPrice: result.price } : p;
+            });
+            setPriceCache(newCache);
+            setPositions(newPositions);
+            saveData(newPositions, closedTrades, transactions, newCache, snapshots, settings);
+          }
+        } catch (e) {
+          console.warn(`Failed to refresh ${cleanTicker}:`, e.message);
+        }
+      };
+
+      const refreshPrices = async () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        setRefreshProgress({ current: 0, total: positions.length, ticker: '' });
+
+        try {
+          const tickers = positions.map(p => p.ticker);
+          const results = await fetchAllPrices(tickers, settings.corsProxy, (current, total, ticker) => {
+            setRefreshProgress({ current, total, ticker });
+          });
+
+          // Count successes and failures
+          let successCount = 0;
+          let failCount = 0;
+          const failedTickers = [];
+
+          // Merge with existing cache
+          const newCache = { ...priceCache };
+          Object.entries(results).forEach(([ticker, result]) => {
+            if (result.success) {
+              newCache[ticker] = result;
+              successCount++;
+            } else {
+              failCount++;
+              failedTickers.push(ticker);
+              console.warn(`Failed to fetch ${ticker}: ${result.error}`);
+            }
+          });
+
+          // Update positions with new prices
+          const newPositions = positions.map(p => {
+            const cleanTicker = p.ticker;
+            const cached = newCache[cleanTicker];
+            if (cached?.success) {
+              return { ...p, currentPrice: cached.price };
+            }
+            return p;
+          });
+
+          setPriceCache(newCache);
+          setPositions(newPositions);
+          setLastRefresh(new Date().toISOString());
+          saveData(newPositions, closedTrades, transactions, newCache, snapshots, settings);
+
+          // Show result
+          if (failCount > 0) {
+            alert(`Prix mis à jour: ${successCount} OK, ${failCount} échecs\n\nÉchecs: ${failedTickers.join(', ')}`);
+          } else {
+            console.log(`All ${successCount} prices updated successfully!`);
+          }
+        } catch (e) {
+          console.error('Refresh error:', e);
+          alert(`Erreur: ${e.message}\n\nEssayez un autre proxy dans Settings.`);
+        } finally {
+          setIsRefreshing(false);
+          setRefreshProgress({ current: 0, total: 0, ticker: '' });
+        }
+      };
+
+      // ===== CALCULATIONS =====
+      const calcDays = (entryDate, exitDate = null) => {
+        const start = new Date(entryDate);
+        const end = exitDate ? new Date(exitDate) : new Date();
+        return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+      };
+
+      // HSBC HK trading fee calculator
+      const calcTradingFees = (amount, quantity, isBuy) => {
+        const brokerage = Math.max(amount * 0.0025, 100);
+        const boardLots = Math.ceil(quantity / 100); // assume 100 shares/lot
+        const depositCharge = isBuy ? Math.min(Math.max(boardLots * 5, 30), 200) : 0;
+        const stampDuty = Math.ceil(amount * 0.001);
+        const sfcLevy = amount * 0.000027;
+        const afrcLevy = amount * 0.0000015;
+        const hkexFee = amount * 0.0000565;
+        const settlementFee = Math.min(Math.max(amount * 0.00002, 2), 100);
+        return Math.round((brokerage + depositCharge + stampDuty + sfcLevy + afrcLevy + hkexFee + settlementFee) * 100) / 100;
+      };
+
+      const getPositionsWithDays = () => positions.map(p => ({ ...p, days: calcDays(p.entryDate) }));
+
+      const getClosedTradesWithCalc = () => closedTrades.map(t => {
+        const grossPnl = (t.exitPrice - t.entryPrice) * t.quantity;
+        const fees = t.totalFees || 0;
+        const netPnl = grossPnl - fees;
+        return {
+          ...t,
+          days: calcDays(t.entryDate, t.exitDate),
+          grossPnl,
+          fees,
+          pnl: fees > 0 ? netPnl : grossPnl,
+          pnlPercent: fees > 0
+            ? (netPnl / (t.entryPrice * t.quantity + (t.buyFees || 0))) * 100
+            : ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100
+        };
+      });
+
+      const calculateMetrics = useMemo(() => {
+        const posWithDays = getPositionsWithDays();
+        const closedWithCalc = getClosedTradesWithCalc();
+
+        // Capital Engagé = coût total des positions ouvertes (AUTOMATIQUE)
+        const capitalEngaged = calculateCapitalEngaged(positions);
+
+        // Valeur actuelle du portfolio
+        const totalValue = calculatePortfolioValue(positions, priceCache);
+
+        // P&L latent
+        const totalPnL = totalValue - capitalEngaged;
+        const totalPnLPercent = capitalEngaged > 0 ? (totalPnL / capitalEngaged) * 100 : 0;
+
+        // Return basé sur le capital engagé
+        const overallReturn = capitalEngaged > 0 ? ((totalValue - capitalEngaged) / capitalEngaged) * 100 : 0;
+
+        // Dividendes (toujours depuis transactions)
+        const totalDividends = calculateTotalDividends(transactions);
+        const twr = calculateTWR(snapshots);
+
+        // Pour compatibilité
+        const totalInvested = capitalEngaged;
+
+        const winners = positions.filter(p => {
+          const cleanTicker = p.ticker;
+          const price = priceCache[cleanTicker]?.price || p.currentPrice;
+          return price > p.entryPrice;
+        }).length;
+        const losers = positions.filter(p => {
+          const cleanTicker = p.ticker;
+          const price = priceCache[cleanTicker]?.price || p.currentPrice;
+          return price < p.entryPrice;
+        }).length;
+        const realizedPnL = closedWithCalc.reduce((s, t) => s + t.pnl, 0);
+        const avgClosedDuration = closedWithCalc.length > 0 ? closedWithCalc.reduce((s, t) => s + t.days, 0) / closedWithCalc.length : 0;
+        const avgOpenDuration = posWithDays.length > 0 ? posWithDays.reduce((s, p) => s + p.days, 0) / posWithDays.length : 0;
+        const winRate = closedWithCalc.length > 0 ? (closedWithCalc.filter(t => t.pnl > 0).length / closedWithCalc.length) * 100 : 0;
+
+        return {
+          totalInvested, totalValue, totalPnL, totalPnLPercent,
+          capitalEngaged, totalDividends, overallReturn, twr,
+          winners, losers, realizedPnL, avgClosedDuration, avgOpenDuration, winRate
+        };
+      }, [positions, closedTrades, transactions, priceCache, snapshots]);
+
+      // ===== POSITION ACTIONS =====
+      const addPosition = async () => {
+        if (!newPosition.ticker || !newPosition.quantity || !newPosition.entryPrice) return alert('Remplir Ticker, Qté et Prix');
+        let ticker = newPosition.ticker.toUpperCase();
+        // US tickers - no suffix needed
+
+        const pos = {
+          id: Date.now(),
+          ticker: ticker,
+          name: newPosition.name || ticker,
+          quantity: parseFloat(newPosition.quantity),
+          entryPrice: parseFloat(newPosition.entryPrice),
+          currentPrice: parseFloat(newPosition.currentPrice) || parseFloat(newPosition.entryPrice),
+          entryDate: newPosition.entryDate
+        };
+        const newPos = [...positions, pos];
+        setPositions(newPos);
+        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+
+        // Auto-fetch price for new position
+        try {
+          const cleanTicker = ticker;
+          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`);
+          const json = await resp.json();
+          const result = json?.chart?.result?.[0];
+          if (result) {
+            const meta = result.meta || {};
+            const price = meta.regularMarketPrice;
+            const closes = result.indicators?.quote?.[0]?.close || [];
+            const validCloses = closes.filter(c => c != null);
+            const previousClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : meta.previousClose || meta.chartPreviousClose || price;
+            if (price) {
+              const newCache = { ...priceCache, [cleanTicker]: {
+                success: true,
+                price,
+                previousClose: previousClose || price,
+                change: price - (previousClose || price),
+                changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
+                currency: meta.currency || 'USD',
+                lastUpdated: new Date().toISOString()
+              }};
+              setPriceCache(newCache);
+              saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
+              console.log(`Auto-fetched price for ${ticker}: ${price}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`Failed to auto-fetch price for ${ticker}:`, e);
+        }
+      };
+
+      const updatePrice = (id, price) => {
+        const newPos = positions.map(p => p.id === id ? { ...p, currentPrice: parseFloat(price) || 0 } : p);
+        setPositions(newPos);
+        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+      };
+
+      const updateEntryDate = (id, date) => {
+        if (!date) return;
+        const newPos = positions.map(p => p.id === id ? { ...p, entryDate: date } : p);
+        setPositions(newPos);
+        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        setEditingEntryDate(null);
+      };
+
+      const closePosition = () => {
+        const { position, exitPrice, exitDate, sellQuantity } = closeModal;
+        const qty = parseFloat(sellQuantity) || position.quantity;
+        const isPartial = qty < position.quantity;
+
+        // Validate quantity
+        if (qty <= 0 || qty > position.quantity) {
+          return alert(`Quantité invalide. Max: ${position.quantity}`);
+        }
+
+        const buyAmount = qty * position.entryPrice;
+        const sellAmount = qty * parseFloat(exitPrice);
+        const buyFees = calcTradingFees(buyAmount, qty, true);
+        const sellFees = calcTradingFees(sellAmount, qty, false);
+        const trade = {
+          id: Date.now(),
+          ticker: position.ticker,
+          name: position.name,
+          quantity: qty,
+          entryPrice: position.entryPrice,
+          exitPrice: parseFloat(exitPrice),
+          entryDate: position.entryDate,
+          exitDate: exitDate,
+          buyFees,
+          sellFees,
+          totalFees: Math.round((buyFees + sellFees) * 100) / 100
+        };
+        const newClosed = [trade, ...closedTrades];
+
+        let newPos;
+        if (isPartial) {
+          // Partial close: reduce position quantity
+          newPos = positions.map(p => p.id === position.id
+            ? { ...p, quantity: p.quantity - qty }
+            : p
+          );
+        } else {
+          // Full close: remove position
+          newPos = positions.filter(p => p.id !== position.id);
+        }
+
+        setClosedTrades(newClosed);
+        setPositions(newPos);
+        saveData(newPos, newClosed, transactions, priceCache, snapshots, settings);
+        setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '', sellQuantity: '' });
+      };
+
+      // ===== TRANSACTION ACTIONS =====
+      const addTransaction = () => {
+        if (!newTransaction.amount) return alert('Montant requis');
+        const tx = {
+          id: Date.now(),
+          type: newTransaction.type,
+          amount: parseFloat(newTransaction.amount),
+          date: newTransaction.date,
+          notes: newTransaction.notes,
+          linkedTicker: newTransaction.type === 'dividend' ? newTransaction.linkedTicker : null
+        };
+        const newTx = [tx, ...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+        setTransactions(newTx);
+        saveData(positions, closedTrades, newTx, priceCache, snapshots, settings);
+        setNewTransaction({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+      };
+
+      const deleteTransaction = (id) => {
+        if (!confirm('Supprimer cette transaction?')) return;
+        const newTx = transactions.filter(t => t.id !== id);
+        setTransactions(newTx);
+        saveData(positions, closedTrades, newTx, priceCache, snapshots, settings);
+      };
+
+      // ===== SNAPSHOT =====
+      const recordSnapshot = () => {
+        const m = calculateMetrics;
+        const point = {
+          date: today,
+          capitalEngaged: m.capitalEngaged,
+          portfolioValue: m.totalValue,
+          costBasis: m.totalInvested,
+          unrealizedPnL: m.totalPnL,
+          realizedPnL: m.realizedPnL,
+          totalDividends: m.totalDividends,
+          positionCount: positions.length
+        };
+        const existing = snapshots.findIndex(e => e.date === point.date);
+        let newSnap = existing >= 0
+          ? [...snapshots.slice(0, existing), point, ...snapshots.slice(existing + 1)]
+          : [...snapshots, point];
+        newSnap.sort((a, b) => new Date(a.date) - new Date(b.date));
+        setSnapshots(newSnap);
+        saveData(positions, closedTrades, transactions, priceCache, newSnap, settings);
+        alert('Snapshot enregistré!');
+      };
+
+      // ===== SORTING =====
+      const getSorted = () => {
+        const posWithDays = getPositionsWithDays();
+        if (!sortConfig.key) return posWithDays;
+        return [...posWithDays].sort((a, b) => {
+          let aV, bV;
+          const aPrice = priceCache[a.ticker]?.price || a.currentPrice;
+          const bPrice = priceCache[b.ticker]?.price || b.currentPrice;
+          switch (sortConfig.key) {
+            case 'pnl': aV = (aPrice - a.entryPrice) * a.quantity; bV = (bPrice - b.entryPrice) * b.quantity; break;
+            case 'pnlPercent': aV = (aPrice - a.entryPrice) / a.entryPrice; bV = (bPrice - b.entryPrice) / b.entryPrice; break;
+            case 'days': aV = a.days; bV = b.days; break;
+            case 'value': aV = aPrice * a.quantity; bV = bPrice * b.quantity; break;
+            default: aV = a[sortConfig.key]; bV = b[sortConfig.key];
+          }
+          return sortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
+        });
+      };
+
+      const sort = (key) => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'desc' ? 'asc' : 'desc' });
+
+      // ===== FORMATTING =====
+      const m = calculateMetrics;
+      const fmt = (n, d = 0) => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+      const fmtDate = (d) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+
+      // ===== DATA MANAGEMENT =====
+      const resetData = async () => {
+        if (confirm('Réinitialiser toutes les données?')) {
+          setPositions(INITIAL_POSITIONS);
+          setClosedTrades(INITIAL_CLOSED_TRADES);
+          setTransactions(INITIAL_TRANSACTIONS);
+          setPriceCache({});
+          setSnapshots([]);
+          setSettings(DEFAULT_SETTINGS);
+          await saveData(INITIAL_POSITIONS, INITIAL_CLOSED_TRADES, INITIAL_TRANSACTIONS, {}, [], DEFAULT_SETTINGS);
+        }
+      };
+
+      const exportData = () => {
+        const data = {
+          version: 7,
+          exportDate: new Date().toISOString(),
+          positions,
+          closedTrades,
+          transactions,
+          priceCache,
+          snapshots,
+          settings,
+          metrics: calculateMetrics
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `portfolio_hk_${today}.json`;
+        a.click();
+      };
+
+      const importData = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (confirm('Importer ces données? Les données actuelles seront remplacées.')) {
+              const migrated = migrateDataToV7(data);
+              setPositions(migrated.positions);
+              setClosedTrades(migrated.closedTrades);
+              setTransactions(migrated.transactions);
+              setPriceCache(migrated.priceCache);
+              setSnapshots(migrated.snapshots);
+              setSettings(migrated.settings);
+              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings);
+              alert('Import réussi!');
+            }
+          } catch (err) {
+            alert('Erreur: fichier JSON invalide');
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+      };
+
+      const updateSettings = (newSettings) => {
+        setSettings(newSettings);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, newSettings);
+      };
+
+      if (!dataLoaded) return <div className="min-h-screen bg-white text-dark-text flex items-center justify-center">Chargement...</div>;
+
+      const closedWithCalc = getClosedTradesWithCalc();
+      const txTotals = {
+        deposits: transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + t.amount, 0),
+        withdrawals: transactions.filter(t => t.type === 'withdrawal').reduce((s, t) => s + t.amount, 0),
+        dividends: transactions.filter(t => t.type === 'dividend').reduce((s, t) => s + t.amount, 0)
+      };
+
+      return (
+        <div className={`min-h-screen ${darkMode ? 'bg-[#111827]' : 'bg-[#f4f6ef]'} text-dark-text p-4 md:p-8`}>
+          <div className="max-w-7xl mx-auto space-y-6">
+            {/* Header - Modern style */}
+            <div className="flex flex-wrap justify-between items-start gap-4">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-dark-text tracking-tight">
+                  Portfolio US
+                </h1>
+                <div className="flex items-center gap-3 mt-2">
+                  {dailyGain.hasYesterday && (
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {dailyGain.percent >= 0 ? '+' : ''}{dailyGain.percent.toFixed(2)}%
+                    </span>
+                  )}
+                  <span className="text-muted text-sm">
+                    {positions.length} positions • {fmtDate(today)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={refreshPrices}
+                  disabled={isRefreshing}
+                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${isRefreshing ? 'bg-gray-100 text-muted' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
+                >
+                  <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/>
+                  {isRefreshing ? `${refreshProgress.current}/${refreshProgress.total}` : 'Sync'}
+                </button>
+                <button onClick={exportData} className="bg-white border border-gray-200 hover:border-gray-300 text-dark-text font-medium px-4 py-2 rounded-full text-sm flex items-center gap-2 shadow-sm hover:shadow transition-all"><Download size={16}/> Export</button>
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="bg-white border border-gray-200 hover:border-gray-300 text-dark-text p-2 rounded-full shadow-sm hover:shadow transition-all"
+                  title={darkMode ? 'Mode clair' : 'Mode sombre'}
+                >
+                  {darkMode ? <Sun size={18}/> : <Moon size={18}/>}
+                </button>
+              </div>
+            </div>
+
+            {/* Metrics Cards - Compact on mobile, 4 per row */}
+            <div className="grid grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-2 md:gap-4">
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Engagé</div>
+                <div className="text-xs md:text-lg font-bold text-dark-text">{fmt(m.capitalEngaged)}</div>
+              </div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Valeur</div>
+                <div className="text-xs md:text-lg font-bold text-dark-text">{fmt(m.totalValue)}</div>
+              </div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Latent</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.totalPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {m.totalPnL >= 0 ? '+' : ''}{fmt(m.totalPnL)}
+                </span>
+              </div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Return</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.overallReturn >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {m.overallReturn >= 0 ? '+' : ''}{m.overallReturn.toFixed(1)}%
+                </span>
+              </div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Réalisé</div>
+                <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.realizedPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {fmt(m.realizedPnL)}
+                </span>
+              </div>
+              <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Aujourd'hui</div>
+                {dailyGain.hasYesterday ? (
+                  <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {dailyGain.value >= 0 ? '+' : ''}{fmt(dailyGain.value)}
+                  </span>
+                ) : (
+                  <div className="text-xs md:text-lg font-bold text-muted">-</div>
+                )}
+              </div>
+              <InfoTooltip text="% de trades CLÔTURÉS gagnants (prix vente > prix achat)">
+                <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
+                  <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Win Rate</div>
+                  <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-lime-accent/20 text-lime-hover">{m.winRate.toFixed(0)}%</span>
+                </div>
+              </InfoTooltip>
+              <InfoTooltip text="Positions OUVERTES en gain / en perte (prix actuel vs prix achat)">
+                <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow cursor-help">
+                  <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">W / L</div>
+                  <div className="flex gap-1">
+                    <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-green-100 text-green-700">{m.winners}</span>
+                    <span className="inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold bg-red-100 text-red-700">{m.losers}</span>
+                  </div>
+                </div>
+              </InfoTooltip>
+            </div>
+
+            {/* Tabs - Pill style navigation */}
+            <div className="flex gap-2 p-1 bg-gray-100 rounded-full w-fit overflow-x-auto">
+              {['portfolio', 'performance', 'history', 'history_tab', 'settings'].map(t => (
+                <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${activeTab === t ? 'bg-dark-badge text-lime-accent shadow-sm' : 'text-muted hover:text-dark-text'}`}>
+                  {t === 'portfolio' ? 'Positions' : t === 'performance' ? 'Performance' : t === 'history' ? 'Trades' : t === 'history_tab' ? 'History' : 'Settings'}
+                </button>
+              ))}
+            </div>
+
+            {/* Close Modal - Modern */}
+            {closeModal.show && (
+              <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
+                  <h3 className="text-xl font-bold text-dark-text mb-1">Clôturer {closeModal.position?.ticker}</h3>
+                  <p className="text-sm text-muted mb-4">Acheté le {fmtDate(closeModal.position?.entryDate)} • {calcDays(closeModal.position?.entryDate)} jours</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-medium text-muted uppercase tracking-wide">Quantité à vendre <span className="text-lime-hover normal-case">(max: {closeModal.position?.quantity})</span></label>
+                      <input type="number" step="1" min="1" max={closeModal.position?.quantity} value={closeModal.sellQuantity} onChange={(e) => setCloseModal({ ...closeModal, sellQuantity: e.target.value })} className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted uppercase tracking-wide">Prix sortie</label>
+                      <input type="number" step="0.01" value={closeModal.exitPrice} onChange={(e) => setCloseModal({ ...closeModal, exitPrice: e.target.value })} className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted uppercase tracking-wide">Date sortie</label>
+                      <input type="date" value={closeModal.exitDate} onChange={(e) => setCloseModal({ ...closeModal, exitDate: e.target.value })} className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mt-1 text-sm focus:ring-2 focus:ring-lime-accent outline-none" />
+                    </div>
+                    {(() => {
+                      const ep = parseFloat(closeModal.exitPrice) || 0;
+                      const pos = closeModal.position;
+                      const sellQty = parseFloat(closeModal.sellQuantity) || pos?.quantity || 0;
+                      const isPartial = sellQty < (pos?.quantity || 0);
+                      const buyAmt = sellQty * (pos?.entryPrice || 0);
+                      const sellAmt = sellQty * ep;
+                      const grossPnl = (ep - (pos?.entryPrice || 0)) * sellQty;
+                      const bFees = calcTradingFees(buyAmt, sellQty, true);
+                      const sFees = calcTradingFees(sellAmt, sellQty, false);
+                      const totalFees = Math.round((bFees + sFees) * 100) / 100;
+                      const netPnl = grossPnl - totalFees;
+                      const netPct = buyAmt > 0 ? (netPnl / (buyAmt + bFees)) * 100 : 0;
+                      const remaining = (pos?.quantity || 0) - sellQty;
+                      return (
+                        <div className="bg-gray-50 rounded-2xl p-4 space-y-2">
+                          {isPartial && <div className="flex justify-between text-sm"><span className="text-muted">Vente partielle:</span><span className="font-semibold text-lime-hover">{sellQty} / {pos?.quantity} (reste: {remaining})</span></div>}
+                          <div className="flex justify-between text-sm"><span className="text-muted">Durée:</span><span className="font-semibold">{calcDays(pos?.entryDate, closeModal.exitDate)} jours</span></div>
+                          <div className="flex justify-between text-sm"><span className="text-muted">P&L brut:</span><span className={`font-semibold ${grossPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(grossPnl)} USD</span></div>
+                          <div className="flex justify-between text-sm text-muted"><span>Frais achat:</span><span>-{fmt(bFees)}</span></div>
+                          <div className="flex justify-between text-sm text-muted"><span>Frais vente:</span><span>-{fmt(sFees)}</span></div>
+                          <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between">
+                            <span className="font-semibold">P&L net:</span>
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full font-bold ${netPnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{fmt(netPnl)} USD ({netPct.toFixed(1)}%)</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    <div className="flex gap-3 pt-2">
+                      <button onClick={() => setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '' })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-dark-text font-medium rounded-xl py-3 transition-colors">Annuler</button>
+                      <button onClick={closePosition} className="flex-1 bg-lime-accent hover:bg-lime-hover text-dark-text font-medium rounded-xl py-3 transition-colors">Confirmer</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Portfolio Tab */}
+            {activeTab === 'portfolio' && (
+              <div className="space-y-4">
+                {/* Add Position Form - Compact */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-3">
+                  <h3 className="font-semibold mb-2 text-sm">Ajouter une position</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-7 gap-2 text-xs">
+                    <input placeholder="Ticker (ex: 9961)" value={newPosition.ticker} onChange={(e) => setNewPosition({ ...newPosition, ticker: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <input placeholder="Nom" value={newPosition.name} onChange={(e) => setNewPosition({ ...newPosition, name: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <input type="number" placeholder="Qté" value={newPosition.quantity} onChange={(e) => setNewPosition({ ...newPosition, quantity: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <input type="number" step="0.01" placeholder="Prix entrée" value={newPosition.entryPrice} onChange={(e) => setNewPosition({ ...newPosition, entryPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <input type="number" step="0.01" placeholder="Prix actuel" value={newPosition.currentPrice} onChange={(e) => setNewPosition({ ...newPosition, currentPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <input type="date" value={newPosition.entryDate} onChange={(e) => setNewPosition({ ...newPosition, entryDate: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
+                    <button onClick={addPosition} className="bg-lime-accent text-dark-text rounded px-2 py-1.5 flex items-center justify-center gap-1"><Plus size={14} /> Ajouter</button>
+                  </div>
+                </div>
+
+                {/* Positions Table - Compact */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left cursor-pointer hover:text-dark-text" onClick={() => sort('ticker')}>Ticker</th>
+                        <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
+                        <th className="px-2 py-1.5 text-right">Qté</th>
+                        <th className="px-2 py-1.5 text-right">Entrée</th>
+                        <th className="px-2 py-1.5 text-right">Actuel</th>
+                        <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('entryDate')}>Achat</th>
+                        <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('days')}>Jours</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnl')}>P&L</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnlPercent')}>%</th>
+                        <th className="px-2 py-1.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getSorted().map((p, index) => {
+                        const cleanTicker = p.ticker;
+                        const cached = priceCache[cleanTicker];
+                        const currentPrice = cached?.success ? cached.price : p.currentPrice;
+                        const freshness = getPriceFreshness(cached?.lastUpdated);
+                        const pnl = (currentPrice - p.entryPrice) * p.quantity;
+                        const pnlP = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
+                        const displayTicker = p.ticker;
+
+                        const isWarning = pnlP <= -8 && pnlP > -10;
+                        const isDanger = pnlP <= -10;
+
+                        return (
+                          <tr key={p.id} className={`border-t border-gray-100 ${isDanger ? 'bg-red-50/50 row-danger' : isWarning ? 'bg-orange-50/50 row-warning' : ''}`}>
+                            <td className="px-2 py-1.5 font-mono text-lime-hover">
+                              {displayTicker}
+                              {cached?.success && (
+                                <span className={`ml-1 inline-block w-1.5 h-1.5 rounded-full ${
+                                  freshness === 'fresh' ? 'bg-green-500' :
+                                  freshness === 'stale' ? 'bg-yellow-500' : 'bg-red-500'
+                                }`} title={`MAJ: ${cached.lastUpdated ? fmtDate(cached.lastUpdated) : 'N/A'}`}></span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 truncate max-w-24 hidden md:table-cell">{p.name}</td>
+                            <td className="px-2 py-1.5 text-right font-mono">{fmt(p.quantity)}</td>
+                            <td className="px-2 py-1.5 text-right text-muted">{p.entryPrice.toFixed(2)}</td>
+                            <td className="px-2 py-1.5 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={currentPrice.toFixed(2)}
+                                onChange={(e) => updatePrice(p.id, e.target.value)}
+                                className="bg-gray-50 border-0 rounded px-1.5 py-0.5 w-16 text-right text-xs focus:ring-1 focus:ring-lime-accent outline-none"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 text-center text-muted cursor-pointer" onClick={() => setEditingEntryDate(p.id)}>
+                              {editingEntryDate === p.id ? (
+                                <input
+                                  type="date"
+                                  defaultValue={p.entryDate}
+                                  autoFocus
+                                  onBlur={(e) => updateEntryDate(p.id, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') updateEntryDate(p.id, e.target.value); if (e.key === 'Escape') setEditingEntryDate(null); }}
+                                  className="bg-gray-50 border-0 rounded px-1 py-0.5 text-xs w-28 focus:ring-1 focus:ring-lime-accent outline-none"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <span className="hover:text-lime-hover transition-colors" title="Cliquer pour modifier">{fmtDate(p.entryDate)}</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${p.days > 120 ? 'bg-red-100 text-red-700' : p.days > 60 ? 'bg-orange-100 text-orange-700' : p.days > 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-lime-accent/20 text-lime-hover'}`}>{p.days}j</span>
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              <span className={`font-semibold ${pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnl >= 0 ? '+' : ''}{fmt(pnl)}</span>
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              {isDanger && <span className="text-red-500 animate-pulse mr-0.5" title="STOP LOSS">🚨</span>}
+                              {isWarning && !isDanger && <span className="text-orange-400 mr-0.5" title="Alerte -8%">⚠️</span>}
+                              <span className={`font-bold ${pnlP >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnlP >= 0 ? '+' : ''}{pnlP.toFixed(1)}%</span>
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <div className="flex items-center justify-center gap-0.5">
+                                <button onClick={() => setCloseModal({ show: true, position: {...p, currentPrice}, exitPrice: currentPrice.toString(), exitDate: today, sellQuantity: p.quantity.toString() })} className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"><CheckCircle size={14} /></button>
+                                <button onClick={() => { if (confirm('Supprimer?')) { const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>
+                                <button onClick={() => refreshSinglePrice(p.ticker)} className="p-1 rounded hover:bg-lime-accent/20 text-lime-hover transition-colors" title="Refresh price"><RefreshCw size={14} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-bold">
+                      {(() => {
+                        const totalCost = positions.reduce((s, p) => s + p.quantity * p.entryPrice, 0);
+                        const totalValue = positions.reduce((s, p) => {
+                          const ct = p.ticker;
+                          const price = priceCache[ct]?.price || p.currentPrice;
+                          return s + p.quantity * price;
+                        }, 0);
+                        const totalPnL = totalValue - totalCost;
+                        const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
+                        return (
+                          <tr>
+                            <td className="px-2 py-1.5" colSpan="6">TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
+                            <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
+                            <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
+                            <td></td>
+                          </tr>
+                        );
+                      })()}
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Allocation Pie Chart - Modern Donut Style */}
+                {RECHARTS_LOADED && (() => {
+                  // Modern muted color palette
+                  const COLORS = [
+                    '#C8E972', // lime (primary)
+                    '#8ECAE6', // soft blue
+                    '#FFB4A2', // soft coral
+                    '#B5838D', // dusty rose
+                    '#6D6875', // muted purple
+                    '#CCD5AE', // sage
+                    '#FAEDCD', // cream
+                    '#A8D5BA', // mint
+                    '#F4A261', // soft orange
+                    '#95B8D1', // steel blue
+                    '#DDA0DD', // plum
+                    '#98D8C8', // seafoam
+                    '#F7DC6F', // soft yellow
+                    '#BB8FCE', // lavender
+                    '#85C1E9', // sky blue
+                    '#F5B7B1', // blush
+                  ];
+
+                  const pieData = positions.map((p, i) => {
+                    const ct = p.ticker;
+                    const price = priceCache[ct]?.price || p.currentPrice;
+                    const value = price * p.quantity;
+                    return { name: p.ticker, companyName: p.name, value, fill: COLORS[i % COLORS.length] };
+                  }).sort((a, b) => b.value - a.value);
+                  const total = pieData.reduce((s, d) => s + d.value, 0);
+
+                  // Format total for center display
+                  const formatTotal = (val) => {
+                    if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+                    if (val >= 1000) return (val / 1000).toFixed(0) + 'K';
+                    return val.toFixed(0);
+                  };
+
+                  return (
+                    <div className="bg-white border border-gray-100 rounded-2xl p-6 mt-4" style={{ boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)' }}>
+                      <h3 className="font-semibold mb-1 text-base text-gray-900">Allocation par position</h3>
+                      <p className="text-xs text-gray-500 mb-4">{positions.length} positions</p>
+
+                      <div className="flex flex-col lg:flex-row items-center gap-6">
+                        {/* Donut Chart with Center Label */}
+                        <div className="relative" style={{ width: '220px', height: '220px', flexShrink: 0 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={pieData}
+                                dataKey="value"
+                                nameKey="name"
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={55}
+                                outerRadius={100}
+                                paddingAngle={2}
+                                stroke="none"
+                                strokeWidth={0}
+                              >
+                                {pieData.map((entry, i) => (
+                                  <Cell
+                                    key={i}
+                                    fill={entry.fill}
+                                    style={{ cursor: 'pointer', transition: 'opacity 0.2s ease' }}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '12px',
+                                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12)',
+                                  padding: '12px 16px'
+                                }}
+                                itemStyle={{ color: '#1a1a1a', fontSize: '13px' }}
+                                labelStyle={{ color: '#1a1a1a', fontWeight: 600, marginBottom: '4px' }}
+                                formatter={(value, name, props) => {
+                                  const entry = pieData.find(d => d.name === props.payload.name);
+                                  const label = entry?.companyName || name;
+                                  const pct = ((value / total) * 100).toFixed(1);
+                                  return [`${value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} USD`, label];
+                                }}
+                                labelFormatter={(name) => {
+                                  const entry = pieData.find(d => d.name === name);
+                                  const pct = entry ? ((entry.value / total) * 100).toFixed(1) : '0';
+                                  return `${name} · ${pct}%`;
+                                }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          {/* Center Label */}
+                          <div
+                            className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+                            style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '100px', height: '100px' }}
+                          >
+                            <span className="text-2xl font-bold text-gray-900">{formatTotal(total)}</span>
+                            <span className="text-xs text-gray-500 uppercase tracking-wide">USD</span>
+                          </div>
+                        </div>
+
+                        {/* Modern Legend */}
+                        <div className="flex-1 w-full max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                          <div className="space-y-1">
+                            {pieData.slice(0, 10).map((entry, i) => {
+                              const pct = ((entry.value / total) * 100).toFixed(1);
+                              return (
+                                <div
+                                  key={i}
+                                  className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <div
+                                    className="w-3 h-3 rounded flex-shrink-0"
+                                    style={{ backgroundColor: entry.fill }}
+                                  />
+                                  <div className="flex-1 flex items-center justify-between min-w-0">
+                                    <div className="truncate">
+                                      <span className="text-sm font-medium text-gray-900">{entry.companyName}</span>
+                                      <span className="text-xs text-gray-500 ml-2">{entry.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                      <span className="text-sm text-gray-600 font-medium">{formatTotal(entry.value)}</span>
+                                      <span
+                                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                        style={{ backgroundColor: '#f0f0f0', color: '#666' }}
+                                      >
+                                        {pct}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {pieData.length > 10 && (
+                              <div className="px-3 py-2 text-xs text-gray-500">
+                                +{pieData.length - 10} autres positions
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Transactions Tab */}
+            {activeTab === 'transactions' && (
+              <div>
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-3 mb-3">
+                  <h3 className="font-semibold mb-2 text-sm">Ajouter une transaction</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                    <select
+                      value={newTransaction.type}
+                      onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    >
+                      <option value="deposit">Dépôt</option>
+                      <option value="withdrawal">Retrait</option>
+                      <option value="dividend">Dividende</option>
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="Montant USD"
+                      value={newTransaction.amount}
+                      onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <input
+                      type="date"
+                      value={newTransaction.date}
+                      onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    {newTransaction.type === 'dividend' && (
+                      <input
+                        placeholder="Ticker (ex: AAPL)"
+                        value={newTransaction.linkedTicker}
+                        onChange={(e) => setNewTransaction({ ...newTransaction, linkedTicker: e.target.value })}
+                        className="bg-gray-50 rounded px-2 py-1.5"
+                      />
+                    )}
+                    <input
+                      placeholder="Notes"
+                      value={newTransaction.notes}
+                      onChange={(e) => setNewTransaction({ ...newTransaction, notes: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <button onClick={addTransaction} className="bg-lime-accent text-dark-text rounded px-2 py-1.5"><Plus size={14} className="inline" /> Ajouter</button>
+                  </div>
+                </div>
+
+                {/* Transaction Summary */}
+                <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+                  <div className="bg-green-50 rounded-lg p-2 border border-green-200">
+                    <div className="text-green-600">Dépôts</div>
+                    <div className="font-bold text-green-600">+{fmt(txTotals.deposits)}</div>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-2 border border-red-200">
+                    <div className="text-red-600">Retraits</div>
+                    <div className="font-bold text-red-600">-{fmt(txTotals.withdrawals)}</div>
+                  </div>
+                  <div className="bg-cyan-900/30 rounded-lg p-2 border border-cyan-700">
+                    <div className="text-cyan-400">Dividendes</div>
+                    <div className="font-bold text-cyan-400">+{fmt(txTotals.dividends)}</div>
+                  </div>
+                </div>
+
+                {/* Transactions List */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Date</th>
+                        <th className="px-2 py-1.5 text-left">Type</th>
+                        <th className="px-2 py-1.5 text-right">Montant</th>
+                        <th className="px-2 py-1.5 text-left hidden md:table-cell">Ticker</th>
+                        <th className="px-2 py-1.5 text-left">Notes</th>
+                        <th className="px-2 py-1.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.map((tx) => (
+                        <tr key={tx.id} className="border-t border-gray-100">
+                          <td className="px-2 py-1.5 text-muted">{fmtDate(tx.date)}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`px-2 py-0.5 rounded text-xs ${
+                              tx.type === 'deposit' ? 'bg-lime-accent text-dark-text' :
+                              tx.type === 'withdrawal' ? 'bg-red-600' : 'bg-cyan-600'
+                            }`}>
+                              {tx.type === 'deposit' ? 'Dépôt' : tx.type === 'withdrawal' ? 'Retrait' : 'Dividende'}
+                            </span>
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${
+                            tx.type === 'deposit' || tx.type === 'dividend' ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {tx.type === 'withdrawal' ? '-' : '+'}{fmt(tx.amount)}
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-lime-hover hidden md:table-cell">{tx.linkedTicker || '-'}</td>
+                          <td className="px-2 py-1.5 text-muted truncate max-w-32">{tx.notes || '-'}</td>
+                          <td className="px-2 py-1.5">
+                            <button onClick={() => deleteTransaction(tx.id)} className="text-red-600 p-0.5"><Trash2 size={14} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* History Tab */}
+            {activeTab === 'history' && (
+              <div>
+                <h3 className="font-semibold mb-2">Trades Clôturés ({closedTrades.length}) • Durée moy: <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-lime-accent text-dark-text ml-1">{m.avgClosedDuration.toFixed(0)}j</span></h3>
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Ticker</th>
+                        <th className="px-2 py-1.5 text-right">Qté</th>
+                        <th className="px-2 py-1.5 text-right">Achat</th>
+                        <th className="px-2 py-1.5 text-right">Vente</th>
+                        <th className="px-2 py-1.5 text-center">Date In</th>
+                        <th className="px-2 py-1.5 text-center">Date Out</th>
+                        <th className="px-2 py-1.5 text-center bg-lime-accent/20">Durée</th>
+                        <th className="px-2 py-1.5 text-right">P&L</th>
+                        <th className="px-2 py-1.5 text-right">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {closedWithCalc.map((t, i) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="px-2 py-1.5 font-mono text-lime-hover">{t.ticker}</td>
+                          <td className="px-2 py-1.5 text-right">{fmt(t.quantity)}</td>
+                          <td className="px-2 py-1.5 text-right">{t.entryPrice.toFixed(2)}</td>
+                          <td className="px-2 py-1.5 text-right">{t.exitPrice.toFixed(2)}</td>
+                          <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.entryDate)}</td>
+                          <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.exitDate)}</td>
+                          <td className="px-2 py-1.5 text-center"><span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${t.days > 120 ? 'bg-red-100 text-red-700' : t.days > 60 ? 'bg-orange-100 text-orange-700' : t.days > 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-lime-accent text-dark-text'}`}>{t.days}j</span></td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${t.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`} title={t.fees > 0 ? `Brut: ${fmt(t.grossPnl)} | Frais: ${fmt(t.fees)}` : ''}>
+                            {t.pnl >= 0 ? '+' : ''}{fmt(t.pnl)}
+                            {t.fees > 0 && <span className="text-muted text-[9px] ml-0.5">net</span>}
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-bold ${t.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-bold">
+                      <tr>
+                        <td className="px-2 py-1.5" colSpan="6">TOTAL</td>
+                        <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-lime-accent text-dark-text">{m.avgClosedDuration.toFixed(0)}j</span></td>
+                        <td className={`px-2 py-1.5 text-right ${m.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.realizedPnL >= 0 ? '+' : ''}{fmt(m.realizedPnL)}</td>
+                        <td className="px-2 py-1.5 text-right text-lime-accent">{m.winRate.toFixed(0)}%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Duration vs P&L Analysis */}
+                {closedWithCalc.length >= 2 && (() => {
+                  const trades = closedWithCalc.map(t => ({
+                    ticker: t.ticker,
+                    days: t.days,
+                    pnlPercent: t.pnlPercent,
+                    pnl: t.pnl,
+                    win: t.pnl > 0
+                  }));
+
+                  // Buckets: 0-7, 8-30, 31-60, 61-120, 120+
+                  const buckets = [
+                    { label: '0-7j', min: 0, max: 7 },
+                    { label: '8-30j', min: 8, max: 30 },
+                    { label: '31-60j', min: 31, max: 60 },
+                    { label: '61-120j', min: 61, max: 120 },
+                    { label: '120j+', min: 121, max: Infinity }
+                  ].map(b => {
+                    const group = trades.filter(t => t.days >= b.min && t.days <= b.max);
+                    const wins = group.filter(t => t.win).length;
+                    const avgPnl = group.length > 0 ? group.reduce((s, t) => s + t.pnlPercent, 0) / group.length : 0;
+                    const totalPnl = group.reduce((s, t) => s + t.pnl, 0);
+                    return { ...b, count: group.length, wins, avgPnl, totalPnl, winRate: group.length > 0 ? (wins / group.length) * 100 : 0 };
+                  }).filter(b => b.count > 0);
+
+                  // Best bucket
+                  const bestBucket = [...buckets].sort((a, b) => b.avgPnl - a.avgPnl)[0];
+
+                  return (
+                    <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
+                      <h3 className="font-semibold mb-3">Durée vs Rendement — Analyse</h3>
+
+                      {/* Scatter plot */}
+                      {RECHARTS_LOADED && ScatterChart ? (
+                        <ResponsiveContainer width="100%" height={280}>
+                          <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <XAxis type="number" dataKey="days" name="Durée" unit="j" stroke="#9CA3AF" tick={{ fontSize: 10 }} label={{ value: 'Jours', position: 'insideBottom', offset: -5, style: { fill: '#9CA3AF', fontSize: 10 } }} />
+                            <YAxis type="number" dataKey="pnlPercent" name="P&L" unit="%" stroke="#9CA3AF" tick={{ fontSize: 10 }} label={{ value: 'P&L %', angle: -90, position: 'insideLeft', style: { fill: '#9CA3AF', fontSize: 10 } }} />
+                            <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
+                            <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ payload }) => {
+                              if (!payload || !payload.length) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-white border border-gray-200 rounded p-2 text-xs">
+                                  <div className="font-bold text-lime-hover">{d.ticker}</div>
+                                  <div>Durée: {d.days}j</div>
+                                  <div className={d.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}>P&L: {d.pnlPercent >= 0 ? '+' : ''}{d.pnlPercent.toFixed(1)}%</div>
+                                  <div className={d.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{d.pnl >= 0 ? '+' : ''}{fmt(d.pnl)} USD</div>
+                                </div>
+                              );
+                            }} />
+                            <Scatter data={trades.filter(t => t.win)} fill="#10B981" name="Gains" />
+                            <Scatter data={trades.filter(t => !t.win)} fill="#EF4444" name="Pertes" />
+                          </ScatterChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <ChartFallback message="Scatter chart non disponible" />
+                      )}
+
+                      {/* Buckets table */}
+                      <table className="w-full text-xs mt-3">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left">Durée</th>
+                            <th className="px-2 py-1.5 text-center">Trades</th>
+                            <th className="px-2 py-1.5 text-center">Win Rate</th>
+                            <th className="px-2 py-1.5 text-right">P&L moy %</th>
+                            <th className="px-2 py-1.5 text-right">P&L total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {buckets.map(b => (
+                            <tr key={b.label} className={`border-t border-gray-100 ${b === bestBucket ? 'bg-green-50' : ''}`}>
+                              <td className="px-2 py-1.5 font-mono">{b.label} {b === bestBucket && <span className="text-lime-accent">★</span>}</td>
+                              <td className="px-2 py-1.5 text-center">{b.count}</td>
+                              <td className="px-2 py-1.5 text-center">
+                                <span className={`px-2 py-0.5 rounded ${b.winRate >= 60 ? 'bg-lime-accent text-dark-text' : b.winRate >= 40 ? 'bg-yellow-600 text-black' : 'bg-red-600'}`}>{b.winRate.toFixed(0)}%</span>
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${b.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.avgPnl >= 0 ? '+' : ''}{b.avgPnl.toFixed(1)}%</td>
+                              <td className={`px-2 py-1.5 text-right ${b.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.totalPnl >= 0 ? '+' : ''}{fmt(b.totalPnl)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {bestBucket && (
+                        <div className="mt-3 p-2 bg-lime-accent/10 rounded text-xs text-muted">
+                          <span className="text-lime-accent">★</span> Ton meilleur créneau : <strong className="text-dark-text">{bestBucket.label}</strong> — P&L moyen <strong className={bestBucket.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}>{bestBucket.avgPnl >= 0 ? '+' : ''}{bestBucket.avgPnl.toFixed(1)}%</strong>, win rate <strong>{bestBucket.winRate.toFixed(0)}%</strong> sur {bestBucket.count} trade{bestBucket.count > 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Monthly P&L Progression */}
+                {(() => {
+                  const sortedSnaps = [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
+                  if (sortedSnaps.length < 2) return null;
+
+                  // Calculate total P&L for a snapshot (unrealized + realized)
+                  const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
+
+                  // Find first snapshot of current month (or closest before)
+                  const now = new Date();
+                  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                  const prevMonthSnaps = sortedSnaps.filter(s => s.date < monthStart);
+                  const baselineSnap = prevMonthSnaps.length > 0
+                    ? prevMonthSnaps[prevMonthSnaps.length - 1]
+                    : sortedSnaps[0];
+                  const baselineTotalPnL = getTotalPnL(baselineSnap);
+
+                  const thisMonthSnaps = sortedSnaps.filter(s => s.date >= monthStart);
+                  // Override today with live values
+                  const todayStr = now.toISOString().split('T')[0];
+                  const chartData = thisMonthSnaps.map(s => ({
+                    date: s.date.substring(5),
+                    pnl: s.date === todayStr
+                      ? (m.totalPnL + m.realizedPnL) - baselineTotalPnL
+                      : getTotalPnL(s) - baselineTotalPnL,
+                  }));
+
+                  if (chartData.length === 0) return null;
+
+                  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+                  return (
+                    <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
+                      <h3 className="font-semibold mb-3">P&L {monthNames[now.getMonth()]} (progression depuis début de mois)</h3>
+                      {!RECHARTS_LOADED ? (
+                        <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
+                      ) : (
+                        <ResponsiveContainer width="100%" height={250}>
+                          <AreaChart data={chartData}>
+                            <defs>
+                              <linearGradient id="colorMonthPnl" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
+                                <stop offset="95%" stopColor={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                            <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
+                            <Tooltip
+                              contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
+                              formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' USD', 'P&L']}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="pnl"
+                              stroke={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'}
+                              fill="url(#colorMonthPnl)"
+                              name="P&L"
+                              strokeWidth={2}
+                              dot={{ fill: chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444', r: 3 }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Invested Capital Chart */}
+                {(() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  // Update today's snapshot with live capitalEngaged value
+                  const liveSnapshots = snapshots.map(s =>
+                    s.date === todayStr ? { ...s, capitalEngaged: m.capitalEngaged } : s
+                  ).sort((a, b) => a.date.localeCompare(b.date));
+
+                  return (
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
+                  <h3 className="font-semibold mb-3">Capital Investi (évolution journalière)</h3>
+                  {!RECHARTS_LOADED ? (
+                    <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
+                  ) : liveSnapshots.length > 1 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <AreaChart data={liveSnapshots}>
+                        <defs>
+                          <linearGradient id="colorCapHist" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                        <YAxis stroke="#9CA3AF" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} domain={['dataMin - 50000', 'dataMax + 50000']} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
+                          formatter={(v) => [fmt(v) + ' USD', 'Capital Investi']}
+                          labelFormatter={(label) => `Date: ${label}`}
+                        />
+                        <Area type="monotone" dataKey="capitalEngaged" stroke="#8B5CF6" fill="url(#colorCapHist)" name="Capital Investi" strokeWidth={2} dot={{ fill: '#8B5CF6', r: 3 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-48 flex flex-col items-center justify-center text-muted">
+                      <p>Pas assez de snapshots pour afficher la courbe.</p>
+                      <p className="text-xs mt-2">Snapshots: {liveSnapshots.length} (besoin de 2+)</p>
+                      <p className="text-xs text-gray-600 mt-1">Un snapshot est pris automatiquement chaque jour.</p>
+                    </div>
+                  )}
+                </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Performance Tab */}
+            {activeTab === 'performance' && (() => {
+              // Calculate daily movers data
+              const totalPortfolioValue = m.totalValue;
+              const todayStr = new Date().toISOString().split('T')[0];
+              const moversData = positions.map(p => {
+                const cleanTicker = p.ticker;
+                const cached = priceCache[cleanTicker];
+                const currentPrice = cached?.success ? cached.price : p.currentPrice;
+                const isNewToday = p.entryDate === todayStr;
+                const previousClose = isNewToday ? p.entryPrice : (cached?.success ? cached.previousClose : p.currentPrice);
+                const dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+                const dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
+                const marketValue = currentPrice * p.quantity;
+                const weight = totalPortfolioValue > 0 ? (marketValue / totalPortfolioValue) * 100 : 0;
+                // Calculate total P&L from entry for danger/warning status
+                const totalPnlPercent = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+                const isDanger = totalPnlPercent <= -10;
+                const isWarning = totalPnlPercent <= -8 && totalPnlPercent > -10;
+                return {
+                  ...p,
+                  currentPrice,
+                  previousClose,
+                  dailyChangePercent,
+                  dailyChangeDollar,
+                  marketValue,
+                  weight,
+                  isNewToday,
+                  totalPnlPercent,
+                  isDanger,
+                  isWarning
+                };
+              }).sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
+
+              // Include positions closed today in movers
+              const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
+                const ct = t.ticker;
+                const cached = priceCache[ct];
+                const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+                const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
+                const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
+                return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
+              });
+              const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
+
+              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
+              const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
+              const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
+              const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;
+              const losersCount = allMovers.filter(p => p.dailyChangePercent < 0).length;
+              const unchangedCount = allMovers.filter(p => p.dailyChangePercent === 0).length;
+              const top3Gainers = allMovers.filter(p => p.dailyChangePercent > 0).slice(0, 3);
+              const top3Losers = [...allMovers].filter(p => p.dailyChangePercent < 0).sort((a, b) => a.dailyChangePercent - b.dailyChangePercent).slice(0, 3);
+              const hasPriceData = Object.values(priceCache).some(c => c?.success);
+
+              return (
+              <div className="space-y-4">
+                {/* Daily Summary Bar */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-muted text-xs">Today's P&L</div>
+                      <div className={`text-2xl font-bold ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} USD
+                        <span className="text-sm ml-2">({totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%)</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 text-sm">
+                      <span className="text-green-600">{gainersCount} hausse</span>
+                      <span className="text-muted">{unchangedCount} flat</span>
+                      <span className="text-red-600">{losersCount} baisse</span>
+                    </div>
+                  </div>
+
+                  {/* Top Gainers / Losers badges */}
+                  {hasPriceData && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {top3Gainers.map(p => (
+                        <span key={p.id} className="bg-green-50 border border-green-200 text-green-600 px-2 py-1 rounded text-xs">
+                          {p.ticker} +{p.dailyChangePercent.toFixed(2)}%
+                        </span>
+                      ))}
+                      {top3Losers.map(p => (
+                        <span key={p.id} className="bg-red-50 border border-red-200 text-red-600 px-2 py-1 rounded text-xs">
+                          {p.ticker} {p.dailyChangePercent.toFixed(2)}%
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {!hasPriceData && (
+                    <p className="text-muted text-xs mt-2">Click "Price" to load today's data</p>
+                  )}
+                </div>
+
+                {/* Today's Movers Table */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
+                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">Today's Movers</h3>
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Ticker</th>
+                        <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
+                        <th className="px-2 py-1.5 text-right">Prev Close</th>
+                        <th className="px-2 py-1.5 text-right">Actuel</th>
+                        <th className="px-2 py-1.5 text-right">% Change</th>
+                        <th className="px-2 py-1.5 text-right">Daily $</th>
+                        <th className="px-2 py-1.5 text-right">Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allMovers.map(p => (
+                        <tr key={p.id} className={`border-t border-gray-100 ${p.isDanger ? 'row-danger' : p.isWarning ? 'row-warning' : ''}`}>
+                          <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
+                            {p.ticker}
+                            {p.isClosed ? ' (sold)' : ''}
+                            {p.isNewToday && <span className="ml-1 text-lime-accent text-[9px]">NEW</span>}
+                            {p.isDanger && <span className="ml-1 text-red-500 animate-pulse" title="STOP LOSS">🚨</span>}
+                          </td>
+                          <td className="px-2 py-1.5 truncate max-w-24 hidden md:table-cell">{p.name}</td>
+                          <td className="px-2 py-1.5 text-right text-muted" title={p.isNewToday ? 'Entry price (new today)' : 'Previous close'}>
+                            {p.previousClose.toFixed(2)}
+                            {p.isNewToday && <span className="text-lime-accent text-[9px] ml-0.5">↵</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">{p.currentPrice.toFixed(2)}</td>
+                          <td className={`px-2 py-1.5 text-right font-bold ${p.dailyChangePercent > 0 ? 'text-green-600' : p.dailyChangePercent < 0 ? 'text-red-600' : 'text-muted'}`}>
+                            {p.dailyChangePercent > 0 ? '+' : ''}{p.dailyChangePercent.toFixed(2)}%
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${p.dailyChangeDollar > 0 ? 'text-green-600' : p.dailyChangeDollar < 0 ? 'text-red-600' : 'text-muted'}`}>
+                            {p.dailyChangeDollar >= 0 ? '+' : ''}{fmt(p.dailyChangeDollar)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">{p.weight.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-bold">
+                      <tr>
+                        <td className="px-2 py-1.5" colSpan="4">TOTAL</td>
+                        <td className={`px-2 py-1.5 text-right ${totalDailyPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%
+                        </td>
+                        <td className={`px-2 py-1.5 text-right ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right">100%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Daily P&L Calendar */}
+                {(() => {
+                  const { year, month } = calendarMonth;
+                  const monthNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+                  const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+                  // Build daily P&L map from consecutive snapshots
+                  // Override today's snapshot value with live portfolio value
+                  const todayDate = new Date().toISOString().split('T')[0];
+                  const sortedSnaps = [...snapshots].map(s =>
+                    s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s
+                  ).sort((a, b) => a.date.localeCompare(b.date));
+                  const pnlMap = {};
+                  for (let i = 1; i < sortedSnaps.length; i++) {
+                    // Daily P&L = change in unrealizedPnL + change in realizedPnL
+                    // This properly accounts for realized gains from closed positions
+                    const unrealizedChange = (sortedSnaps[i].unrealizedPnL || 0) - (sortedSnaps[i - 1].unrealizedPnL || 0);
+                    const realizedChange = (sortedSnaps[i].realizedPnL || 0) - (sortedSnaps[i - 1].realizedPnL || 0);
+                    pnlMap[sortedSnaps[i].date] = unrealizedChange + realizedChange;
+                  }
+                  // Always show today's daily gain from live price data (sum of each position's daily P&L)
+                  const todayPnl = positions.reduce((sum, p) => {
+                    const ct = p.ticker;
+                    const cached = priceCache[ct];
+                    const isNewToday = p.entryDate === todayDate;
+                    if (isNewToday) {
+                      const curPrice = cached?.success ? cached.price : p.currentPrice;
+                      return sum + (curPrice - p.entryPrice) * p.quantity;
+                    }
+                    if (cached?.success && cached.previousClose) {
+                      return sum + (cached.price - cached.previousClose) * p.quantity;
+                    }
+                    return sum;
+                  }, 0);
+                  // Add P&L from positions closed today (exitPrice - previousClose)
+                  const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
+                    const ct = t.ticker;
+                    const cached = priceCache[ct];
+                    const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+                    return sum + (t.exitPrice - prevClose) * t.quantity;
+                  }, 0);
+                  if (Object.values(priceCache).some(c => c?.success)) {
+                    pnlMap[todayDate] = todayPnl + closedTodayPnl;
+                  }
+
+                  // Build calendar grid
+                  const firstDay = new Date(year, month, 1);
+                  const daysInMonth = new Date(year, month + 1, 0).getDate();
+                  // Monday=0 ... Sunday=6
+                  let startDay = firstDay.getDay() - 1;
+                  if (startDay < 0) startDay = 6;
+
+                  const cells = [];
+                  for (let i = 0; i < startDay; i++) cells.push(null);
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    cells.push({ day: d, date: dateStr, pnl: pnlMap[dateStr] });
+                  }
+
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const monthTotal = cells.filter(c => c && c.pnl !== undefined).reduce((s, c) => s + c.pnl, 0);
+                  const hasData = cells.some(c => c && c.pnl !== undefined);
+
+                  const prevMonth = () => setCalendarMonth(prev => prev.month === 0 ? { year: prev.year - 1, month: 11 } : { ...prev, month: prev.month - 1 });
+                  const nextMonth = () => setCalendarMonth(prev => prev.month === 11 ? { year: prev.year + 1, month: 0 } : { ...prev, month: prev.month + 1 });
+
+                  return (
+                    <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <button onClick={prevMonth} className="text-muted hover:text-dark-text px-2 py-1 rounded hover:bg-gray-50">&lt;</button>
+                        <div className="text-center">
+                          <h3 className="font-semibold">{monthNames[month]} {year}</h3>
+                          {hasData && (
+                            <span className={`text-sm font-bold ${monthTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {monthTotal >= 0 ? '+' : ''}{fmt(monthTotal)} USD
+                            </span>
+                          )}
+                        </div>
+                        <button onClick={nextMonth} className="text-muted hover:text-dark-text px-2 py-1 rounded hover:bg-gray-50">&gt;</button>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 text-xs">
+                        {dayNames.map(d => (
+                          <div key={d} className="text-center text-muted py-1 font-medium">{d}</div>
+                        ))}
+                        {cells.map((cell, i) => {
+                          if (!cell) return <div key={`empty-${i}`} />;
+                          const hasPnl = cell.pnl !== undefined;
+                          const isToday = cell.date === todayStr;
+                          let bg = 'bg-gray-50/30';
+                          if (hasPnl) {
+                            bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
+                          }
+                          return (
+                            <div key={cell.date} className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center ${isToday ? 'ring-1 ring-blue-500' : ''}`}>
+                              <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
+                              {hasPnl && (
+                                <div className={`text-[10px] font-bold ${cell.pnl > 0 ? 'text-green-600' : cell.pnl < 0 ? 'text-red-600' : 'text-muted'}`}>
+                                  {cell.pnl >= 0 ? '+' : ''}{cell.pnl > 999 || cell.pnl < -999 ? (cell.pnl / 1000).toFixed(1) + 'k' : Math.round(cell.pnl)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {!hasData && <p className="text-muted text-xs text-center mt-2">Pas de données pour ce mois. Les snapshots quotidiens s'accumulent automatiquement.</p>}
+                    </div>
+                  );
+                })()}
+
+                {/* Equity Curve - Total P&L over time */}
+                {(() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  // Calculate total P&L for each snapshot and update today with live values
+                  const pnlData = snapshots.map(s => {
+                    if (s.date === todayStr) {
+                      return {
+                        date: s.date,
+                        totalPnL: m.totalPnL + m.realizedPnL,
+                        unrealizedPnL: m.totalPnL,
+                        realizedPnL: m.realizedPnL
+                      };
+                    }
+                    return {
+                      date: s.date,
+                      totalPnL: (s.unrealizedPnL || 0) + (s.realizedPnL || 0),
+                      unrealizedPnL: s.unrealizedPnL || 0,
+                      realizedPnL: s.realizedPnL || 0
+                    };
+                  }).sort((a, b) => a.date.localeCompare(b.date));
+
+                  const latestPnL = pnlData.length > 0 ? pnlData[pnlData.length - 1].totalPnL : 0;
+                  const isPositive = latestPnL >= 0;
+
+                  return (
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-semibold">P&L Total (Gains/Pertes cumulés)</h3>
+                    <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                      {isPositive ? '+' : ''}{fmt(latestPnL)} USD
+                    </span>
+                  </div>
+                  {!RECHARTS_LOADED ? (
+                    <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
+                  ) : pnlData.length > 1 ? (
+                    <ResponsiveContainer width="100%" height={350}>
+                      <AreaChart data={pnlData}>
+                        <defs>
+                          <linearGradient id="colorTotalPnl" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
+                            <stop offset="95%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                        <YAxis
+                          stroke="#9CA3AF"
+                          tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(0)}k` : v}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
+                          formatter={(v, name) => {
+                            const label = name === 'totalPnL' ? 'P&L Total' : name === 'unrealizedPnL' ? 'Latent' : 'Réalisé';
+                            return [(v >= 0 ? '+' : '') + fmt(v) + ' USD', label];
+                          }}
+                        />
+                        <Legend formatter={(value) => value === 'totalPnL' ? 'P&L Total' : value === 'unrealizedPnL' ? 'Latent' : 'Réalisé'} />
+                        <Area type="monotone" dataKey="totalPnL" stroke={isPositive ? '#10B981' : '#EF4444'} fill="url(#colorTotalPnl)" name="totalPnL" strokeWidth={2} />
+                        <Area type="monotone" dataKey="unrealizedPnL" stroke="#3B82F6" fill="none" strokeDasharray="3 3" name="unrealizedPnL" strokeWidth={1} />
+                        <Area type="monotone" dataKey="realizedPnL" stroke="#8B5CF6" fill="none" strokeDasharray="3 3" name="realizedPnL" strokeWidth={1} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-48 flex flex-col items-center justify-center text-muted">
+                      <p>Pas assez de snapshots pour afficher la courbe.</p>
+                      <p className="text-xs mt-2">Snapshots: {pnlData.length} (besoin de 2+)</p>
+                    </div>
+                  )}
+                </div>
+                  );
+                })()}
+
+                {/* Position Duration Charts */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3">Durée des positions ouvertes</h3>
+                  {!RECHARTS_LOADED ? (
+                    <ChartFallback message="Rafraîchissez la page" />
+                  ) : (
+                    <ResponsiveContainer width="100%" height={400}>
+                      <BarChart
+                        data={getSorted().sort((a,b) => b.days - a.days).map(p => {
+                          const cleanTicker = p.ticker;
+                          const price = priceCache[cleanTicker]?.price || p.currentPrice;
+                          return {
+                            name: p.ticker,
+                            days: p.days,
+                            isWinner: price >= p.entryPrice
+                          };
+                        })}
+                        layout="vertical"
+                        margin={{ left: 40 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis type="number" stroke="#9CA3AF" unit="j" />
+                        <YAxis type="category" dataKey="name" stroke="#9CA3AF" width={45} tick={{ fontSize: 10 }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none' }} formatter={(v) => [v + ' jours', 'Durée']} />
+                        <Bar dataKey="days">
+                          {getSorted().sort((a,b) => b.days - a.days).map((p, i) => {
+                            const cleanTicker = p.ticker;
+                            const price = priceCache[cleanTicker]?.price || p.currentPrice;
+                            return <Cell key={i} fill={price >= p.entryPrice ? '#10B981' : '#EF4444'} />;
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                  <p className="text-xs text-muted mt-2 text-center">Vert = Gain | Rouge = Perte</p>
+                </div>
+              </div>
+              );
+            })()}
+
+            {/* History Tab */}
+            {activeTab === 'history_tab' && (() => {
+              const todayDate = new Date().toISOString().split('T')[0];
+              // Calculate total P&L for a snapshot (unrealized + realized)
+              const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
+              const sortedSnaps = [...snapshots].map(s =>
+                s.date === todayDate
+                  ? { ...s, portfolioValue: m.totalValue, unrealizedPnL: m.totalPnL, realizedPnL: m.realizedPnL }
+                  : s
+              ).sort((a, b) => a.date.localeCompare(b.date));
+
+              // Daily P&L from consecutive snapshots (using total P&L = unrealized + realized)
+              const dailyPnls = [];
+              for (let i = 1; i < sortedSnaps.length; i++) {
+                dailyPnls.push({
+                  date: sortedSnaps[i].date,
+                  pnl: getTotalPnL(sortedSnaps[i]) - getTotalPnL(sortedSnaps[i - 1])
+                });
+              }
+
+              // Weekly aggregation (ISO week)
+              const getWeekKey = (dateStr) => {
+                const d = new Date(dateStr);
+                const jan1 = new Date(d.getFullYear(), 0, 1);
+                const days = Math.floor((d - jan1) / 86400000);
+                const week = Math.ceil((days + jan1.getDay() + 1) / 7);
+                return `${d.getFullYear()}-S${String(week).padStart(2, '0')}`;
+              };
+              const weeklyMap = {};
+              dailyPnls.forEach(d => {
+                const wk = getWeekKey(d.date);
+                weeklyMap[wk] = (weeklyMap[wk] || 0) + d.pnl;
+              });
+              const weeklyData = Object.entries(weeklyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([week, pnl]) => ({ week, pnl }));
+
+              // Monthly aggregation
+              const monthlyMap = {};
+              dailyPnls.forEach(d => {
+                const mk = d.date.substring(0, 7); // YYYY-MM
+                monthlyMap[mk] = (monthlyMap[mk] || 0) + d.pnl;
+              });
+              const monthNames = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+              const monthlyData = Object.entries(monthlyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([mk, pnl]) => {
+                const [y, mo] = mk.split('-');
+                return { month: `${monthNames[parseInt(mo) - 1]} ${y}`, pnl };
+              });
+
+              return (
+                <div className="space-y-4">
+                  {/* P&L Total Curve */}
+                  {(() => {
+                    const pnlData = sortedSnaps.map(s => ({
+                      date: s.date.substring(5),
+                      totalPnL: (s.unrealizedPnL || 0) + (s.realizedPnL || 0)
+                    }));
+                    const latestPnL = pnlData.length > 0 ? pnlData[pnlData.length - 1].totalPnL : 0;
+                    const isPositive = latestPnL >= 0;
+
+                    return (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="font-semibold">P&L Total</h3>
+                      <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                        {isPositive ? '+' : ''}{fmt(latestPnL)} USD
+                      </span>
+                    </div>
+                    {!RECHARTS_LOADED ? (
+                      <ChartFallback message="Recharts non chargé" />
+                    ) : pnlData.length > 1 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <AreaChart data={pnlData}>
+                          <defs>
+                            <linearGradient id="colorEqPnl" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
+                              <stop offset="95%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(0)}k` : v} />
+                          <Tooltip formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' USD', 'P&L Total']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Area type="monotone" dataKey="totalPnL" stroke={isPositive ? '#10B981' : '#EF4444'} fill="url(#colorEqPnl)" name="P&L Total" strokeWidth={2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-muted text-xs text-center py-8">Pas assez de snapshots (besoin de 2+). Actuellement: {pnlData.length}</p>
+                    )}
+                  </div>
+                    );
+                  })()}
+
+                  {/* Weekly P&L */}
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3">P&L par semaine</h3>
+                    {RECHARTS_LOADED && weeklyData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={weeklyData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis dataKey="week" stroke="#9CA3AF" tick={{ fontSize: 9 }} />
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
+                          <Tooltip formatter={(v) => [fmt(v) + ' USD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Bar dataKey="pnl" name="P&L">
+                            {weeklyData.map((d, i) => (
+                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-muted text-xs text-center py-8">Pas assez de données</p>
+                    )}
+                    {weeklyData.length > 0 && (
+                      <table className="w-full text-xs mt-3">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left">Semaine</th>
+                            <th className="px-2 py-1.5 text-right">P&L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...weeklyData].reverse().map(w => (
+                            <tr key={w.week} className="border-t border-gray-100">
+                              <td className="px-2 py-1.5 font-mono">{w.week}</td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${w.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Monthly P&L */}
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3">P&L par mois</h3>
+                    {RECHARTS_LOADED && monthlyData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={monthlyData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
+                          <Tooltip formatter={(v) => [fmt(v) + ' USD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Bar dataKey="pnl" name="P&L">
+                            {monthlyData.map((d, i) => (
+                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-muted text-xs text-center py-8">Pas assez de données</p>
+                    )}
+                    {monthlyData.length > 0 && (
+                      <table className="w-full text-xs mt-3">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left">Mois</th>
+                            <th className="px-2 py-1.5 text-right">P&L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...monthlyData].reverse().map(mo => (
+                            <tr key={mo.month} className="border-t border-gray-100">
+                              <td className="px-2 py-1.5">{mo.month}</td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${mo.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{mo.pnl >= 0 ? '+' : ''}{fmt(mo.pnl)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Settings Tab */}
+            {activeTab === 'settings' && (
+              <div className="space-y-4">
+                {/* Price Fetching Settings */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><Settings size={16}/> Configuration des prix</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-muted text-xs block mb-1">CORS Proxy</label>
+                      <select
+                        value={settings.corsProxy}
+                        onChange={(e) => updateSettings({ ...settings, corsProxy: e.target.value })}
+                        className="bg-gray-50 rounded px-3 py-2 w-full text-sm"
+                      >
+                        <option value="https://api.allorigins.win/raw?url=">allorigins.win (recommandé)</option>
+                        <option value="https://corsproxy.io/?">corsproxy.io</option>
+                        <option value="https://cors.sh/?">cors.sh</option>
+                      </select>
+                      <p className="text-muted text-xs mt-1">Proxy utilisé pour contourner les restrictions CORS de Yahoo Finance</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Firebase Sync Status */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><Cloud size={16}/> Firebase Sync</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                      <span className="text-green-600 text-sm">Synchronisation automatique activée</span>
+                    </div>
+                    <p className="text-muted text-xs">
+                      Les données sont synchronisées automatiquement avec Firebase Firestore.
+                      Vos appareils connectés avec ce compte reçoivent les mises à jour en temps réel.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Data Management */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3">Gestion des données</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={exportData} className="bg-lime-accent hover:bg-lime-hover text-dark-text font-medium px-4 py-2 rounded text-sm flex items-center gap-2">
+                      <Download size={16}/> Exporter JSON
+                    </button>
+                    <label className="bg-lime-accent hover:bg-lime-hover text-dark-text px-4 py-2 rounded text-sm flex items-center gap-2 cursor-pointer">
+                      <Upload size={16}/> Importer JSON
+                      <input type="file" accept=".json" onChange={importData} className="hidden" />
+                    </label>
+                    <button onClick={resetData} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm flex items-center gap-2">
+                      <RefreshCw size={16}/> Réinitialiser
+                    </button>
+                  </div>
+                </div>
+
+                {/* Data Info */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3">Informations</h3>
+                  <div className="text-xs text-muted space-y-1">
+                    <p>Version: 7 (avec transactions et cache de prix)</p>
+                    <p>Positions: {positions.length}</p>
+                    <p>Trades clôturés: {closedTrades.length}</p>
+                    <p>Transactions: {transactions.length}</p>
+                    <p>Snapshots: {snapshots.length}</p>
+                    <p>Prix en cache: {Object.keys(priceCache).length}</p>
+                    <p>Stockage: Firebase Firestore (hk-portfolio-sync)</p>
+                    <p className="text-green-600 text-xs mt-2">Les données sont privées et liées à votre compte.</p>
+                  </div>
+                </div>
+
+                {/* Account / Logout */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><User size={16}/> Compte</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-dark-text">{userEmail}</p>
+                        <p className="text-xs text-muted">Connecté</p>
+                      </div>
+                      <button
+                        onClick={onLogout}
+                        className="bg-gray-100 hover:bg-gray-200 text-dark-text font-medium px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                      >
+                        <LogOut size={16}/> Déconnexion
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // Error boundary component
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      componentDidCatch(error, info) {
+        console.error('React Error:', error, info);
+      }
+      render() {
+        if (this.state.hasError) {
+          return React.createElement('div', { style: { padding: 20, color: 'red', background: '#111' } },
+            React.createElement('h1', null, 'Something went wrong'),
+            React.createElement('pre', null, this.state.error?.toString())
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    try {
+      console.log('Starting app...');
+      console.log('React:', typeof React);
+      console.log('Recharts:', typeof window.Recharts);
+      console.log('Recharts loaded:', RECHARTS_LOADED);
+      ReactDOM.createRoot(document.getElementById('root')).render(
+        React.createElement(ErrorBoundary, null,
+          React.createElement(App)
+        )
+      );
+      console.log('App rendered');
+    } catch (e) {
+      console.error('Render error:', e);
+      document.getElementById('root').innerHTML = '<div style="padding:20px;color:red;background:#111"><h1>Error</h1><pre>' + e.toString() + '</pre></div>';
+    }
+  </script>
+</body>
+</html>

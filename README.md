@@ -48,7 +48,8 @@ Portfolio tracker for Hong Kong stocks with **Firebase Firestore** backend for r
 
 | File | Description |
 |------|-------------|
-| `index.html` | Production app (dark mode default) |
+| `index.html` | HK Portfolio - Production app (dark mode default) |
+| `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
 | `update.py` | Cron script for Yahoo Finance prices |
 | `.github/workflows/daily-update.yml` | GitHub Actions workflow |
@@ -90,7 +91,14 @@ portfolios/
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // HK Portfolio
     match /portfolios/{userId}/{document=**} {
+      // Only authenticated users can access their own data
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+    // US Portfolio
+    match /us-portfolios/{userId}/{document=**} {
       // Only authenticated users can access their own data
       allow read, write: if request.auth != null
                          && request.auth.uid == userId;
@@ -100,7 +108,7 @@ service cloud.firestore {
 ```
 
 This ensures:
-- ✅ Users can only read/write their own portfolio
+- ✅ Users can only read/write their own portfolio (HK or US)
 - ✅ No one can access another user's data
 - ✅ Unauthenticated users have no access
 
@@ -145,27 +153,16 @@ GitHub Pages auto-deploys from `main` branch.
 
 ### Planned 🚧
 
-#### US Portfolio Version
-Create a separate US stock portfolio tracker with the same layout.
-
-**Changes required:**
+#### ~~US Portfolio Version~~ ✅ Done (v2.4)
+Created `index-us.html` - US stock portfolio tracker with same layout.
 
 | Component | HK Version | US Version |
 |-----------|------------|------------|
+| File | `index.html` | `index-us.html` |
 | Ticker format | `9961.HK` | `AAPL`, `MSFT` |
 | Currency | HKD | USD |
 | Firebase collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
 | Title | "Portfolio HK" | "Portfolio US" |
-| Market hours | HKT | EST/EDT |
-
-**Implementation steps:**
-1. Duplicate `index.html` → `index-us.html`
-2. Update currency formatting (`HKD` → `USD`)
-3. Remove `.HK` suffix logic from ticker handling
-4. Update Firestore path to `us-portfolios/{userId}`
-5. Update page title and labels
-6. Add new Firestore security rules for `us-portfolios`
-7. Deploy to new repo or subfolder
 
 #### Future Enhancements
 - [x] Authentication (Firebase Auth) ✅ v2.3
@@ -204,6 +201,14 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.4 (Jan 2025)
+- **US Portfolio Version** - New `index-us.html` for US stocks
+- Same layout and features as HK portfolio
+- USD currency formatting
+- US ticker format (AAPL, MSFT) - no suffix required
+- Separate Firestore collection (`us-portfolios/{userId}`)
+- Updated security rules for both HK and US portfolios
 
 ### v2.3 (Jan 2025)
 - **Firebase Authentication** - Email/password login required
