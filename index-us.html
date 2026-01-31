@@ -717,7 +717,7 @@
           } else {
             // No Firestore data - try to migrate from localStorage
             console.log('No Firestore data, checking localStorage for migration...');
-            let result = storage.get('hk-portfolio-v7');
+            let result = storage.get('us-portfolio-v7');
             if (result && result.value) {
               data = JSON.parse(result.value);
               data = migrateDataToV7(data);
@@ -769,7 +769,7 @@
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
         if (!saved) {
           console.error('Firestore save failed, saving to localStorage as backup');
-          storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
+          storage.set('us-portfolio-v7', JSON.stringify(dataToSave));
         }
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings]);
 
@@ -885,7 +885,7 @@
           setSnapshots(newSnapshots);
 
           // Save to localStorage
-          storage.set('hk-portfolio-v7', JSON.stringify({
+          storage.set('us-portfolio-v7', JSON.stringify({
             version: 7,
             positions,
             closedTrades,
