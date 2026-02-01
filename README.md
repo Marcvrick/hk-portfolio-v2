@@ -233,7 +233,7 @@ python -m http.server 8000
 ### v2.5 (Feb 2025)
 - **Wishlist Tab** - Track stocks you want to buy
   - Add tickers with target buy price
-  - Live price fetching from Yahoo Finance
+  - Live price fetching from Yahoo Finance (included in Refresh)
   - Gap calculation (current price vs target)
   - **Target reached alerts** - Banner notification when price hits target
   - Dismissible alerts (persisted - won't show again until price cycles)
@@ -246,7 +246,12 @@ python -m http.server 8000
   - Visual banner indicates viewing mode
   - Easy "Return to my portfolio" button
   - Requires updated Firebase security rules (see README)
-- **Calendar improvements** - Skip weekends (market closed)
+- **Weekend handling** - Market closed on Saturday/Sunday
+  - No snapshots created on weekends
+  - Calendar excludes weekend days from P&L display
+  - "Aujourd'hui" tile shows "Vendredi" with Friday's P&L on weekends
+  - Timezone-safe weekend detection
+- **US Portfolio synced** - index-us.html now has all v2.5 features
 
 ### v2.4 (Jan 2025)
 - **US Portfolio Version** - New `index-us.html` for US stocks

@@ -192,15 +192,17 @@
     const User = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
     const LogOut = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
 
-    // ===== INITIAL DATA (v7 format with US tickers) =====
-    // Sample US positions - empty by default, will be loaded from Firebase
+    // ===== INITIAL DATA (US stocks - no .HK suffix) =====
+    // Empty arrays - data comes from Firebase
     const INITIAL_POSITIONS = [];
 
-    // Closed Trades - empty by default
+    // Empty - data comes from Firebase
     const INITIAL_CLOSED_TRADES = [];
 
-    // Initial transactions - empty by default
-    const INITIAL_TRANSACTIONS = [];
+    // Initial transactions - estimate based on position entries
+    const INITIAL_TRANSACTIONS = [
+      { id: 1, type: 'deposit', amount: 900000, date: '2025-07-01', notes: 'Capital initial', linkedTicker: null },
+    ];
 
     const DEFAULT_SETTINGS = {
       corsProxy: 'https://api.allorigins.win/raw?url=',
@@ -209,13 +211,12 @@
 
 
     // ===== UTILITY FUNCTIONS =====
-    // US tickers don't need conversion - just return as-is
+    // US version - tickers don't need .HK suffix
     const convertOldTicker = (ticker) => {
-      return ticker || '';
+      if (!ticker) return ticker;
+      // US tickers don't need conversion
+      return ticker.toUpperCase();
     };
-
-    // Helper to clean ticker (no suffix needed for US)
-    const cleanTicker = (ticker) => ticker || '';
 
     const migrateDataToV7 = (data) => {
       // Convert positions tickers
@@ -242,6 +243,13 @@
       // Keep or create settings
       const settings = data.settings || DEFAULT_SETTINGS;
 
+      // Keep or create wishlist
+      const wishlist = data.wishlist || [];
+      const wishlistAlertsDismissed = data.wishlistAlertsDismissed || {};
+
+      // Keep or create allowed viewers
+      const allowedViewers = data.allowedViewers || [];
+
       return {
         version: 7,
         positions,
@@ -249,7 +257,10 @@
         transactions,
         priceCache,
         snapshots,
-        settings
+        settings,
+        wishlist,
+        wishlistAlertsDismissed,
+        allowedViewers
       };
     };
 
@@ -389,7 +400,7 @@
     };
 
     const fetchYahooPrice = async (ticker, corsProxy) => {
-      const cleanTicker = ticker;
+      const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
       const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
 
       // Try selected proxy first
@@ -420,7 +431,7 @@
 
     const fetchAllPrices = async (tickers, corsProxy, onProgress) => {
       const results = {};
-      const uniqueTickers = [...new Set(tickers.map(t => t))];
+      const uniqueTickers = [...new Set(tickers.map(t => t.replace(/b\.HK$/, '.HK')))];
 
       for (let i = 0; i < uniqueTickers.length; i++) {
         const ticker = uniqueTickers[i];
@@ -467,7 +478,7 @@
 
     const calculatePortfolioValue = (positions, priceCache) => {
       return positions.reduce((sum, p) => {
-        const cleanTicker = p.ticker;
+        const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
         const cachedPrice = priceCache[cleanTicker];
         const price = cachedPrice?.success ? cachedPrice.price : p.currentPrice;
         return sum + (p.quantity * price);
@@ -641,8 +652,15 @@
       const [priceCache, setPriceCache] = useState({});
       const [snapshots, setSnapshots] = useState([]);
       const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+      const [wishlist, setWishlist] = useState([]);
+      const [wishlistAlertsDismissed, setWishlistAlertsDismissed] = useState({}); // { tickerId: true } for dismissed alerts
+      const [allowedViewers, setAllowedViewers] = useState([]); // emails allowed to view this portfolio
+      const [viewingFriendEmail, setViewingFriendEmail] = useState(null); // email of friend's portfolio being viewed
+      const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [activeTab, setActiveTab] = useState('portfolio');
       const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+      const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
+      const [editingWishlistId, setEditingWishlistId] = useState(null);
       const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
       const [dataLoaded, setDataLoaded] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
@@ -652,7 +670,7 @@
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
       const [lastRefresh, setLastRefresh] = useState(null);
-      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false });
+      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
       const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
       const [darkMode, setDarkMode] = useState(() => {
         const saved = localStorage.getItem('portfolioDarkMode');
@@ -690,6 +708,9 @@
           setTransactions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.transactions) ? migrated.transactions : prev);
           setPriceCache(prev => JSON.stringify(prev) !== JSON.stringify(migrated.priceCache) ? migrated.priceCache : prev);
           setSnapshots(prev => JSON.stringify(prev) !== JSON.stringify(migrated.snapshots) ? migrated.snapshots : prev);
+          setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlist) ? migrated.wishlist : prev);
+          setWishlistAlertsDismissed(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlistAlertsDismissed) ? migrated.wishlistAlertsDismissed : prev);
+          setAllowedViewers(prev => JSON.stringify(prev) !== JSON.stringify(migrated.allowedViewers) ? migrated.allowedViewers : prev);
           // Don't update settings from remote to avoid overwriting local preferences
         });
 
@@ -714,6 +735,9 @@
             setPriceCache(data.priceCache || {});
             setSnapshots(data.snapshots || []);
             setSettings(data.settings || DEFAULT_SETTINGS);
+            setWishlist(data.wishlist || []);
+            setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
+            setAllowedViewers(data.allowedViewers || []);
           } else {
             // No Firestore data - try to migrate from localStorage
             console.log('No Firestore data, checking localStorage for migration...');
@@ -729,7 +753,9 @@
                 transactions: data.transactions,
                 priceCache: data.priceCache,
                 snapshots: data.snapshots,
-                settings: data.settings
+                settings: data.settings,
+                wishlist: data.wishlist || [],
+                wishlistAlertsDismissed: data.wishlistAlertsDismissed || {}
               });
               console.log('Migrated localStorage data to Firestore');
               setPositions(data.positions || INITIAL_POSITIONS);
@@ -738,6 +764,9 @@
               setPriceCache(data.priceCache || {});
               setSnapshots(data.snapshots || []);
               setSettings(data.settings || DEFAULT_SETTINGS);
+              setWishlist(data.wishlist || []);
+              setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
+              setAllowedViewers(data.allowedViewers || []);
             } else {
               console.warn('No data found, using defaults');
               setPositions(INITIAL_POSITIONS);
@@ -755,7 +784,12 @@
         }
       };
 
-      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings) => {
+      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers) => {
+        // Don't save when viewing friend's portfolio
+        if (viewingFriendEmail) {
+          console.log('Skipping save - viewing friend portfolio (read-only mode)');
+          return;
+        }
         const dataToSave = {
           version: 7,
           positions: newPos ?? positions,
@@ -763,7 +797,11 @@
           transactions: newTx ?? transactions,
           priceCache: newCache ?? priceCache,
           snapshots: newSnap ?? snapshots,
-          settings: newSettings ?? settings
+          settings: newSettings ?? settings,
+          wishlist: newWishlist ?? wishlist,
+          wishlistAlertsDismissed: newWishlistAlerts ?? wishlistAlertsDismissed,
+          allowedViewers: newAllowedViewers ?? allowedViewers,
+          ownerEmail: userEmail // For friend portfolio lookup
         };
         // Save to Firestore (primary)
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
@@ -771,7 +809,7 @@
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('us-portfolio-v7', JSON.stringify(dataToSave));
         }
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, viewingFriendEmail]);
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
@@ -795,13 +833,17 @@
 
         // Calculate current portfolio value
         const currentValue = positions.reduce((sum, p) => {
-          const cleanTicker = p.ticker;
+          const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
           const price = priceCache[cleanTicker]?.price || p.currentPrice;
           return sum + (p.quantity * price);
         }, 0);
 
         // Capital Engagé = coût d'achat des positions ouvertes (AUTOMATIQUE)
         const capitalEngaged = positions.reduce((sum, p) => sum + (p.quantity * p.entryPrice), 0);
+
+        // Check if it's a weekend (market closed) - do this early
+        const dayOfWeek = new Date().getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
         // Check if we have a snapshot for today
         const todaySnapshot = snapshots.find(s => s.date === today);
@@ -810,50 +852,81 @@
         const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
         const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
 
-        // Calculate daily gain — prefer price cache (price vs previousClose), fallback to snapshots
-        const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
-        if (hasPriceData) {
-          const gain = positions.reduce((sum, p) => {
-            const ct = p.ticker;
-            const cached = priceCache[ct];
-            const isNewToday = p.entryDate === today;
-            if (isNewToday) {
-              const curPrice = cached?.success ? cached.price : p.currentPrice;
-              return sum + (curPrice - p.entryPrice) * p.quantity;
-            }
-            if (cached?.success && cached.previousClose) {
-              return sum + (cached.price - cached.previousClose) * p.quantity;
-            }
-            return sum;
-          }, 0);
-          const prevTotal = positions.reduce((sum, p) => {
-            const ct = p.ticker;
-            const cached = priceCache[ct];
-            const isNewToday = p.entryDate === today;
-            const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
-            return sum + prev * p.quantity;
-          }, 0);
-          // Add P&L from positions closed today (exitPrice - previousClose)
-          const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
-            const ct = t.ticker;
-            const cached = priceCache[ct];
-            const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
-            return sum + (t.exitPrice - prevClose) * t.quantity;
-          }, 0);
-          const totalGain = gain + closedTodayGain;
-          const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-          setDailyGain({ value: totalGain, percent, hasYesterday: true });
-        } else if (yesterdaySnapshot) {
-          const gain = currentValue - yesterdaySnapshot.portfolioValue;
-          const percent = yesterdaySnapshot.portfolioValue > 0
-            ? (gain / yesterdaySnapshot.portfolioValue) * 100
-            : 0;
-          setDailyGain({ value: gain, percent, hasYesterday: true });
+        // Calculate daily gain
+        // On weekends: show last trading day's P&L from snapshots (Friday's change)
+        // On weekdays: prefer live price cache, fallback to snapshots
+        if (isWeekend) {
+          // Find the last two trading day snapshots to calculate Friday's P&L
+          const isWeekendDate = (dateStr) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            return dt.getDay() === 0 || dt.getDay() === 6;
+          };
+          const tradingDaySnapshots = sortedSnapshots.filter(s => !isWeekendDate(s.date));
+          if (tradingDaySnapshots.length >= 2) {
+            // Friday's P&L = Friday snapshot - Thursday snapshot
+            const fridaySnap = tradingDaySnapshots[0];
+            const thursdaySnap = tradingDaySnapshots[1];
+            const unrealizedChange = (fridaySnap.unrealizedPnL || 0) - (thursdaySnap.unrealizedPnL || 0);
+            const realizedChange = (fridaySnap.realizedPnL || 0) - (thursdaySnap.realizedPnL || 0);
+            const fridayGain = unrealizedChange + realizedChange;
+            const percent = thursdaySnap.portfolioValue > 0 ? (fridayGain / thursdaySnap.portfolioValue) * 100 : 0;
+            setDailyGain({ value: fridayGain, percent, hasYesterday: true, isWeekend: true });
+          } else {
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true });
+          }
         } else {
-          setDailyGain({ value: 0, percent: 0, hasYesterday: false });
+          // Weekday: use live price data
+          const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
+          if (hasPriceData) {
+            const gain = positions.reduce((sum, p) => {
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const isNewToday = p.entryDate === today;
+              if (isNewToday) {
+                const curPrice = cached?.success ? cached.price : p.currentPrice;
+                return sum + (curPrice - p.entryPrice) * p.quantity;
+              }
+              if (cached?.success && cached.previousClose) {
+                return sum + (cached.price - cached.previousClose) * p.quantity;
+              }
+              return sum;
+            }, 0);
+            const prevTotal = positions.reduce((sum, p) => {
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const isNewToday = p.entryDate === today;
+              const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+              return sum + prev * p.quantity;
+            }, 0);
+            // Add P&L from positions closed today (exitPrice - previousClose)
+            const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
+              const ct = t.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+              return sum + (t.exitPrice - prevClose) * t.quantity;
+            }, 0);
+            const totalGain = gain + closedTodayGain;
+            const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false });
+          } else if (yesterdaySnapshot) {
+            const gain = currentValue - yesterdaySnapshot.portfolioValue;
+            const percent = yesterdaySnapshot.portfolioValue > 0
+              ? (gain / yesterdaySnapshot.portfolioValue) * 100
+              : 0;
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false });
+          } else {
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
+          }
         }
 
         // Auto-save/update snapshot for today (always update to capture trade closures)
+        // Skip weekends - market is closed on Saturday (6) and Sunday (0)
+        if (isWeekend) {
+          console.log('Skipping snapshot - weekend (market closed)');
+          return;
+        }
+
         const closedWithCalc = closedTrades.map(t => ({
           pnl: (t.exitPrice - t.entryPrice) * t.quantity
         }));
@@ -901,13 +974,13 @@
 
       // ===== PRICE REFRESH =====
       const refreshSinglePrice = async (ticker) => {
-        const cleanTicker = ticker;
+        const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
         try {
           const result = await fetchYahooPrice(cleanTicker, settings.corsProxy);
           if (result.success) {
             const newCache = { ...priceCache, [cleanTicker]: result };
             const newPositions = positions.map(p => {
-              const ct = p.ticker;
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
               return ct === cleanTicker ? { ...p, currentPrice: result.price } : p;
             });
             setPriceCache(newCache);
@@ -922,10 +995,16 @@
       const refreshPrices = async () => {
         if (isRefreshing) return;
         setIsRefreshing(true);
-        setRefreshProgress({ current: 0, total: positions.length, ticker: '' });
 
         try {
-          const tickers = positions.map(p => p.ticker);
+          // Include both positions AND wishlist tickers
+          const positionTickers = positions.map(p => p.ticker);
+          const wishlistTickers = wishlist.map(w => w.ticker);
+          // Combine and dedupe tickers
+          const allTickers = [...new Set([...positionTickers, ...wishlistTickers])];
+          setRefreshProgress({ current: 0, total: allTickers.length, ticker: '' });
+
+          const tickers = allTickers;
           const results = await fetchAllPrices(tickers, settings.corsProxy, (current, total, ticker) => {
             setRefreshProgress({ current, total, ticker });
           });
@@ -943,14 +1022,14 @@
               successCount++;
             } else {
               failCount++;
-              failedTickers.push(ticker);
+              failedTickers.push(ticker.replace('.HK', ''));
               console.warn(`Failed to fetch ${ticker}: ${result.error}`);
             }
           });
 
           // Update positions with new prices
           const newPositions = positions.map(p => {
-            const cleanTicker = p.ticker;
+            const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
             const cached = newCache[cleanTicker];
             if (cached?.success) {
               return { ...p, currentPrice: cached.price };
@@ -1041,12 +1120,12 @@
         const totalInvested = capitalEngaged;
 
         const winners = positions.filter(p => {
-          const cleanTicker = p.ticker;
+          const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
           const price = priceCache[cleanTicker]?.price || p.currentPrice;
           return price > p.entryPrice;
         }).length;
         const losers = positions.filter(p => {
-          const cleanTicker = p.ticker;
+          const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
           const price = priceCache[cleanTicker]?.price || p.currentPrice;
           return price < p.entryPrice;
         }).length;
@@ -1066,7 +1145,8 @@
       const addPosition = async () => {
         if (!newPosition.ticker || !newPosition.quantity || !newPosition.entryPrice) return alert('Remplir Ticker, Qté et Prix');
         let ticker = newPosition.ticker.toUpperCase();
-        // US tickers - no suffix needed
+        // Ensure .HK suffix
+        if (!ticker.endsWith('.HK')) ticker = ticker + '.HK';
 
         const pos = {
           id: Date.now(),
@@ -1084,7 +1164,7 @@
 
         // Auto-fetch price for new position
         try {
-          const cleanTicker = ticker;
+          const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
           const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`);
           const json = await resp.json();
           const result = json?.chart?.result?.[0];
@@ -1222,14 +1302,239 @@
         alert('Snapshot enregistré!');
       };
 
+      // ===== WISHLIST ACTIONS =====
+      const addWishlistItem = async () => {
+        if (!newWishlistItem.ticker || !newWishlistItem.targetPrice) return alert('Ticker et Prix cible requis');
+        let ticker = newWishlistItem.ticker.toUpperCase();
+        if (!ticker.endsWith('.HK')) ticker = ticker + '.HK';
+
+        const item = {
+          id: Date.now(),
+          ticker: ticker,
+          name: newWishlistItem.name || ticker,
+          targetPrice: parseFloat(newWishlistItem.targetPrice),
+          notes: newWishlistItem.notes || '',
+          dateAdded: new Date().toISOString().split('T')[0]
+        };
+        const newWl = [...wishlist, item];
+        setWishlist(newWl);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, newWl, wishlistAlertsDismissed);
+        setNewWishlistItem({ ticker: '', name: '', targetPrice: '', notes: '' });
+
+        // Auto-fetch price for new wishlist item
+        try {
+          const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+          const proxyUrl = buildProxyUrl(yahooUrl, settings.corsProxy);
+          const resp = await fetch(proxyUrl);
+          const json = await resp.json();
+          const result = json?.chart?.result?.[0];
+          if (result) {
+            const meta = result.meta || {};
+            const price = meta.regularMarketPrice;
+            const closes = result.indicators?.quote?.[0]?.close || [];
+            const validCloses = closes.filter(c => c != null);
+            const previousClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : meta.previousClose || meta.chartPreviousClose || price;
+            if (price) {
+              const newCache = { ...priceCache, [cleanTicker]: {
+                success: true,
+                price,
+                previousClose: previousClose || price,
+                change: price - (previousClose || price),
+                changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
+                currency: meta.currency || 'USD',
+                lastUpdated: new Date().toISOString()
+              }};
+              setPriceCache(newCache);
+              saveData(positions, closedTrades, transactions, newCache, snapshots, settings, newWl, wishlistAlertsDismissed);
+              console.log(`Auto-fetched price for wishlist ${ticker}: ${price}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`Failed to auto-fetch price for wishlist ${ticker}:`, e);
+        }
+      };
+
+      const updateWishlistItem = (id, updates) => {
+        const newWl = wishlist.map(w => w.id === id ? { ...w, ...updates } : w);
+        setWishlist(newWl);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, newWl, wishlistAlertsDismissed);
+        setEditingWishlistId(null);
+      };
+
+      const deleteWishlistItem = (id) => {
+        if (!confirm('Supprimer de la wishlist?')) return;
+        const newWl = wishlist.filter(w => w.id !== id);
+        setWishlist(newWl);
+        // Also remove any dismissed alerts for this item
+        const newAlerts = { ...wishlistAlertsDismissed };
+        delete newAlerts[id];
+        setWishlistAlertsDismissed(newAlerts);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, newWl, newAlerts);
+      };
+
+      const dismissWishlistAlert = (id) => {
+        const newAlerts = { ...wishlistAlertsDismissed, [id]: true };
+        setWishlistAlertsDismissed(newAlerts);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, newAlerts);
+      };
+
+      const clearWishlistAlert = (id) => {
+        // Clear dismissed status when price goes back above target
+        const newAlerts = { ...wishlistAlertsDismissed };
+        delete newAlerts[id];
+        setWishlistAlertsDismissed(newAlerts);
+        saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, newAlerts);
+      };
+
+      // Get wishlist items with current prices and gap calculation
+      const getWishlistWithPrices = () => {
+        return wishlist.map(w => {
+          const cleanTicker = w.ticker.replace(/b\.HK$/, '.HK');
+          const cached = priceCache[cleanTicker];
+          const currentPrice = cached?.price || null;
+          const previousClose = cached?.previousClose || currentPrice;
+          const dailyChange = currentPrice && previousClose ? currentPrice - previousClose : 0;
+          const dailyChangePercent = previousClose ? (dailyChange / previousClose) * 100 : 0;
+          const gap = currentPrice ? ((currentPrice - w.targetPrice) / w.targetPrice) * 100 : null;
+          const targetReached = currentPrice !== null && currentPrice <= w.targetPrice;
+          return {
+            ...w,
+            currentPrice,
+            dailyChange,
+            dailyChangePercent,
+            gap,
+            targetReached,
+            alertDismissed: wishlistAlertsDismissed[w.id] || false
+          };
+        }).sort((a, b) => {
+          // Sort by gap ascending (closest to target first), nulls last
+          if (a.gap === null && b.gap === null) return 0;
+          if (a.gap === null) return 1;
+          if (b.gap === null) return -1;
+          return a.gap - b.gap;
+        });
+      };
+
+      // Get wishlist items that have reached target and alert not dismissed
+      const getActiveWishlistAlerts = () => {
+        return getWishlistWithPrices().filter(w => w.targetReached && !w.alertDismissed);
+      };
+
+      // ===== FRIEND PORTFOLIO VIEWING =====
+      const viewFriendPortfolio = async (friendEmail) => {
+        if (!friendEmail || !friendEmail.includes('@')) {
+          alert('Email invalide');
+          return;
+        }
+
+        try {
+          // Find user by email
+          // Note: This requires a Firestore query on email field
+          // We need to find the userId for this email from the portfolios collection
+          const querySnapshot = await db.collection('portfolios').get();
+          let friendUserId = null;
+          let friendData = null;
+
+          for (const doc of querySnapshot.docs) {
+            const data = doc.data();
+            // Check if this user has allowed our email as viewer
+            if (data.allowedViewers && data.allowedViewers.includes(userEmail)) {
+              // We need to match by checking who owns this portfolio
+              // The doc.id is the userId, we need to get the email somehow
+              // For now, we'll store ownerEmail in the portfolio data
+              if (data.ownerEmail === friendEmail) {
+                friendUserId = doc.id;
+                friendData = data;
+                break;
+              }
+            }
+          }
+
+          if (!friendData) {
+            alert(`Accès refusé. ${friendEmail} ne vous a pas autorisé à voir son portfolio, ou l'email est incorrect.`);
+            return;
+          }
+
+          // Backup current data
+          setOwnDataBackup({
+            positions, closedTrades, transactions, priceCache, snapshots,
+            settings, wishlist, wishlistAlertsDismissed, allowedViewers
+          });
+
+          // Load friend's data
+          const migrated = migrateDataToV7(friendData);
+          setPositions(migrated.positions || []);
+          setClosedTrades(migrated.closedTrades || []);
+          setTransactions(migrated.transactions || []);
+          setPriceCache(migrated.priceCache || {});
+          setSnapshots(migrated.snapshots || []);
+          setWishlist(migrated.wishlist || []);
+          setViewingFriendEmail(friendEmail);
+          setActiveTab('portfolio');
+
+          console.log(`Viewing portfolio of ${friendEmail}`);
+        } catch (e) {
+          console.error('Error loading friend portfolio:', e);
+          alert('Erreur lors du chargement du portfolio: ' + e.message);
+        }
+      };
+
+      const returnToOwnPortfolio = () => {
+        if (!ownDataBackup) return;
+
+        // Restore own data
+        setPositions(ownDataBackup.positions);
+        setClosedTrades(ownDataBackup.closedTrades);
+        setTransactions(ownDataBackup.transactions);
+        setPriceCache(ownDataBackup.priceCache);
+        setSnapshots(ownDataBackup.snapshots);
+        setSettings(ownDataBackup.settings);
+        setWishlist(ownDataBackup.wishlist);
+        setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
+        setAllowedViewers(ownDataBackup.allowedViewers);
+
+        setOwnDataBackup(null);
+        setViewingFriendEmail(null);
+        console.log('Returned to own portfolio');
+      };
+
+      const addAllowedViewer = (email) => {
+        if (!email || !email.includes('@')) {
+          alert('Email invalide');
+          return;
+        }
+        if (allowedViewers.includes(email)) {
+          alert('Cet email est déjà autorisé');
+          return;
+        }
+        const newViewers = [...allowedViewers, email];
+        setAllowedViewers(newViewers);
+        // Save with ownerEmail for friend lookup
+        const dataToSave = {
+          version: 7,
+          positions, closedTrades, transactions, priceCache, snapshots, settings,
+          wishlist, wishlistAlertsDismissed,
+          allowedViewers: newViewers,
+          ownerEmail: userEmail // Store owner email for friend lookup
+        };
+        firestoreStorage.saveToFirestore(dataToSave);
+      };
+
+      const removeAllowedViewer = (email) => {
+        const newViewers = allowedViewers.filter(e => e !== email);
+        setAllowedViewers(newViewers);
+        saveData(null, null, null, null, null, null, null, null, newViewers);
+      };
+
       // ===== SORTING =====
       const getSorted = () => {
         const posWithDays = getPositionsWithDays();
         if (!sortConfig.key) return posWithDays;
         return [...posWithDays].sort((a, b) => {
           let aV, bV;
-          const aPrice = priceCache[a.ticker]?.price || a.currentPrice;
-          const bPrice = priceCache[b.ticker]?.price || b.currentPrice;
+          const aPrice = priceCache[a.ticker.replace(/b\.HK$/, '.HK')]?.price || a.currentPrice;
+          const bPrice = priceCache[b.ticker.replace(/b\.HK$/, '.HK')]?.price || b.currentPrice;
           switch (sortConfig.key) {
             case 'pnl': aV = (aPrice - a.entryPrice) * a.quantity; bV = (bPrice - b.entryPrice) * b.quantity; break;
             case 'pnlPercent': aV = (aPrice - a.entryPrice) / a.entryPrice; bV = (bPrice - b.entryPrice) / b.entryPrice; break;
@@ -1324,6 +1629,27 @@
       return (
         <div className={`min-h-screen ${darkMode ? 'bg-[#111827]' : 'bg-[#f4f6ef]'} text-dark-text p-4 md:p-8`}>
           <div className="max-w-7xl mx-auto space-y-6">
+            {/* Friend Portfolio Viewing Banner */}
+            {viewingFriendEmail && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-100 p-2 rounded-full">
+                    <User size={20} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-blue-900">Mode lecture seule</p>
+                    <p className="text-sm text-blue-700">Vous consultez le portfolio de <strong>{viewingFriendEmail}</strong></p>
+                  </div>
+                </div>
+                <button
+                  onClick={returnToOwnPortfolio}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                >
+                  <LogOut size={16} /> Retour à mon portfolio
+                </button>
+              </div>
+            )}
+
             {/* Header - Modern style */}
             <div className="flex flex-wrap justify-between items-start gap-4">
               <div>
@@ -1390,13 +1716,15 @@
                 </span>
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Aujourd'hui</div>
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">
+                  {dailyGain.isWeekend ? 'Vendredi' : "Aujourd'hui"}
+                </div>
                 {dailyGain.hasYesterday ? (
                   <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {dailyGain.value >= 0 ? '+' : ''}{fmt(dailyGain.value)}
                   </span>
                 ) : (
-                  <div className="text-xs md:text-lg font-bold text-muted">-</div>
+                  <div className="text-xs md:text-lg font-bold text-muted">{dailyGain.isWeekend ? 'Marché fermé' : '-'}</div>
                 )}
               </div>
               <InfoTooltip text="% de trades CLÔTURÉS gagnants (prix vente > prix achat)">
@@ -1418,9 +1746,9 @@
 
             {/* Tabs - Pill style navigation */}
             <div className="flex gap-2 p-1 bg-gray-100 rounded-full w-fit overflow-x-auto">
-              {['portfolio', 'performance', 'history', 'history_tab', 'settings'].map(t => (
+              {['portfolio', 'performance', 'history', 'wishlist', 'history_tab', 'settings'].map(t => (
                 <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${activeTab === t ? 'bg-dark-badge text-lime-accent shadow-sm' : 'text-muted hover:text-dark-text'}`}>
-                  {t === 'portfolio' ? 'Positions' : t === 'performance' ? 'Performance' : t === 'history' ? 'Trades' : t === 'history_tab' ? 'History' : 'Settings'}
+                  {t === 'portfolio' ? 'Positions' : t === 'performance' ? 'Performance' : t === 'history' ? 'Completed Trades' : t === 'wishlist' ? 'Wishlist' : t === 'history_tab' ? 'History' : 'Settings'}
                 </button>
               ))}
             </div>
@@ -1517,13 +1845,13 @@
                     </thead>
                     <tbody>
                       {getSorted().map((p, index) => {
-                        const cleanTicker = p.ticker;
+                        const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                         const cached = priceCache[cleanTicker];
                         const currentPrice = cached?.success ? cached.price : p.currentPrice;
                         const freshness = getPriceFreshness(cached?.lastUpdated);
                         const pnl = (currentPrice - p.entryPrice) * p.quantity;
                         const pnlP = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
-                        const displayTicker = p.ticker;
+                        const displayTicker = p.ticker.replace('.HK', '');
 
                         const isWarning = pnlP <= -8 && pnlP > -10;
                         const isDanger = pnlP <= -10;
@@ -1592,7 +1920,7 @@
                       {(() => {
                         const totalCost = positions.reduce((s, p) => s + p.quantity * p.entryPrice, 0);
                         const totalValue = positions.reduce((s, p) => {
-                          const ct = p.ticker;
+                          const ct = p.ticker.replace(/b\.HK$/, '.HK');
                           const price = priceCache[ct]?.price || p.currentPrice;
                           return s + p.quantity * price;
                         }, 0);
@@ -1635,10 +1963,10 @@
                   ];
 
                   const pieData = positions.map((p, i) => {
-                    const ct = p.ticker;
+                    const ct = p.ticker.replace(/b\.HK$/, '.HK');
                     const price = priceCache[ct]?.price || p.currentPrice;
                     const value = price * p.quantity;
-                    return { name: p.ticker, companyName: p.name, value, fill: COLORS[i % COLORS.length] };
+                    return { name: p.ticker.replace('.HK', ''), companyName: p.name, value, fill: COLORS[i % COLORS.length] };
                   }).sort((a, b) => b.value - a.value);
                   const total = pieData.reduce((s, d) => s + d.value, 0);
 
@@ -1759,6 +2087,209 @@
               </div>
             )}
 
+            {/* Wishlist Tab */}
+            {activeTab === 'wishlist' && (
+              <div className="space-y-4">
+                {/* Target Reached Alert Banner */}
+                {(() => {
+                  const alerts = getActiveWishlistAlerts();
+                  if (alerts.length === 0) return null;
+                  return (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0">
+                          <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-green-800 mb-2">
+                            Prix cible atteint! ({alerts.length} action{alerts.length > 1 ? 's' : ''})
+                          </h3>
+                          <div className="space-y-2">
+                            {alerts.map(w => (
+                              <div key={w.id} className="flex items-center justify-between bg-white/60 rounded-lg px-3 py-2">
+                                <div>
+                                  <span className="font-semibold text-green-900">{w.ticker}</span>
+                                  <span className="text-green-700 ml-2">{w.name}</span>
+                                  <span className="text-green-600 ml-3 text-sm">
+                                    {fmt(w.currentPrice, 2)} USD (cible: {fmt(w.targetPrice, 2)})
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => dismissWishlistAlert(w.id)}
+                                  className="text-green-600 hover:text-green-800 text-sm font-medium px-2 py-1 hover:bg-green-100 rounded transition-colors"
+                                >
+                                  Fermer
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Add Wishlist Item Form */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-3">
+                  <h3 className="font-semibold mb-2 text-sm">Ajouter à la Wishlist</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                    <input
+                      placeholder="Ticker (ex: 9961)"
+                      value={newWishlistItem.ticker}
+                      onChange={(e) => setNewWishlistItem({ ...newWishlistItem, ticker: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <input
+                      placeholder="Nom (optionnel)"
+                      value={newWishlistItem.name}
+                      onChange={(e) => setNewWishlistItem({ ...newWishlistItem, name: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Prix cible"
+                      value={newWishlistItem.targetPrice}
+                      onChange={(e) => setNewWishlistItem({ ...newWishlistItem, targetPrice: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <input
+                      placeholder="Notes (optionnel)"
+                      value={newWishlistItem.notes}
+                      onChange={(e) => setNewWishlistItem({ ...newWishlistItem, notes: e.target.value })}
+                      className="bg-gray-50 rounded px-2 py-1.5"
+                    />
+                    <button
+                      onClick={addWishlistItem}
+                      className="bg-lime-accent text-dark-text rounded px-2 py-1.5 flex items-center justify-center gap-1"
+                    >
+                      <Plus size={14} /> Ajouter
+                    </button>
+                  </div>
+                </div>
+
+                {/* Wishlist Table */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Ticker</th>
+                        <th className="px-2 py-1.5 text-left">Nom</th>
+                        <th className="px-2 py-1.5 text-right">Prix actuel</th>
+                        <th className="px-2 py-1.5 text-right">Jour %</th>
+                        <th className="px-2 py-1.5 text-right">Prix cible</th>
+                        <th className="px-2 py-1.5 text-right">Gap</th>
+                        <th className="px-2 py-1.5 text-center">Ajouté</th>
+                        <th className="px-2 py-1.5 text-left">Notes</th>
+                        <th className="px-2 py-1.5 text-center w-20">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {getWishlistWithPrices().map(w => {
+                        const isEditing = editingWishlistId === w.id;
+                        const rowClass = w.targetReached
+                          ? 'bg-green-50 hover:bg-green-100'
+                          : w.gap !== null && w.gap <= 5
+                            ? 'bg-yellow-50 hover:bg-yellow-100'
+                            : 'hover:bg-gray-50';
+
+                        return (
+                          <tr key={w.id} className={rowClass}>
+                            <td className="px-2 py-1.5 font-mono font-semibold">
+                              {w.targetReached && <span className="mr-1">✅</span>}
+                              {w.ticker}
+                            </td>
+                            <td className="px-2 py-1.5 truncate max-w-[120px]" title={w.name}>{w.name}</td>
+                            <td className="px-2 py-1.5 text-right font-mono">
+                              {w.currentPrice !== null ? fmt(w.currentPrice, 2) : '—'}
+                            </td>
+                            <td className={`px-2 py-1.5 text-right ${w.dailyChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {w.currentPrice !== null ? `${w.dailyChangePercent >= 0 ? '+' : ''}${w.dailyChangePercent.toFixed(2)}%` : '—'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  defaultValue={w.targetPrice}
+                                  onBlur={(e) => updateWishlistItem(w.id, { targetPrice: parseFloat(e.target.value) || w.targetPrice })}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingWishlistId(null); }}
+                                  className="w-16 bg-gray-100 rounded px-1 py-0.5 text-right"
+                                  autoFocus
+                                />
+                              ) : (
+                                <span
+                                  className="cursor-pointer hover:text-lime-hover"
+                                  onClick={() => setEditingWishlistId(w.id)}
+                                  title="Cliquer pour modifier"
+                                >
+                                  {fmt(w.targetPrice, 2)}
+                                </span>
+                              )}
+                            </td>
+                            <td className={`px-2 py-1.5 text-right font-semibold ${
+                              w.gap === null ? 'text-muted' :
+                              w.gap <= 0 ? 'text-green-600' :
+                              w.gap <= 5 ? 'text-orange-600' :
+                              'text-muted'
+                            }`}>
+                              {w.gap !== null ? `${w.gap > 0 ? '+' : ''}${w.gap.toFixed(1)}%` : '—'}
+                            </td>
+                            <td className="px-2 py-1.5 text-center text-muted">{fmtDate(w.dateAdded)}</td>
+                            <td className="px-2 py-1.5 text-muted truncate max-w-[100px]" title={w.notes}>{w.notes || '—'}</td>
+                            <td className="px-2 py-1.5">
+                              <div className="flex justify-center gap-1">
+                                <button
+                                  onClick={() => deleteWishlistItem(w.id)}
+                                  className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"
+                                  title="Supprimer"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {wishlist.length === 0 && (
+                        <tr>
+                          <td colSpan="9" className="px-4 py-8 text-center text-muted">
+                            Aucune action dans la wishlist. Ajoutez des tickers à surveiller.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Wishlist Summary */}
+                {wishlist.length > 0 && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-4">
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <div>
+                        <span className="text-muted">Total:</span>
+                        <span className="ml-2 font-semibold">{wishlist.length} action{wishlist.length > 1 ? 's' : ''}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted">Prix cible atteint:</span>
+                        <span className="ml-2 font-semibold text-green-600">
+                          {getWishlistWithPrices().filter(w => w.targetReached).length}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted">Proche du cible (≤5%):</span>
+                        <span className="ml-2 font-semibold text-orange-600">
+                          {getWishlistWithPrices().filter(w => w.gap !== null && w.gap > 0 && w.gap <= 5).length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Transactions Tab */}
             {activeTab === 'transactions' && (
               <div>
@@ -1789,7 +2320,7 @@
                     />
                     {newTransaction.type === 'dividend' && (
                       <input
-                        placeholder="Ticker (ex: AAPL)"
+                        placeholder="Ticker (ex: 9961.HK)"
                         value={newTransaction.linkedTicker}
                         onChange={(e) => setNewTransaction({ ...newTransaction, linkedTicker: e.target.value })}
                         className="bg-gray-50 rounded px-2 py-1.5"
@@ -1886,7 +2417,7 @@
                     <tbody>
                       {closedWithCalc.map((t, i) => (
                         <tr key={i} className="border-t border-gray-100">
-                          <td className="px-2 py-1.5 font-mono text-lime-hover">{t.ticker}</td>
+                          <td className="px-2 py-1.5 font-mono text-lime-hover">{t.ticker.replace('.HK', '')}</td>
                           <td className="px-2 py-1.5 text-right">{fmt(t.quantity)}</td>
                           <td className="px-2 py-1.5 text-right">{t.entryPrice.toFixed(2)}</td>
                           <td className="px-2 py-1.5 text-right">{t.exitPrice.toFixed(2)}</td>
@@ -1915,7 +2446,7 @@
                 {/* Duration vs P&L Analysis */}
                 {closedWithCalc.length >= 2 && (() => {
                   const trades = closedWithCalc.map(t => ({
-                    ticker: t.ticker,
+                    ticker: t.ticker.replace('.HK', ''),
                     days: t.days,
                     pnlPercent: t.pnlPercent,
                     pnl: t.pnl,
@@ -2127,7 +2658,7 @@
               const totalPortfolioValue = m.totalValue;
               const todayStr = new Date().toISOString().split('T')[0];
               const moversData = positions.map(p => {
-                const cleanTicker = p.ticker;
+                const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[cleanTicker];
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
@@ -2157,7 +2688,7 @@
 
               // Include positions closed today in movers
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
-                const ct = t.ticker;
+                const ct = t.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[ct];
                 const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
@@ -2200,12 +2731,12 @@
                     <div className="flex flex-wrap gap-2 mt-3">
                       {top3Gainers.map(p => (
                         <span key={p.id} className="bg-green-50 border border-green-200 text-green-600 px-2 py-1 rounded text-xs">
-                          {p.ticker} +{p.dailyChangePercent.toFixed(2)}%
+                          {p.ticker.replace('.HK', '')} +{p.dailyChangePercent.toFixed(2)}%
                         </span>
                       ))}
                       {top3Losers.map(p => (
                         <span key={p.id} className="bg-red-50 border border-red-200 text-red-600 px-2 py-1 rounded text-xs">
-                          {p.ticker} {p.dailyChangePercent.toFixed(2)}%
+                          {p.ticker.replace('.HK', '')} {p.dailyChangePercent.toFixed(2)}%
                         </span>
                       ))}
                     </div>
@@ -2234,7 +2765,7 @@
                       {allMovers.map(p => (
                         <tr key={p.id} className={`border-t border-gray-100 ${p.isDanger ? 'row-danger' : p.isWarning ? 'row-warning' : ''}`}>
                           <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
-                            {p.ticker}
+                            {p.ticker.replace('.HK', '')}
                             {p.isClosed ? ' (sold)' : ''}
                             {p.isNewToday && <span className="ml-1 text-lime-accent text-[9px]">NEW</span>}
                             {p.isDanger && <span className="ml-1 text-red-500 animate-pulse" title="STOP LOSS">🚨</span>}
@@ -2278,10 +2809,18 @@
 
                   // Build daily P&L map from consecutive snapshots
                   // Override today's snapshot value with live portfolio value
+                  // EXCLUDE weekend snapshots from calculation (market closed Sat/Sun)
                   const todayDate = new Date().toISOString().split('T')[0];
-                  const sortedSnaps = [...snapshots].map(s =>
-                    s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s
-                  ).sort((a, b) => a.date.localeCompare(b.date));
+                  const isWeekendDate = (dateStr) => {
+                    // Parse as local time to be consistent with calendar cells
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    const d = new Date(year, month - 1, day);
+                    return d.getDay() === 0 || d.getDay() === 6;
+                  };
+                  const sortedSnaps = [...snapshots]
+                    .filter(s => !isWeekendDate(s.date)) // Exclude weekend snapshots
+                    .map(s => s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s)
+                    .sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
                   for (let i = 1; i < sortedSnaps.length; i++) {
                     // Daily P&L = change in unrealizedPnL + change in realizedPnL
@@ -2292,7 +2831,7 @@
                   }
                   // Always show today's daily gain from live price data (sum of each position's daily P&L)
                   const todayPnl = positions.reduce((sum, p) => {
-                    const ct = p.ticker;
+                    const ct = p.ticker.replace(/b\.HK$/, '.HK');
                     const cached = priceCache[ct];
                     const isNewToday = p.entryDate === todayDate;
                     if (isNewToday) {
@@ -2306,12 +2845,13 @@
                   }, 0);
                   // Add P&L from positions closed today (exitPrice - previousClose)
                   const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
-                    const ct = t.ticker;
+                    const ct = t.ticker.replace(/b\.HK$/, '.HK');
                     const cached = priceCache[ct];
                     const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
-                  if (Object.values(priceCache).some(c => c?.success)) {
+                  // Only set today's P&L if it's a trading day (not weekend)
+                  if (Object.values(priceCache).some(c => c?.success) && !isWeekendDate(todayDate)) {
                     pnlMap[todayDate] = todayPnl + closedTodayPnl;
                   }
 
@@ -2326,7 +2866,11 @@
                   for (let i = 0; i < startDay; i++) cells.push(null);
                   for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    cells.push({ day: d, date: dateStr, pnl: pnlMap[dateStr] });
+                    const dayDate = new Date(year, month, d);
+                    const dayOfWeek = dayDate.getDay();
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    // Don't show P&L for weekends (market closed)
+                    cells.push({ day: d, date: dateStr, pnl: isWeekend ? undefined : pnlMap[dateStr], isWeekend });
                   }
 
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -2358,8 +2902,11 @@
                           if (!cell) return <div key={`empty-${i}`} />;
                           const hasPnl = cell.pnl !== undefined;
                           const isToday = cell.date === todayStr;
+                          const isWeekend = cell.isWeekend;
                           let bg = 'bg-gray-50/30';
-                          if (hasPnl) {
+                          if (isWeekend) {
+                            bg = 'bg-gray-100/50'; // Weekend cells greyed out
+                          } else if (hasPnl) {
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }
                           return (
@@ -2460,10 +3007,10 @@
                     <ResponsiveContainer width="100%" height={400}>
                       <BarChart
                         data={getSorted().sort((a,b) => b.days - a.days).map(p => {
-                          const cleanTicker = p.ticker;
+                          const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                           const price = priceCache[cleanTicker]?.price || p.currentPrice;
                           return {
-                            name: p.ticker,
+                            name: p.ticker.replace('.HK', ''),
                             days: p.days,
                             isWinner: price >= p.entryPrice
                           };
@@ -2477,7 +3024,7 @@
                         <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none' }} formatter={(v) => [v + ' jours', 'Durée']} />
                         <Bar dataKey="days">
                           {getSorted().sort((a,b) => b.days - a.days).map((p, i) => {
-                            const cleanTicker = p.ticker;
+                            const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                             const price = priceCache[cleanTicker]?.price || p.currentPrice;
                             return <Cell key={i} fill={price >= p.entryPrice ? '#10B981' : '#EF4444'} />;
                           })}
@@ -2728,9 +3275,10 @@
                     <p>Positions: {positions.length}</p>
                     <p>Trades clôturés: {closedTrades.length}</p>
                     <p>Transactions: {transactions.length}</p>
+                    <p>Wishlist: {wishlist.length}</p>
                     <p>Snapshots: {snapshots.length}</p>
                     <p>Prix en cache: {Object.keys(priceCache).length}</p>
-                    <p>Stockage: Firebase Firestore (hk-portfolio-sync)</p>
+                    <p>Stockage: Firebase Firestore (us-portfolios collection)</p>
                     <p className="text-green-600 text-xs mt-2">Les données sont privées et liées à votre compte.</p>
                   </div>
                 </div>
@@ -2743,11 +3291,95 @@
                   </h3>
                   <a
                     href="index.html"
-                    className="inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 font-medium px-4 py-2 rounded-lg text-sm transition-colors"
+                    className="inline-flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium px-4 py-2 rounded-lg text-sm transition-colors"
                   >
                     <span className="text-lg">🇭🇰</span> Portfolio HK (HKD)
                   </a>
                 </div>
+
+                {/* Share Portfolio - Allow others to view */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      Partager mon portfolio
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Autorisez d'autres personnes à consulter votre portfolio (lecture seule)</p>
+
+                    {/* Add viewer form */}
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="email"
+                        placeholder="Email de la personne à autoriser"
+                        id="newViewerEmail"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('newViewerEmail');
+                          if (input.value) {
+                            addAllowedViewer(input.value);
+                            input.value = '';
+                          }
+                        }}
+                        className="bg-lime-accent hover:bg-lime-hover text-dark-text font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Autoriser
+                      </button>
+                    </div>
+
+                    {/* List of allowed viewers */}
+                    {allowedViewers.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted font-medium">Personnes autorisées:</p>
+                        {allowedViewers.map(email => (
+                          <div key={email} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                            <span className="text-sm">{email}</span>
+                            <button
+                              onClick={() => removeAllowedViewer(email)}
+                              className="text-red-600 hover:text-red-700 text-xs font-medium"
+                            >
+                              Retirer
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted">Aucune personne autorisée</p>
+                    )}
+                  </div>
+                )}
+
+                {/* View Friend's Portfolio */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      Voir portfolio d'un ami
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Consultez le portfolio d'un ami qui vous a autorisé</p>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        placeholder="Email de votre ami"
+                        id="friendEmail"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('friendEmail');
+                          if (input.value) {
+                            viewFriendPortfolio(input.value);
+                          }
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Voir
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Account / Logout */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
