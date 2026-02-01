@@ -2701,7 +2701,8 @@
                     const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
-                  if (Object.values(priceCache).some(c => c?.success)) {
+                  // Only set today's P&L if it's a trading day (not weekend)
+                  if (Object.values(priceCache).some(c => c?.success) && !isWeekendDate(todayDate)) {
                     pnlMap[todayDate] = todayPnl + closedTodayPnl;
                   }
 
