@@ -906,6 +906,14 @@
         }
 
         // Auto-save/update snapshot for today (always update to capture trade closures)
+        // Skip weekends - market is closed on Saturday (6) and Sunday (0)
+        const dayOfWeek = new Date().getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        if (isWeekend) {
+          console.log('Skipping snapshot - weekend (market closed)');
+          return;
+        }
+
         const closedWithCalc = closedTrades.map(t => ({
           pnl: (t.exitPrice - t.entryPrice) * t.quantity
         }));
@@ -2701,7 +2709,11 @@
                   for (let i = 0; i < startDay; i++) cells.push(null);
                   for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    cells.push({ day: d, date: dateStr, pnl: pnlMap[dateStr] });
+                    const dayDate = new Date(year, month, d);
+                    const dayOfWeek = dayDate.getDay();
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    // Don't show P&L for weekends (market closed)
+                    cells.push({ day: d, date: dateStr, pnl: isWeekend ? undefined : pnlMap[dateStr], isWeekend });
                   }
 
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -2733,8 +2745,11 @@
                           if (!cell) return <div key={`empty-${i}`} />;
                           const hasPnl = cell.pnl !== undefined;
                           const isToday = cell.date === todayStr;
+                          const isWeekend = cell.isWeekend;
                           let bg = 'bg-gray-50/30';
-                          if (hasPnl) {
+                          if (isWeekend) {
+                            bg = 'bg-gray-100/50'; // Weekend cells greyed out
+                          } else if (hasPnl) {
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }
                           return (
