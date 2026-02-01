@@ -1297,7 +1297,9 @@
         // Auto-fetch price for new wishlist item
         try {
           const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
-          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`);
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+          const proxyUrl = buildProxyUrl(yahooUrl, settings.corsProxy);
+          const resp = await fetch(proxyUrl);
           const json = await resp.json();
           const result = json?.chart?.result?.[0];
           if (result) {
@@ -1955,7 +1957,7 @@
                                   <span className="font-semibold text-green-900">{w.ticker}</span>
                                   <span className="text-green-700 ml-2">{w.name}</span>
                                   <span className="text-green-600 ml-3 text-sm">
-                                    {fmt(w.currentPrice)} HKD (cible: {fmt(w.targetPrice)})
+                                    {fmt(w.currentPrice, 2)} HKD (cible: {fmt(w.targetPrice, 2)})
                                   </span>
                                 </div>
                                 <button
@@ -2045,7 +2047,7 @@
                             </td>
                             <td className="px-2 py-1.5 truncate max-w-[120px]" title={w.name}>{w.name}</td>
                             <td className="px-2 py-1.5 text-right font-mono">
-                              {w.currentPrice !== null ? fmt(w.currentPrice) : '—'}
+                              {w.currentPrice !== null ? fmt(w.currentPrice, 2) : '—'}
                             </td>
                             <td className={`px-2 py-1.5 text-right ${w.dailyChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {w.currentPrice !== null ? `${w.dailyChangePercent >= 0 ? '+' : ''}${w.dailyChangePercent.toFixed(2)}%` : '—'}
@@ -2067,7 +2069,7 @@
                                   onClick={() => setEditingWishlistId(w.id)}
                                   title="Cliquer pour modifier"
                                 >
-                                  {fmt(w.targetPrice)}
+                                  {fmt(w.targetPrice, 2)}
                                 </span>
                               )}
                             </td>
