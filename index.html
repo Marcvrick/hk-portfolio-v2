@@ -1598,9 +1598,9 @@
 
             {/* Tabs - Pill style navigation */}
             <div className="flex gap-2 p-1 bg-gray-100 rounded-full w-fit overflow-x-auto">
-              {['portfolio', 'wishlist', 'performance', 'history', 'history_tab', 'settings'].map(t => (
+              {['portfolio', 'performance', 'history', 'wishlist', 'history_tab', 'settings'].map(t => (
                 <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${activeTab === t ? 'bg-dark-badge text-lime-accent shadow-sm' : 'text-muted hover:text-dark-text'}`}>
-                  {t === 'portfolio' ? 'Positions' : t === 'wishlist' ? 'Wishlist' : t === 'performance' ? 'Performance' : t === 'history' ? 'Trades' : t === 'history_tab' ? 'History' : 'Settings'}
+                  {t === 'portfolio' ? 'Positions' : t === 'performance' ? 'Performance' : t === 'history' ? 'Completed Trades' : t === 'wishlist' ? 'Wishlist' : t === 'history_tab' ? 'History' : 'Settings'}
                 </button>
               ))}
             </div>
