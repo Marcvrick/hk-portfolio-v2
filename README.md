@@ -255,8 +255,17 @@ python -m http.server 8000
   - Profit from sold shares reduces the entry price of remaining shares
   - Example: Buy 1000 @ $10, sell 500 @ $12 → remaining 500 @ $8
   - Ensures accurate P&L tracking on remaining position
+- **Position averaging** - Adding to existing positions:
+  - If ticker already exists, quantities are merged
+  - Entry price recalculated as weighted average
+  - Example: 1000 @ $10 + 500 @ $13 → 1500 @ $11
+- **Wishlist alert popup** - On login notification:
+  - Popup appears when stocks reach target price
+  - Shows all triggered alerts with current vs target price
+  - Quick navigation to Wishlist tab
 - **UI improvements**
   - Wider price input field for 5-6 digit prices
+  - Entry price now editable in positions table
 - **US Portfolio synced** - index-us.html now has all v2.5 features
 
 ### v2.4 (Jan 2025)
