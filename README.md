@@ -251,6 +251,12 @@ python -m http.server 8000
   - Calendar excludes weekend days from P&L display
   - "Aujourd'hui" tile shows "Vendredi" with Friday's P&L on weekends
   - Timezone-safe weekend detection
+- **Partial sell cost basis adjustment** - When selling part of a position:
+  - Profit from sold shares reduces the entry price of remaining shares
+  - Example: Buy 1000 @ $10, sell 500 @ $12 → remaining 500 @ $8
+  - Ensures accurate P&L tracking on remaining position
+- **UI improvements**
+  - Wider price input field for 5-6 digit prices
 - **US Portfolio synced** - index-us.html now has all v2.5 features
 
 ### v2.4 (Jan 2025)
