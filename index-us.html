@@ -1239,9 +1239,18 @@
 
         let newPos;
         if (isPartial) {
-          // Partial close: reduce position quantity
+          // Partial close: reduce quantity AND adjust entry price based on profit
+          // Formula: newEntryPrice = (remainingCost - profit) / remainingQty
+          // This reduces cost basis by the profit made on sold shares
+          const remainingQty = position.quantity - qty;
+          const profit = (parseFloat(exitPrice) - position.entryPrice) * qty;
+          const remainingCost = position.entryPrice * remainingQty;
+          // New cost basis = remaining cost minus profit (if profit positive, reduces basis)
+          const adjustedCost = remainingCost - profit;
+          const newEntryPrice = Math.max(0.01, adjustedCost / remainingQty); // Min 0.01 to avoid negative
+
           newPos = positions.map(p => p.id === position.id
-            ? { ...p, quantity: p.quantity - qty }
+            ? { ...p, quantity: remainingQty, entryPrice: Math.round(newEntryPrice * 1000) / 1000 }
             : p
           );
         } else {
