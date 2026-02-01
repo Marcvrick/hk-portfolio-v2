@@ -1358,8 +1358,8 @@
       // ===== WISHLIST ACTIONS =====
       const addWishlistItem = async () => {
         if (!newWishlistItem.ticker || !newWishlistItem.targetPrice) return alert('Ticker et Prix cible requis');
+        // US tickers - just uppercase, no suffix
         let ticker = newWishlistItem.ticker.toUpperCase();
-        if (!ticker.endsWith('.HK')) ticker = ticker + '.HK';
 
         const item = {
           id: Date.now(),
@@ -1376,7 +1376,7 @@
 
         // Auto-fetch price for new wishlist item
         try {
-          const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
+          const cleanTicker = ticker; // US tickers don't need cleaning
           const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
           const proxyUrl = buildProxyUrl(yahooUrl, settings.corsProxy);
           const resp = await fetch(proxyUrl);
@@ -2244,7 +2244,7 @@
                   <h3 className="font-semibold mb-2 text-sm">Ajouter à la Wishlist</h3>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
                     <input
-                      placeholder="Ticker (ex: 9961)"
+                      placeholder="Ticker (ex: TSLA)"
                       value={newWishlistItem.ticker}
                       onChange={(e) => setNewWishlistItem({ ...newWishlistItem, ticker: e.target.value })}
                       className="bg-gray-50 rounded px-2 py-1.5"
@@ -2428,7 +2428,7 @@
                     />
                     {newTransaction.type === 'dividend' && (
                       <input
-                        placeholder="Ticker (ex: 9961.HK)"
+                        placeholder="Ticker (ex: AAPL)"
                         value={newTransaction.linkedTicker}
                         onChange={(e) => setNewTransaction({ ...newTransaction, linkedTicker: e.target.value })}
                         className="bg-gray-50 rounded px-2 py-1.5"
