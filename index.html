@@ -2808,9 +2808,10 @@
                   // EXCLUDE weekend snapshots from calculation (market closed Sat/Sun)
                   const todayDate = new Date().toISOString().split('T')[0];
                   const isWeekendDate = (dateStr) => {
-                    const d = new Date(dateStr);
-                    const day = d.getDay();
-                    return day === 0 || day === 6;
+                    // Parse as local time to be consistent with calendar cells
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    const d = new Date(year, month - 1, day);
+                    return d.getDay() === 0 || d.getDay() === 6;
                   };
                   const sortedSnaps = [...snapshots]
                     .filter(s => !isWeekendDate(s.date)) // Exclude weekend snapshots
