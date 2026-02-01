@@ -1195,16 +1195,39 @@
         // Ensure .HK suffix
         if (!ticker.endsWith('.HK')) ticker = ticker + '.HK';
 
-        const pos = {
-          id: Date.now(),
-          ticker: ticker,
-          name: newPosition.name || ticker,
-          quantity: parseFloat(newPosition.quantity),
-          entryPrice: parseFloat(newPosition.entryPrice),
-          currentPrice: parseFloat(newPosition.currentPrice) || parseFloat(newPosition.entryPrice),
-          entryDate: newPosition.entryDate
-        };
-        const newPos = [...positions, pos];
+        const newQty = parseFloat(newPosition.quantity);
+        const newPrice = parseFloat(newPosition.entryPrice);
+
+        // Check if position already exists for this ticker
+        const existingIndex = positions.findIndex(p => p.ticker === ticker);
+
+        let newPos;
+        if (existingIndex >= 0) {
+          // Position exists - calculate weighted average price and add quantity
+          const existing = positions[existingIndex];
+          const totalQty = existing.quantity + newQty;
+          const avgPrice = (existing.quantity * existing.entryPrice + newQty * newPrice) / totalQty;
+
+          newPos = positions.map((p, i) => i === existingIndex ? {
+            ...p,
+            quantity: totalQty,
+            entryPrice: Math.round(avgPrice * 1000) / 1000, // Round to 3 decimals
+            name: newPosition.name || p.name // Update name if provided
+          } : p);
+        } else {
+          // New position
+          const pos = {
+            id: Date.now(),
+            ticker: ticker,
+            name: newPosition.name || ticker,
+            quantity: newQty,
+            entryPrice: newPrice,
+            currentPrice: parseFloat(newPosition.currentPrice) || newPrice,
+            entryDate: newPosition.entryDate
+          };
+          newPos = [...positions, pos];
+        }
+
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
