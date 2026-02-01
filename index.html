@@ -701,7 +701,7 @@
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
       const [lastRefresh, setLastRefresh] = useState(null);
-      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false });
+      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
       const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
       const [darkMode, setDarkMode] = useState(() => {
         const saved = localStorage.getItem('portfolioDarkMode');
@@ -872,6 +872,10 @@
         // Capital Engagé = coût d'achat des positions ouvertes (AUTOMATIQUE)
         const capitalEngaged = positions.reduce((sum, p) => sum + (p.quantity * p.entryPrice), 0);
 
+        // Check if it's a weekend (market closed) - do this early
+        const dayOfWeek = new Date().getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
         // Check if we have a snapshot for today
         const todaySnapshot = snapshots.find(s => s.date === today);
 
@@ -879,53 +883,76 @@
         const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
         const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
 
-        // Calculate daily gain — prefer price cache (price vs previousClose), fallback to snapshots
-        const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
-        if (hasPriceData) {
-          const gain = positions.reduce((sum, p) => {
-            const ct = p.ticker.replace(/b\.HK$/, '.HK');
-            const cached = priceCache[ct];
-            const isNewToday = p.entryDate === today;
-            if (isNewToday) {
-              const curPrice = cached?.success ? cached.price : p.currentPrice;
-              return sum + (curPrice - p.entryPrice) * p.quantity;
-            }
-            if (cached?.success && cached.previousClose) {
-              return sum + (cached.price - cached.previousClose) * p.quantity;
-            }
-            return sum;
-          }, 0);
-          const prevTotal = positions.reduce((sum, p) => {
-            const ct = p.ticker.replace(/b\.HK$/, '.HK');
-            const cached = priceCache[ct];
-            const isNewToday = p.entryDate === today;
-            const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
-            return sum + prev * p.quantity;
-          }, 0);
-          // Add P&L from positions closed today (exitPrice - previousClose)
-          const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
-            const ct = t.ticker.replace(/b\.HK$/, '.HK');
-            const cached = priceCache[ct];
-            const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
-            return sum + (t.exitPrice - prevClose) * t.quantity;
-          }, 0);
-          const totalGain = gain + closedTodayGain;
-          const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-          setDailyGain({ value: totalGain, percent, hasYesterday: true });
-        } else if (yesterdaySnapshot) {
-          const gain = currentValue - yesterdaySnapshot.portfolioValue;
-          const percent = yesterdaySnapshot.portfolioValue > 0
-            ? (gain / yesterdaySnapshot.portfolioValue) * 100
-            : 0;
-          setDailyGain({ value: gain, percent, hasYesterday: true });
+        // Calculate daily gain
+        // On weekends: show last trading day's P&L from snapshots (Friday's change)
+        // On weekdays: prefer live price cache, fallback to snapshots
+        if (isWeekend) {
+          // Find the last two trading day snapshots to calculate Friday's P&L
+          const isWeekendDate = (dateStr) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            return dt.getDay() === 0 || dt.getDay() === 6;
+          };
+          const tradingDaySnapshots = sortedSnapshots.filter(s => !isWeekendDate(s.date));
+          if (tradingDaySnapshots.length >= 2) {
+            // Friday's P&L = Friday snapshot - Thursday snapshot
+            const fridaySnap = tradingDaySnapshots[0];
+            const thursdaySnap = tradingDaySnapshots[1];
+            const unrealizedChange = (fridaySnap.unrealizedPnL || 0) - (thursdaySnap.unrealizedPnL || 0);
+            const realizedChange = (fridaySnap.realizedPnL || 0) - (thursdaySnap.realizedPnL || 0);
+            const fridayGain = unrealizedChange + realizedChange;
+            const percent = thursdaySnap.portfolioValue > 0 ? (fridayGain / thursdaySnap.portfolioValue) * 100 : 0;
+            setDailyGain({ value: fridayGain, percent, hasYesterday: true, isWeekend: true });
+          } else {
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true });
+          }
         } else {
-          setDailyGain({ value: 0, percent: 0, hasYesterday: false });
+          // Weekday: use live price data
+          const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
+          if (hasPriceData) {
+            const gain = positions.reduce((sum, p) => {
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const isNewToday = p.entryDate === today;
+              if (isNewToday) {
+                const curPrice = cached?.success ? cached.price : p.currentPrice;
+                return sum + (curPrice - p.entryPrice) * p.quantity;
+              }
+              if (cached?.success && cached.previousClose) {
+                return sum + (cached.price - cached.previousClose) * p.quantity;
+              }
+              return sum;
+            }, 0);
+            const prevTotal = positions.reduce((sum, p) => {
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const isNewToday = p.entryDate === today;
+              const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+              return sum + prev * p.quantity;
+            }, 0);
+            // Add P&L from positions closed today (exitPrice - previousClose)
+            const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
+              const ct = t.ticker.replace(/b\.HK$/, '.HK');
+              const cached = priceCache[ct];
+              const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+              return sum + (t.exitPrice - prevClose) * t.quantity;
+            }, 0);
+            const totalGain = gain + closedTodayGain;
+            const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false });
+          } else if (yesterdaySnapshot) {
+            const gain = currentValue - yesterdaySnapshot.portfolioValue;
+            const percent = yesterdaySnapshot.portfolioValue > 0
+              ? (gain / yesterdaySnapshot.portfolioValue) * 100
+              : 0;
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false });
+          } else {
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
+          }
         }
 
         // Auto-save/update snapshot for today (always update to capture trade closures)
         // Skip weekends - market is closed on Saturday (6) and Sunday (0)
-        const dayOfWeek = new Date().getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
         if (isWeekend) {
           console.log('Skipping snapshot - weekend (market closed)');
           return;
@@ -1714,13 +1741,15 @@
                 </span>
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Aujourd'hui</div>
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">
+                  {dailyGain.isWeekend ? 'Vendredi' : "Aujourd'hui"}
+                </div>
                 {dailyGain.hasYesterday ? (
                   <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {dailyGain.value >= 0 ? '+' : ''}{fmt(dailyGain.value)}
                   </span>
                 ) : (
-                  <div className="text-xs md:text-lg font-bold text-muted">-</div>
+                  <div className="text-xs md:text-lg font-bold text-muted">{dailyGain.isWeekend ? 'Marché fermé' : '-'}</div>
                 )}
               </div>
               <InfoTooltip text="% de trades CLÔTURÉS gagnants (prix vente > prix achat)">
