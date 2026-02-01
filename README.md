@@ -17,6 +17,7 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 - Daily P&L calendar with performance history
 - Position duration tracking with visual alerts
 - Closed trades history with win rate analytics
+- **Wishlist** - Track stocks you want to buy with target price alerts
 
 ### UI/UX (v2.3)
 - **Dark mode** (default) with light mode toggle (sun/moon icon)
@@ -96,6 +97,8 @@ portfolios/
       ├── positions: []
       ├── closedTrades: []
       ├── transactions: []
+      ├── wishlist: []
+      ├── wishlistAlertsDismissed: {}
       ├── snapshots: []
       ├── settings: {}
       └── priceCache: {}
@@ -168,6 +171,7 @@ GitHub Pages auto-deploys from `main` branch.
 - [x] Multi-user support with data isolation
 - [x] Compact mobile metric cards (4 per row)
 - [x] Detailed error reporting (failed tickers by name)
+- [x] Wishlist tab with target price alerts (v2.5)
 
 ### Planned 🚧
 
@@ -219,6 +223,17 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.5 (Feb 2025)
+- **Wishlist Tab** - Track stocks you want to buy
+  - Add tickers with target buy price
+  - Live price fetching from Yahoo Finance
+  - Gap calculation (current price vs target)
+  - **Target reached alerts** - Banner notification when price hits target
+  - Dismissible alerts (persisted - won't show again until price cycles)
+  - Date added tracking
+  - Notes field for buy rationale
+  - Visual highlighting: green for target reached, yellow for close (≤5%)
 
 ### v2.4 (Jan 2025)
 - **US Portfolio Version** - New `index-us.html` for US stocks
