@@ -1235,15 +1235,22 @@
         // Auto-fetch price for new position
         try {
           const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
-          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`);
+          const entryDateStr = newPosition.entryDate;
+          const todayStr = new Date().toISOString().split('T')[0];
+          const daysDiff = Math.ceil((new Date(todayStr) - new Date(entryDateStr)) / (1000 * 60 * 60 * 24));
+          const range = Math.max(daysDiff + 10, 15) + 'd'; // Get enough history + buffer for weekends
+
+          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=${range}`);
           const json = await resp.json();
           const result = json?.chart?.result?.[0];
           if (result) {
             const meta = result.meta || {};
             const price = meta.regularMarketPrice;
+            const timestamps = result.timestamp || [];
             const closes = result.indicators?.quote?.[0]?.close || [];
             const validCloses = closes.filter(c => c != null);
             const previousClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : meta.previousClose || meta.chartPreviousClose || price;
+
             if (price) {
               const newCache = { ...priceCache, [cleanTicker]: {
                 success: true,
@@ -1255,7 +1262,52 @@
                 lastUpdated: new Date().toISOString()
               }};
               setPriceCache(newCache);
-              saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
+
+              // If entry date is in the past, recalculate historical snapshots
+              let updatedSnapshots = snapshots;
+              if (entryDateStr < todayStr && timestamps.length > 0) {
+                // Build date -> price map from historical data
+                const priceByDate = {};
+                timestamps.forEach((ts, i) => {
+                  const dateStr = new Date(ts * 1000).toISOString().split('T')[0];
+                  if (closes[i] != null) priceByDate[dateStr] = closes[i];
+                });
+
+                // Update snapshots from entry date onwards
+                updatedSnapshots = snapshots.map(s => {
+                  if (s.date >= entryDateStr) {
+                    // Find closest price for this date (handle weekends/holidays)
+                    let priceOnDate = priceByDate[s.date];
+                    if (!priceOnDate) {
+                      // Find the most recent price before this date
+                      const sortedDates = Object.keys(priceByDate).sort();
+                      for (const d of sortedDates) {
+                        if (d <= s.date) priceOnDate = priceByDate[d];
+                      }
+                    }
+                    priceOnDate = priceOnDate || newPrice; // fallback to entry price
+
+                    const valueToAdd = newQty * priceOnDate;
+                    const capitalToAdd = newQty * newPrice;
+                    const newPortfolioValue = s.portfolioValue + valueToAdd;
+                    const newCapitalEngaged = s.capitalEngaged + capitalToAdd;
+
+                    return {
+                      ...s,
+                      capitalEngaged: newCapitalEngaged,
+                      portfolioValue: newPortfolioValue,
+                      unrealizedPnL: newPortfolioValue - newCapitalEngaged,
+                      positionCount: s.positionCount + 1
+                    };
+                  }
+                  return s;
+                });
+
+                setSnapshots(updatedSnapshots);
+                console.log(`Updated ${updatedSnapshots.filter(s => s.date >= entryDateStr).length} historical snapshots for ${ticker}`);
+              }
+
+              saveData(newPos, closedTrades, transactions, newCache, updatedSnapshots, settings);
               console.log(`Auto-fetched price for ${ticker}: ${price}`);
             }
           }
