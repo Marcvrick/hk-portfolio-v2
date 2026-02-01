@@ -2797,12 +2797,18 @@
               // Calculate daily movers data
               const totalPortfolioValue = m.totalValue;
               const todayStr = new Date().toISOString().split('T')[0];
+              // Check if today is a weekend (market closed)
+              const todayDayOfWeek = new Date().getDay();
+              const isTodayWeekend = todayDayOfWeek === 0 || todayDayOfWeek === 6;
+
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[cleanTicker];
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
-                const previousClose = isNewToday ? p.entryPrice : (cached?.success ? cached.previousClose : p.currentPrice);
+                // On weekends, even for new positions, use Yahoo's previousClose to show last trading day's change
+                // On trading days, new positions show P&L from entry price
+                const previousClose = (isNewToday && !isTodayWeekend) ? p.entryPrice : (cached?.success ? cached.previousClose : p.currentPrice);
                 const dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
                 const dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
                 const marketValue = currentPrice * p.quantity;
@@ -2819,7 +2825,7 @@
                   dailyChangeDollar,
                   marketValue,
                   weight,
-                  isNewToday,
+                  isNewToday: isNewToday && !isTodayWeekend, // Only show NEW badge on trading days
                   totalPnlPercent,
                   isDanger,
                   isWarning
