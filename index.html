@@ -278,6 +278,9 @@
       const wishlist = data.wishlist || [];
       const wishlistAlertsDismissed = data.wishlistAlertsDismissed || {};
 
+      // Keep or create allowed viewers
+      const allowedViewers = data.allowedViewers || [];
+
       return {
         version: 7,
         positions,
@@ -287,7 +290,8 @@
         snapshots,
         settings,
         wishlist,
-        wishlistAlertsDismissed
+        wishlistAlertsDismissed,
+        allowedViewers
       };
     };
 
@@ -681,6 +685,9 @@
       const [settings, setSettings] = useState(DEFAULT_SETTINGS);
       const [wishlist, setWishlist] = useState([]);
       const [wishlistAlertsDismissed, setWishlistAlertsDismissed] = useState({}); // { tickerId: true } for dismissed alerts
+      const [allowedViewers, setAllowedViewers] = useState([]); // emails allowed to view this portfolio
+      const [viewingFriendEmail, setViewingFriendEmail] = useState(null); // email of friend's portfolio being viewed
+      const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [activeTab, setActiveTab] = useState('portfolio');
       const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
@@ -734,6 +741,7 @@
           setSnapshots(prev => JSON.stringify(prev) !== JSON.stringify(migrated.snapshots) ? migrated.snapshots : prev);
           setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlist) ? migrated.wishlist : prev);
           setWishlistAlertsDismissed(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlistAlertsDismissed) ? migrated.wishlistAlertsDismissed : prev);
+          setAllowedViewers(prev => JSON.stringify(prev) !== JSON.stringify(migrated.allowedViewers) ? migrated.allowedViewers : prev);
           // Don't update settings from remote to avoid overwriting local preferences
         });
 
@@ -760,6 +768,7 @@
             setSettings(data.settings || DEFAULT_SETTINGS);
             setWishlist(data.wishlist || []);
             setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
+            setAllowedViewers(data.allowedViewers || []);
           } else {
             // No Firestore data - try to migrate from localStorage
             console.log('No Firestore data, checking localStorage for migration...');
@@ -788,6 +797,7 @@
               setSettings(data.settings || DEFAULT_SETTINGS);
               setWishlist(data.wishlist || []);
               setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
+              setAllowedViewers(data.allowedViewers || []);
             } else {
               console.warn('No data found, using defaults');
               setPositions(INITIAL_POSITIONS);
@@ -805,7 +815,12 @@
         }
       };
 
-      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts) => {
+      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers) => {
+        // Don't save when viewing friend's portfolio
+        if (viewingFriendEmail) {
+          console.log('Skipping save - viewing friend portfolio (read-only mode)');
+          return;
+        }
         const dataToSave = {
           version: 7,
           positions: newPos ?? positions,
@@ -815,7 +830,9 @@
           snapshots: newSnap ?? snapshots,
           settings: newSettings ?? settings,
           wishlist: newWishlist ?? wishlist,
-          wishlistAlertsDismissed: newWishlistAlerts ?? wishlistAlertsDismissed
+          wishlistAlertsDismissed: newWishlistAlerts ?? wishlistAlertsDismissed,
+          allowedViewers: newAllowedViewers ?? allowedViewers,
+          ownerEmail: userEmail // For friend portfolio lookup
         };
         // Save to Firestore (primary)
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
@@ -823,7 +840,7 @@
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
         }
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, viewingFriendEmail]);
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
@@ -1402,6 +1419,112 @@
         return getWishlistWithPrices().filter(w => w.targetReached && !w.alertDismissed);
       };
 
+      // ===== FRIEND PORTFOLIO VIEWING =====
+      const viewFriendPortfolio = async (friendEmail) => {
+        if (!friendEmail || !friendEmail.includes('@')) {
+          alert('Email invalide');
+          return;
+        }
+
+        try {
+          // Find user by email
+          // Note: This requires a Firestore query on email field
+          // We need to find the userId for this email from the portfolios collection
+          const querySnapshot = await db.collection('portfolios').get();
+          let friendUserId = null;
+          let friendData = null;
+
+          for (const doc of querySnapshot.docs) {
+            const data = doc.data();
+            // Check if this user has allowed our email as viewer
+            if (data.allowedViewers && data.allowedViewers.includes(userEmail)) {
+              // We need to match by checking who owns this portfolio
+              // The doc.id is the userId, we need to get the email somehow
+              // For now, we'll store ownerEmail in the portfolio data
+              if (data.ownerEmail === friendEmail) {
+                friendUserId = doc.id;
+                friendData = data;
+                break;
+              }
+            }
+          }
+
+          if (!friendData) {
+            alert(`Accès refusé. ${friendEmail} ne vous a pas autorisé à voir son portfolio, ou l'email est incorrect.`);
+            return;
+          }
+
+          // Backup current data
+          setOwnDataBackup({
+            positions, closedTrades, transactions, priceCache, snapshots,
+            settings, wishlist, wishlistAlertsDismissed, allowedViewers
+          });
+
+          // Load friend's data
+          const migrated = migrateDataToV7(friendData);
+          setPositions(migrated.positions || []);
+          setClosedTrades(migrated.closedTrades || []);
+          setTransactions(migrated.transactions || []);
+          setPriceCache(migrated.priceCache || {});
+          setSnapshots(migrated.snapshots || []);
+          setWishlist(migrated.wishlist || []);
+          setViewingFriendEmail(friendEmail);
+          setActiveTab('portfolio');
+
+          console.log(`Viewing portfolio of ${friendEmail}`);
+        } catch (e) {
+          console.error('Error loading friend portfolio:', e);
+          alert('Erreur lors du chargement du portfolio: ' + e.message);
+        }
+      };
+
+      const returnToOwnPortfolio = () => {
+        if (!ownDataBackup) return;
+
+        // Restore own data
+        setPositions(ownDataBackup.positions);
+        setClosedTrades(ownDataBackup.closedTrades);
+        setTransactions(ownDataBackup.transactions);
+        setPriceCache(ownDataBackup.priceCache);
+        setSnapshots(ownDataBackup.snapshots);
+        setSettings(ownDataBackup.settings);
+        setWishlist(ownDataBackup.wishlist);
+        setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
+        setAllowedViewers(ownDataBackup.allowedViewers);
+
+        setOwnDataBackup(null);
+        setViewingFriendEmail(null);
+        console.log('Returned to own portfolio');
+      };
+
+      const addAllowedViewer = (email) => {
+        if (!email || !email.includes('@')) {
+          alert('Email invalide');
+          return;
+        }
+        if (allowedViewers.includes(email)) {
+          alert('Cet email est déjà autorisé');
+          return;
+        }
+        const newViewers = [...allowedViewers, email];
+        setAllowedViewers(newViewers);
+        // Save with ownerEmail for friend lookup
+        const dataToSave = {
+          version: 7,
+          positions, closedTrades, transactions, priceCache, snapshots, settings,
+          wishlist, wishlistAlertsDismissed,
+          allowedViewers: newViewers,
+          ownerEmail: userEmail // Store owner email for friend lookup
+        };
+        firestoreStorage.saveToFirestore(dataToSave);
+      };
+
+      const removeAllowedViewer = (email) => {
+        const newViewers = allowedViewers.filter(e => e !== email);
+        setAllowedViewers(newViewers);
+        saveData(null, null, null, null, null, null, null, null, newViewers);
+      };
+
       // ===== SORTING =====
       const getSorted = () => {
         const posWithDays = getPositionsWithDays();
@@ -1504,6 +1627,27 @@
       return (
         <div className={`min-h-screen ${darkMode ? 'bg-[#111827]' : 'bg-[#f4f6ef]'} text-dark-text p-4 md:p-8`}>
           <div className="max-w-7xl mx-auto space-y-6">
+            {/* Friend Portfolio Viewing Banner */}
+            {viewingFriendEmail && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-100 p-2 rounded-full">
+                    <User size={20} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-blue-900">Mode lecture seule</p>
+                    <p className="text-sm text-blue-700">Vous consultez le portfolio de <strong>{viewingFriendEmail}</strong></p>
+                  </div>
+                </div>
+                <button
+                  onClick={returnToOwnPortfolio}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                >
+                  <LogOut size={16} /> Retour à mon portfolio
+                </button>
+              </div>
+            )}
+
             {/* Header - Modern style */}
             <div className="flex flex-wrap justify-between items-start gap-4">
               <div>
@@ -3147,6 +3291,90 @@
                     <span className="text-lg">🇺🇸</span> Portfolio US (USD)
                   </a>
                 </div>
+
+                {/* Share Portfolio - Allow others to view */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      Partager mon portfolio
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Autorisez d'autres personnes à consulter votre portfolio (lecture seule)</p>
+
+                    {/* Add viewer form */}
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="email"
+                        placeholder="Email de la personne à autoriser"
+                        id="newViewerEmail"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('newViewerEmail');
+                          if (input.value) {
+                            addAllowedViewer(input.value);
+                            input.value = '';
+                          }
+                        }}
+                        className="bg-lime-accent hover:bg-lime-hover text-dark-text font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Autoriser
+                      </button>
+                    </div>
+
+                    {/* List of allowed viewers */}
+                    {allowedViewers.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted font-medium">Personnes autorisées:</p>
+                        {allowedViewers.map(email => (
+                          <div key={email} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                            <span className="text-sm">{email}</span>
+                            <button
+                              onClick={() => removeAllowedViewer(email)}
+                              className="text-red-600 hover:text-red-700 text-xs font-medium"
+                            >
+                              Retirer
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted">Aucune personne autorisée</p>
+                    )}
+                  </div>
+                )}
+
+                {/* View Friend's Portfolio */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      Voir portfolio d'un ami
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Consultez le portfolio d'un ami qui vous a autorisé</p>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        placeholder="Email de votre ami"
+                        id="friendEmail"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('friendEmail');
+                          if (input.value) {
+                            viewFriendPortfolio(input.value);
+                          }
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Voir
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Account / Logout */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">

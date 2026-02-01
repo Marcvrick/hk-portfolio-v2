@@ -113,16 +113,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // HK Portfolio
-    match /portfolios/{userId}/{document=**} {
-      // Only authenticated users can access their own data
+    match /portfolios/{userId} {
+      // Owner can read/write their own data
       allow read, write: if request.auth != null
                          && request.auth.uid == userId;
+      // Allowed viewers can read (for friend portfolio feature)
+      allow read: if request.auth != null
+                  && request.auth.token.email in resource.data.allowedViewers;
     }
     // US Portfolio
-    match /us-portfolios/{userId}/{document=**} {
-      // Only authenticated users can access their own data
+    match /us-portfolios/{userId} {
+      // Owner can read/write their own data
       allow read, write: if request.auth != null
                          && request.auth.uid == userId;
+      // Allowed viewers can read (for friend portfolio feature)
+      allow read: if request.auth != null
+                  && request.auth.token.email in resource.data.allowedViewers;
     }
   }
 }
@@ -130,7 +136,7 @@ service cloud.firestore {
 
 This ensures:
 - ✅ Users can only read/write their own portfolio (HK or US)
-- ✅ No one can access another user's data
+- ✅ Authorized friends can READ portfolios where they're in `allowedViewers`
 - ✅ Unauthenticated users have no access
 
 ### 5. Cron Setup (update.py)
@@ -234,6 +240,13 @@ python -m http.server 8000
   - Date added tracking
   - Notes field for buy rationale
   - Visual highlighting: green for target reached, yellow for close (≤5%)
+- **Friend Portfolio Viewing** - Share your portfolio with friends
+  - In Settings, add emails of people who can view your portfolio
+  - Friends can then enter your email to view your portfolio (read-only)
+  - Visual banner indicates viewing mode
+  - Easy "Return to my portfolio" button
+  - Requires updated Firebase security rules (see README)
+- **Calendar improvements** - Skip weekends (market closed)
 
 ### v2.4 (Jan 2025)
 - **US Portfolio Version** - New `index-us.html` for US stocks
