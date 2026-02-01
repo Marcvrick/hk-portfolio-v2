@@ -1026,10 +1026,16 @@
       const refreshPrices = async () => {
         if (isRefreshing) return;
         setIsRefreshing(true);
-        setRefreshProgress({ current: 0, total: positions.length, ticker: '' });
 
         try {
-          const tickers = positions.map(p => p.ticker);
+          // Include both positions AND wishlist tickers
+          const positionTickers = positions.map(p => p.ticker);
+          const wishlistTickers = wishlist.map(w => w.ticker);
+          // Combine and dedupe tickers
+          const allTickers = [...new Set([...positionTickers, ...wishlistTickers])];
+          setRefreshProgress({ current: 0, total: allTickers.length, ticker: '' });
+
+          const tickers = allTickers;
           const results = await fetchAllPrices(tickers, settings.corsProxy, (current, total, ticker) => {
             setRefreshProgress({ current, total, ticker });
           });
