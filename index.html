@@ -2661,10 +2661,17 @@
 
                   // Build daily P&L map from consecutive snapshots
                   // Override today's snapshot value with live portfolio value
+                  // EXCLUDE weekend snapshots from calculation (market closed Sat/Sun)
                   const todayDate = new Date().toISOString().split('T')[0];
-                  const sortedSnaps = [...snapshots].map(s =>
-                    s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s
-                  ).sort((a, b) => a.date.localeCompare(b.date));
+                  const isWeekendDate = (dateStr) => {
+                    const d = new Date(dateStr);
+                    const day = d.getDay();
+                    return day === 0 || day === 6;
+                  };
+                  const sortedSnaps = [...snapshots]
+                    .filter(s => !isWeekendDate(s.date)) // Exclude weekend snapshots
+                    .map(s => s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s)
+                    .sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
                   for (let i = 1; i < sortedSnaps.length; i++) {
                     // Daily P&L = change in unrealizedPnL + change in realizedPnL
