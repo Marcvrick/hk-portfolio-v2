@@ -281,13 +281,46 @@
       // Keep or create allowed viewers
       const allowedViewers = data.allowedViewers || [];
 
+      // Migrate snapshots: add closingPrices from priceCache if missing
+      // This ensures the Performance tab can calculate accurate % change
+      const migratedSnapshots = snapshots.map((s, idx) => {
+        // Skip if already has closingPrices
+        if (s.closingPrices && Object.keys(s.closingPrices).length > 0) {
+          return s;
+        }
+        // For the most recent snapshot, populate from priceCache
+        // Only if priceCache is from the same day (or close to it for weekend handling)
+        if (idx === snapshots.length - 1 && Object.keys(priceCache).length > 0) {
+          // Check if priceCache date is close to snapshot date (within 3 days for weekends)
+          const priceCacheDate = Object.values(priceCache)[0]?.lastUpdated?.split('T')[0];
+          const snapshotDate = new Date(s.date);
+          const cacheDate = priceCacheDate ? new Date(priceCacheDate) : null;
+          const daysDiff = cacheDate ? Math.abs((cacheDate - snapshotDate) / (1000 * 60 * 60 * 24)) : 999;
+
+          if (daysDiff <= 3) {
+            const closingPrices = {};
+            positions.forEach(p => {
+              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              if (priceCache[ct]?.success) {
+                closingPrices[ct] = priceCache[ct].price;
+              }
+            });
+            console.log('Migration: Added closingPrices to snapshot', s.date, 'from priceCache dated', priceCacheDate);
+            return { ...s, closingPrices };
+          } else {
+            console.log('Migration skipped: priceCache too old/new for snapshot', s.date, '- priceCache from', priceCacheDate);
+          }
+        }
+        return s;
+      });
+
       return {
         version: 7,
         positions,
         closedTrades,
         transactions,
         priceCache,
-        snapshots,
+        snapshots: migratedSnapshots,
         settings,
         wishlist,
         wishlistAlertsDismissed,
