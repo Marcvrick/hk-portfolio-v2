@@ -911,33 +911,39 @@
           }
         } else {
           // Weekday: use live price data
-          const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
+          // Use yesterday's stored closing prices for accurate % change
+          const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
+          const hasPriceData = Object.values(priceCache).some(c => c?.success);
           if (hasPriceData) {
             const gain = positions.reduce((sum, p) => {
-              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const ct = p.ticker;
               const cached = priceCache[ct];
               const isNewToday = p.entryDate === today;
               if (isNewToday) {
                 const curPrice = cached?.success ? cached.price : p.currentPrice;
                 return sum + (curPrice - p.entryPrice) * p.quantity;
               }
-              if (cached?.success && cached.previousClose) {
-                return sum + (cached.price - cached.previousClose) * p.quantity;
+              // Priority: manual override → yesterday's stored price → Yahoo's previousClose
+              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+              if (cached?.success && prevClose) {
+                return sum + (cached.price - prevClose) * p.quantity;
               }
               return sum;
             }, 0);
             const prevTotal = positions.reduce((sum, p) => {
-              const ct = p.ticker.replace(/b\.HK$/, '.HK');
+              const ct = p.ticker;
               const cached = priceCache[ct];
               const isNewToday = p.entryDate === today;
-              const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+              // Priority: manual override → entry price for new → yesterday's stored → Yahoo's previousClose
+              const prev = isNewToday ? p.entryPrice : (cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice));
               return sum + prev * p.quantity;
             }, 0);
             // Add P&L from positions closed today (exitPrice - previousClose)
             const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
-              const ct = t.ticker.replace(/b\.HK$/, '.HK');
+              const ct = t.ticker;
               const cached = priceCache[ct];
-              const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+              // Priority: manual override → yesterday's stored price → Yahoo's previousClose
+              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
             const totalGain = gain + closedTodayGain;
@@ -1279,6 +1285,19 @@
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setEditingEntryDate(null);
+      };
+
+      // Update previousClose override in priceCache for manual correction
+      const updatePreviousClose = (ticker, price) => {
+        const newCache = {
+          ...priceCache,
+          [ticker]: {
+            ...priceCache[ticker],
+            previousCloseOverride: parseFloat(price) || null
+          }
+        };
+        setPriceCache(newCache);
+        saveData(positions, closedTrades, transactions, newCache, snapshots, settings);
       };
 
       const closePosition = () => {
@@ -2809,12 +2828,15 @@
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
                 // Priority for previousClose:
+                // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
                 // 2. Yesterday's snapshot closingPrices (our stored data - most reliable)
                 // 3. Fallback to Yahoo's previousClose (can be stale/incorrect)
                 // 4. Last fallback to current price
                 let previousClose;
-                if (isNewToday && !isMarketClosedToday) {
+                if (cached?.previousCloseOverride) {
+                  previousClose = cached.previousCloseOverride;
+                } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
                 } else if (yesterdayClosingPrices[cleanTicker]) {
                   previousClose = yesterdayClosingPrices[cleanTicker];
@@ -2850,8 +2872,8 @@
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
                 const ct = t.ticker;
                 const cached = priceCache[ct];
-                // Use yesterday's stored closing price if available
-                const prevClose = yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+                // Priority: manual override → stored closing price → Yahoo's previousClose
+                const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
@@ -2932,8 +2954,23 @@
                             {p.isDanger && <span className="ml-1 text-red-500 animate-pulse" title="STOP LOSS">🚨</span>}
                           </td>
                           <td className="px-2 py-1.5 truncate max-w-24 hidden md:table-cell">{p.name}</td>
-                          <td className="px-2 py-1.5 text-right text-muted" title={p.isNewToday ? 'Entry price (new today)' : 'Previous close'}>
-                            {p.previousClose.toFixed(2)}
+                          <td className="px-2 py-1.5 text-right text-muted" title={p.isNewToday ? 'Entry price (new today)' : 'Click to edit previous close'}>
+                            {!p.isClosed ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={p.previousClose.toFixed(2)}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (val > 0 && val !== p.previousClose) {
+                                    updatePreviousClose(p.ticker, val);
+                                  }
+                                }}
+                                className="w-16 text-right bg-transparent border border-dashed border-gray-400 rounded px-1 hover:border-lime-accent focus:border-lime-accent focus:outline-none"
+                              />
+                            ) : (
+                              p.previousClose.toFixed(2)
+                            )}
                             {p.isNewToday && <span className="text-lime-accent text-[9px] ml-0.5">↵</span>}
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.currentPrice.toFixed(2)}</td>
@@ -2998,8 +3035,8 @@
                       const curPrice = cached?.success ? cached.price : p.currentPrice;
                       return sum + (curPrice - p.entryPrice) * p.quantity;
                     }
-                    // Use stored closing price (most reliable), fallback to Yahoo's previousClose
-                    const prevClose = yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+                    // Priority: manual override → stored closing price → Yahoo's previousClose
+                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
                     if (cached?.success && prevClose) {
                       return sum + (cached.price - prevClose) * p.quantity;
                     }
@@ -3009,8 +3046,8 @@
                   const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
                     const ct = t.ticker;
                     const cached = priceCache[ct];
-                    // Use stored closing price for closed positions too
-                    const prevClose = yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+                    // Priority: manual override → stored closing price → Yahoo's previousClose
+                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
                   // Only set today's P&L if it's a trading day (not weekend/holiday)

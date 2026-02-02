@@ -277,7 +277,11 @@ python -m http.server 8000
   - Snapshots now store `closingPrices` for all positions at end of day
   - Daily % change calculated from our own data (not Yahoo's unreliable previousClose)
   - Yahoo's `meta.previousClose` was returning stale data (2+ days old)
-  - Priority: yesterday's stored price → Yahoo previousClose → current price
+  - Priority: manual override → yesterday's stored price → Yahoo previousClose → current price
+- **Manual previousClose editing** - Edit previousClose directly in Performance tab
+  - Click on the Prev Close cell to edit the value
+  - Useful for positions added after snapshot creation (missing closingPrices)
+  - Stored in priceCache as `previousCloseOverride`
 - **Market Holiday support** - Market closed days handled correctly
   - HK: HKEX holidays (14 days/year)
   - US: NYSE holidays (10 days/year)

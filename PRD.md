@@ -100,6 +100,7 @@ Single-page React applications for tracking stock portfolio performance with Fir
     success: boolean,
     price: number,
     previousClose: number,
+    previousCloseOverride?: number,  // Manual override for previousClose (v2.6+)
     change: number,
     changePercent: number,
     currency: "HKD",
@@ -232,6 +233,8 @@ Requires CORS proxy. Available proxies:
 
 ### Fixed (2026-02-02)
 1. **Accurate daily % change**: Performance tab now uses yesterday's stored closing prices (from snapshot) instead of Yahoo's unreliable `meta.previousClose`. Yahoo's previousClose was returning data 2+ days old, causing incorrect % change calculations.
+
+2. **Manual previousClose editing**: For positions added after snapshot creation (missing closingPrices), users can now manually edit the previousClose value directly in the Performance tab. Click on the Prev Close cell to edit.
 
 ### Fixed (2025-02-01)
 1. **Weekend % change for new positions**: Positions added on weekends now show the last trading day's market change instead of 0% (was using entry price as previousClose)
