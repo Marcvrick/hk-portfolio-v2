@@ -3130,6 +3130,11 @@
                     pnlMap[sortedSnaps[i].date] = unrealizedChange + realizedChange;
                   }
                   // Always show today's daily gain from live price data (sum of each position's daily P&L)
+                  // Use stored closingPrices from yesterday's snapshot for accurate calculation
+                  const sortedSnapsForCalendar = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
+                  const yesterdaySnapForCalendar = sortedSnapsForCalendar.find(s => s.date < todayDate && isTradingDay(s.date));
+                  const yesterdayClosingPricesForCalendar = yesterdaySnapForCalendar?.closingPrices || {};
+
                   const todayPnl = positions.reduce((sum, p) => {
                     const ct = p.ticker.replace(/b\.HK$/, '.HK');
                     const cached = priceCache[ct];
@@ -3138,8 +3143,10 @@
                       const curPrice = cached?.success ? cached.price : p.currentPrice;
                       return sum + (curPrice - p.entryPrice) * p.quantity;
                     }
-                    if (cached?.success && cached.previousClose) {
-                      return sum + (cached.price - cached.previousClose) * p.quantity;
+                    // Use stored closing price (most reliable), fallback to Yahoo's previousClose
+                    const prevClose = yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+                    if (cached?.success && prevClose) {
+                      return sum + (cached.price - prevClose) * p.quantity;
                     }
                     return sum;
                   }, 0);
@@ -3147,7 +3154,8 @@
                   const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
                     const ct = t.ticker.replace(/b\.HK$/, '.HK');
                     const cached = priceCache[ct];
-                    const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+                    // Use stored closing price for closed positions too
+                    const prevClose = yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
                   // Only set today's P&L if it's a trading day (not weekend/holiday)
