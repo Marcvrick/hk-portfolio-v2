@@ -61,11 +61,15 @@ Single-page React application for tracking Hong Kong stock portfolio performance
   unrealizedPnL: number,     // portfolioValue - capitalEngaged
   realizedPnL: number,       // Sum of closed trade P&L
   totalDividends: number,
-  positionCount: number
+  positionCount: number,
+  closingPrices: {           // Added v2.6 - for accurate daily % change
+    "XXXX.HK": number        // Closing price per ticker
+  }
 }
 ```
 - Snapshots auto-save daily on weekdays only (market closed weekends)
 - Used for P&L calendar and equity curve calculations
+- `closingPrices` stores actual closing prices for next day's % change calculation (more reliable than Yahoo's previousClose)
 
 ### Wishlist Item
 ```javascript
@@ -209,13 +213,16 @@ Requires CORS proxy. Available proxies:
 
 ## Known Issues / Recent Fixes
 
+### Fixed (2026-02-02)
+1. **Accurate daily % change**: Performance tab now uses yesterday's stored closing prices (from snapshot) instead of Yahoo's unreliable `meta.previousClose`. Yahoo's previousClose was returning data 2+ days old, causing incorrect % change calculations.
+
 ### Fixed (2025-02-01)
 1. **Weekend % change for new positions**: Positions added on weekends now show the last trading day's market change instead of 0% (was using entry price as previousClose)
 
 2. **Historical snapshot recalculation**: When adding a position with a past entry date, snapshots are now automatically updated to include the position's value
 
 ### Known Limitations
-- No historical price data storage (recalculation uses live Yahoo API)
+- closingPrices only stored from Feb 2026 onwards (older snapshots use Yahoo fallback)
 - Snapshots not created for dates before app installation
 - Friend portfolio viewing is read-only (no price refresh)
 

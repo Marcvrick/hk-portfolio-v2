@@ -270,6 +270,17 @@ python -m http.server 8000
 
 ## Changelog
 
+### v2.6 (Feb 2026)
+- **Accurate daily % change** - Performance tab now uses stored closing prices
+  - Snapshots now store `closingPrices` for all positions at end of day
+  - Daily % change calculated from our own data (not Yahoo's unreliable previousClose)
+  - Yahoo's `meta.previousClose` was returning stale data (2+ days old)
+  - Priority: yesterday's stored price → Yahoo previousClose → current price
+- **Cloudflare Worker CORS proxy** - Custom proxy for reliable Yahoo Finance API
+  - Primary proxy: `https://yahoo-proxy.marccharnal.workers.dev/`
+  - Fallback to allorigins and corsproxy.io
+- **Per-row refresh button** - Manually refresh individual stock prices in Performance tab
+
 ### v2.5 (Feb 2025)
 - **Wishlist Tab** - Track stocks you want to buy
   - Add tickers with target buy price

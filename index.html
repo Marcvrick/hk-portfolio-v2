@@ -926,7 +926,9 @@
           }
         } else {
           // Weekday: use live price data
-          const hasPriceData = Object.values(priceCache).some(c => c?.success && c.previousClose);
+          // Use yesterday's stored closing prices for accurate % change
+          const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
+          const hasPriceData = Object.values(priceCache).some(c => c?.success);
           if (hasPriceData) {
             const gain = positions.reduce((sum, p) => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
@@ -936,8 +938,11 @@
                 const curPrice = cached?.success ? cached.price : p.currentPrice;
                 return sum + (curPrice - p.entryPrice) * p.quantity;
               }
-              if (cached?.success && cached.previousClose) {
-                return sum + (cached.price - cached.previousClose) * p.quantity;
+              // Use yesterday's stored closing price (most reliable)
+              // Fallback to Yahoo's previousClose, then current price
+              const prevClose = yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+              if (cached?.success && prevClose) {
+                return sum + (cached.price - prevClose) * p.quantity;
               }
               return sum;
             }, 0);
@@ -945,14 +950,16 @@
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
               const isNewToday = p.entryDate === today;
-              const prev = isNewToday ? p.entryPrice : (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+              // Priority: entry price for new positions, then yesterday's stored price, then Yahoo's previousClose
+              const prev = isNewToday ? p.entryPrice : (yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice));
               return sum + prev * p.quantity;
             }, 0);
             // Add P&L from positions closed today (exitPrice - previousClose)
             const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
               const ct = t.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
-              const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+              // Use yesterday's stored price for closed positions too
+              const prevClose = yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
             const totalGain = gain + closedTodayGain;
@@ -984,6 +991,16 @@
           .filter(t => t.type === 'dividend')
           .reduce((sum, t) => sum + t.amount, 0);
 
+        // Store priceCache in snapshot for accurate % change calculations next day
+        // Only store relevant prices (for current positions) to keep snapshot size small
+        const snapshotPriceCache = {};
+        positions.forEach(p => {
+          const ct = p.ticker.replace(/b\.HK$/, '.HK');
+          if (priceCache[ct]?.success) {
+            snapshotPriceCache[ct] = priceCache[ct].price;
+          }
+        });
+
         const newSnapshot = {
           date: today,
           capitalEngaged,  // Coût d'achat des positions ouvertes
@@ -991,7 +1008,8 @@
           unrealizedPnL: currentValue - capitalEngaged,
           realizedPnL,
           totalDividends,
-          positionCount: positions.length
+          positionCount: positions.length,
+          closingPrices: snapshotPriceCache  // Store closing prices for next day's % change
         };
 
         // Check if snapshot changed (to avoid unnecessary saves)
@@ -2857,14 +2875,32 @@
               const todayDayOfWeek = new Date().getDay();
               const isTodayWeekend = todayDayOfWeek === 0 || todayDayOfWeek === 6;
 
+              // Find yesterday's snapshot (most recent before today) for accurate previousClose
+              // This uses our own stored closing prices instead of Yahoo's unreliable previousClose
+              const sortedSnapsForPrevClose = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
+              const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr);
+              const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
+
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[cleanTicker];
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
-                // On weekends, even for new positions, use Yahoo's previousClose to show last trading day's change
-                // On trading days, new positions show P&L from entry price
-                const previousClose = (isNewToday && !isTodayWeekend) ? p.entryPrice : (cached?.success ? cached.previousClose : p.currentPrice);
+                // Priority for previousClose:
+                // 1. New position today (not weekend) → use entry price
+                // 2. Yesterday's snapshot closingPrices (our stored data - most reliable)
+                // 3. Fallback to Yahoo's previousClose (can be stale/incorrect)
+                // 4. Last fallback to current price
+                let previousClose;
+                if (isNewToday && !isTodayWeekend) {
+                  previousClose = p.entryPrice;
+                } else if (yesterdayClosingPrices[cleanTicker]) {
+                  previousClose = yesterdayClosingPrices[cleanTicker];
+                } else if (cached?.success && cached.previousClose) {
+                  previousClose = cached.previousClose;
+                } else {
+                  previousClose = p.currentPrice;
+                }
                 const dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
                 const dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
                 const marketValue = currentPrice * p.quantity;
@@ -2892,7 +2928,8 @@
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
                 const ct = t.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[ct];
-                const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
+                // Use yesterday's stored closing price if available
+                const prevClose = yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
