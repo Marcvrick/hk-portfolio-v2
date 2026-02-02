@@ -2957,10 +2957,15 @@
                         <th className="px-2 py-1.5 text-right">% Change</th>
                         <th className="px-2 py-1.5 text-right">Daily $</th>
                         <th className="px-2 py-1.5 text-right">Weight</th>
+                        <th className="px-1 py-1.5 text-center w-6"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {allMovers.map(p => (
+                      {allMovers.map(p => {
+                        const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
+                        const cached = priceCache[cleanTicker];
+                        const hasPriceData = cached?.success;
+                        return (
                         <tr key={p.id} className={`border-t border-gray-100 ${p.isDanger ? 'row-danger' : p.isWarning ? 'row-warning' : ''}`}>
                           <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
                             {p.ticker.replace('.HK', '')}
@@ -2981,8 +2986,19 @@
                             {p.dailyChangeDollar >= 0 ? '+' : ''}{fmt(p.dailyChangeDollar)}
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.weight.toFixed(1)}%</td>
+                          <td className="px-1 py-1.5 text-center">
+                            {!p.isClosed && (
+                              <button
+                                onClick={() => refreshSinglePrice(p.ticker)}
+                                className={`p-0.5 rounded hover:bg-gray-100 transition-colors ${hasPriceData ? 'text-muted hover:text-dark-text' : 'text-orange-500 hover:text-orange-700'}`}
+                                title={hasPriceData ? 'Rafraîchir le prix' : 'Prix non chargé - Cliquer pour charger'}
+                              >
+                                <RefreshCw size={12} />
+                              </button>
+                            )}
+                          </td>
                         </tr>
-                      ))}
+                      );})}
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       <tr>
@@ -2994,6 +3010,7 @@
                           {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)}
                         </td>
                         <td className="px-2 py-1.5 text-right">100%</td>
+                        <td></td>
                       </tr>
                     </tfoot>
                   </table>
