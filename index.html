@@ -432,7 +432,9 @@
 
     const fetchYahooPrice = async (ticker, corsProxy) => {
       const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+      // Add cache-busting timestamp to prevent CORS proxy from returning stale data
+      const cacheBuster = Date.now();
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d&_t=${cacheBuster}`;
 
       // Try selected proxy first
       const primaryUrl = buildProxyUrl(yahooUrl, corsProxy);
@@ -1240,7 +1242,7 @@
           const daysDiff = Math.ceil((new Date(todayStr) - new Date(entryDateStr)) / (1000 * 60 * 60 * 24));
           const range = Math.max(daysDiff + 10, 15) + 'd'; // Get enough history + buffer for weekends
 
-          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=${range}`);
+          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=${range}&_t=${Date.now()}`);
           const json = await resp.json();
           const result = json?.chart?.result?.[0];
           if (result) {
@@ -1461,7 +1463,7 @@
         // Auto-fetch price for new wishlist item
         try {
           const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d&_t=${Date.now()}`;
           const proxyUrl = buildProxyUrl(yahooUrl, settings.corsProxy);
           const resp = await fetch(proxyUrl);
           const json = await resp.json();
