@@ -1,12 +1,22 @@
-# Portfolio HK Tracker v2 - Product Requirements Document
+# Portfolio Tracker v2 - Product Requirements Document
 
 ## Overview
 
-Single-page React application for tracking Hong Kong stock portfolio performance with Firebase authentication and cloud sync.
+Single-page React applications for tracking stock portfolio performance with Firebase authentication and cloud sync.
 
 **Stack:** React 18, Tailwind CSS, Recharts, Firebase (Auth + Firestore)
-**Target Market:** HKEX (Hong Kong Stock Exchange)
+**Target Markets:** HKEX (Hong Kong) and NYSE/NASDAQ (US)
 **Language:** French UI
+
+### Portfolio Versions
+
+| Feature | HK (`index.html`) | US (`index-us.html`) |
+|---------|-------------------|----------------------|
+| Ticker format | `XXXX.HK` | `AAPL`, `MSFT` |
+| Currency | HKD | USD |
+| Firebase collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
+| Market holidays | HKEX (14 days/year) | NYSE (10 days/year) |
+| All other features | ✅ Same | ✅ Same |
 
 ---
 
@@ -175,14 +185,17 @@ settlementFee = min(max(amount * 0.002%, 2), 100)
 | 61-120 | Orange |
 | 120+ | Red |
 
-### Market Closed Days (Weekends + HKEX Holidays)
-- Snapshots not saved on market closed days (weekends and HKEX holidays)
+### Market Closed Days (Weekends + Holidays)
+- Snapshots not saved on market closed days (weekends and holidays)
 - Performance tab shows last trading day's % change on closed days
 - Calendar greys out market closed days
-- HKEX holidays are hardcoded for 2025-2027 (update yearly)
+- Holidays are hardcoded for 2025-2027 (update yearly)
 
-**HKEX Holidays 2026:**
+**HKEX Holidays 2026 (14 days):**
 Jan 1, Feb 17-19 (LNY), Apr 3/6/7 (Easter/Ching Ming), May 1/25, Jun 19, Jul 1, Oct 1/19, Dec 25
+
+**NYSE Holidays 2026 (10 days):**
+Jan 1 (New Year), Jan 19 (MLK), Feb 16 (President's), Apr 3 (Good Friday), May 25 (Memorial), Jun 19 (Juneteenth), Jul 3 (Independence), Sep 7 (Labor), Nov 26 (Thanksgiving), Dec 25 (Christmas)
 
 ### Position Adding with Past Date
 When a position is added with an entry date before today:

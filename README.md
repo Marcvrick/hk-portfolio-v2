@@ -181,8 +181,8 @@ GitHub Pages auto-deploys from `main` branch.
 
 ### Planned 🚧
 
-#### ~~US Portfolio Version~~ ✅ Done (v2.4)
-Created `index-us.html` - US stock portfolio tracker with same layout.
+#### ~~US Portfolio Version~~ ✅ Done (v2.4, synced v2.6)
+Created `index-us.html` - US stock portfolio tracker with same features.
 
 | Component | HK Version | US Version |
 |-----------|------------|------------|
@@ -191,6 +191,8 @@ Created `index-us.html` - US stock portfolio tracker with same layout.
 | Currency | HKD | USD |
 | Firebase collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
 | Title | "Portfolio HK" | "Portfolio US" |
+| Market holidays | HKEX (14 days/year) | NYSE (10 days/year) |
+| closingPrices in snapshots | ✅ | ✅ |
 
 #### Future Enhancements
 - [x] Authentication (Firebase Auth) ✅ v2.3
@@ -276,8 +278,10 @@ python -m http.server 8000
   - Daily % change calculated from our own data (not Yahoo's unreliable previousClose)
   - Yahoo's `meta.previousClose` was returning stale data (2+ days old)
   - Priority: yesterday's stored price → Yahoo previousClose → current price
-- **HKEX Holiday support** - Market closed days handled correctly
-  - No snapshots created on HKEX holidays
+- **Market Holiday support** - Market closed days handled correctly
+  - HK: HKEX holidays (14 days/year)
+  - US: NYSE holidays (10 days/year)
+  - No snapshots created on holidays
   - Previous close uses last trading day (skips holidays)
   - Calendar greys out holidays
   - Holidays hardcoded for 2025-2027
@@ -285,6 +289,7 @@ python -m http.server 8000
   - Primary proxy: `https://yahoo-proxy.marccharnal.workers.dev/`
   - Fallback to allorigins and corsproxy.io
 - **Per-row refresh button** - Manually refresh individual stock prices in Performance tab
+- **US Portfolio synced** - index-us.html now has all v2.6 features (closingPrices, NYSE holidays)
 
 ### v2.5 (Feb 2025)
 - **Wishlist Tab** - Track stocks you want to buy
