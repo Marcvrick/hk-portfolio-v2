@@ -228,6 +228,46 @@ python -m http.server 8000
 
 ---
 
+## Maintenance
+
+### Documentation
+- **PRD.md** - Product Requirements Document avec:
+  - Data models (positions, snapshots, transactions, etc.)
+  - Business rules (fees, thresholds, calculations)
+  - Known issues et recent fixes
+  - Future roadmap ideas
+
+### Before Making Changes
+1. Lire `PRD.md` pour comprendre l'architecture et les règles métier
+2. Tester en local avec `python -m http.server 8000`
+3. Vérifier que les calculs de fees et seuils respectent les règles documentées
+
+### After Making Changes
+1. Mettre à jour `PRD.md` si:
+   - Nouveau data model ou champ ajouté
+   - Nouvelle règle métier
+   - Bug fixé (ajouter dans "Known Issues / Recent Fixes")
+   - Nouvelle feature (ajouter dans "Features by Tab")
+2. Mettre à jour le Changelog ci-dessous
+3. Commit et push
+
+### Key Business Rules (Quick Reference)
+| Rule | Value |
+|------|-------|
+| Warning threshold | P&L <= -8% |
+| Danger threshold | P&L <= -10% |
+| Weekend snapshots | Disabled |
+| Fee calculation | See PRD.md for 7 components |
+| Ticker format | XXXX.HK |
+
+### Common Maintenance Tasks
+- **Add new fee component**: Update `calcTradingFees()` in index.html + PRD.md
+- **Change alert thresholds**: Search `isWarning` and `isDanger` in index.html
+- **Fix Yahoo API issues**: Check CORS proxy list in Settings section
+- **Debug snapshots**: Check browser console for snapshot logs
+
+---
+
 ## Changelog
 
 ### v2.5 (Feb 2025)
