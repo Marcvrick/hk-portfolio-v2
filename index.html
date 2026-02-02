@@ -240,6 +240,30 @@
 
 
     // ===== UTILITY FUNCTIONS =====
+
+    // HKEX Market Holidays (market fully closed)
+    // Source: https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf
+    const HKEX_HOLIDAYS = {
+      2025: ['2025-01-01', '2025-01-29', '2025-01-30', '2025-01-31', '2025-04-04', '2025-04-18', '2025-04-21', '2025-05-01', '2025-05-05', '2025-05-31', '2025-07-01', '2025-10-01', '2025-10-07', '2025-12-25', '2025-12-26'],
+      2026: ['2026-01-01', '2026-02-17', '2026-02-18', '2026-02-19', '2026-04-03', '2026-04-06', '2026-04-07', '2026-05-01', '2026-05-25', '2026-06-19', '2026-07-01', '2026-10-01', '2026-10-19', '2026-12-25'],
+      2027: [] // To be updated
+    };
+
+    // Check if a date is a market closed day (weekend or HKEX holiday)
+    const isMarketClosed = (dateStr) => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      const dayOfWeek = d.getDay();
+      // Weekend check
+      if (dayOfWeek === 0 || dayOfWeek === 6) return true;
+      // Holiday check
+      const yearHolidays = HKEX_HOLIDAYS[year] || [];
+      return yearHolidays.includes(dateStr);
+    };
+
+    // Check if a date is a trading day (market open)
+    const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
+
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
       if (ticker.startsWith('HKG:')) {
@@ -923,9 +947,8 @@
         // Capital Engagé = coût d'achat des positions ouvertes (AUTOMATIQUE)
         const capitalEngaged = positions.reduce((sum, p) => sum + (p.quantity * p.entryPrice), 0);
 
-        // Check if it's a weekend (market closed) - do this early
-        const dayOfWeek = new Date().getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        // Check if market is closed today (weekend or HKEX holiday)
+        const isMarketClosedToday = isMarketClosed(today);
 
         // Check if we have a snapshot for today
         const todaySnapshot = snapshots.find(s => s.date === today);
@@ -935,16 +958,11 @@
         const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
 
         // Calculate daily gain
-        // On weekends: show last trading day's P&L from snapshots (Friday's change)
-        // On weekdays: prefer live price cache, fallback to snapshots
-        if (isWeekend) {
-          // Find the last two trading day snapshots to calculate Friday's P&L
-          const isWeekendDate = (dateStr) => {
-            const [y, m, d] = dateStr.split('-').map(Number);
-            const dt = new Date(y, m - 1, d);
-            return dt.getDay() === 0 || dt.getDay() === 6;
-          };
-          const tradingDaySnapshots = sortedSnapshots.filter(s => !isWeekendDate(s.date));
+        // On market closed days: show last trading day's P&L from snapshots
+        // On trading days: prefer live price cache, fallback to snapshots
+        if (isMarketClosedToday) {
+          // Find the last two trading day snapshots to calculate last trading day's P&L
+          const tradingDaySnapshots = sortedSnapshots.filter(s => isTradingDay(s.date));
           if (tradingDaySnapshots.length >= 2) {
             // Friday's P&L = Friday snapshot - Thursday snapshot
             const fridaySnap = tradingDaySnapshots[0];
@@ -1010,9 +1028,9 @@
         }
 
         // Auto-save/update snapshot for today (always update to capture trade closures)
-        // Skip weekends - market is closed on Saturday (6) and Sunday (0)
-        if (isWeekend) {
-          console.log('Skipping snapshot - weekend (market closed)');
+        // Skip market closed days (weekends and HKEX holidays)
+        if (isMarketClosedToday) {
+          console.log('Skipping snapshot - market closed (weekend or holiday)');
           return;
         }
 
@@ -2904,14 +2922,13 @@
               // Calculate daily movers data
               const totalPortfolioValue = m.totalValue;
               const todayStr = new Date().toISOString().split('T')[0];
-              // Check if today is a weekend (market closed)
-              const todayDayOfWeek = new Date().getDay();
-              const isTodayWeekend = todayDayOfWeek === 0 || todayDayOfWeek === 6;
+              // Check if today is a market closed day (weekend or HKEX holiday)
+              const isMarketClosedToday = isMarketClosed(todayStr);
 
-              // Find yesterday's snapshot (most recent before today) for accurate previousClose
+              // Find yesterday's snapshot (most recent TRADING day before today) for accurate previousClose
               // This uses our own stored closing prices instead of Yahoo's unreliable previousClose
               const sortedSnapsForPrevClose = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
-              const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr);
+              const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr && isTradingDay(s.date));
               const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
 
               const moversData = positions.map(p => {
@@ -2920,12 +2937,12 @@
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
                 // Priority for previousClose:
-                // 1. New position today (not weekend) → use entry price
+                // 1. New position today (not market closed) → use entry price
                 // 2. Yesterday's snapshot closingPrices (our stored data - most reliable)
                 // 3. Fallback to Yahoo's previousClose (can be stale/incorrect)
                 // 4. Last fallback to current price
                 let previousClose;
-                if (isNewToday && !isTodayWeekend) {
+                if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
                 } else if (yesterdayClosingPrices[cleanTicker]) {
                   previousClose = yesterdayClosingPrices[cleanTicker];
@@ -2950,7 +2967,7 @@
                   dailyChangeDollar,
                   marketValue,
                   weight,
-                  isNewToday: isNewToday && !isTodayWeekend, // Only show NEW badge on trading days
+                  isNewToday: isNewToday && !isMarketClosedToday, // Only show NEW badge on trading days
                   totalPnlPercent,
                   isDanger,
                   isWarning
@@ -3098,16 +3115,10 @@
 
                   // Build daily P&L map from consecutive snapshots
                   // Override today's snapshot value with live portfolio value
-                  // EXCLUDE weekend snapshots from calculation (market closed Sat/Sun)
+                  // EXCLUDE market closed days (weekends + HKEX holidays) from calculation
                   const todayDate = new Date().toISOString().split('T')[0];
-                  const isWeekendDate = (dateStr) => {
-                    // Parse as local time to be consistent with calendar cells
-                    const [year, month, day] = dateStr.split('-').map(Number);
-                    const d = new Date(year, month - 1, day);
-                    return d.getDay() === 0 || d.getDay() === 6;
-                  };
                   const sortedSnaps = [...snapshots]
-                    .filter(s => !isWeekendDate(s.date)) // Exclude weekend snapshots
+                    .filter(s => isTradingDay(s.date)) // Exclude market closed days
                     .map(s => s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s)
                     .sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
@@ -3139,8 +3150,8 @@
                     const prevClose = cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice;
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
-                  // Only set today's P&L if it's a trading day (not weekend)
-                  if (Object.values(priceCache).some(c => c?.success) && !isWeekendDate(todayDate)) {
+                  // Only set today's P&L if it's a trading day (not weekend/holiday)
+                  if (Object.values(priceCache).some(c => c?.success) && isTradingDay(todayDate)) {
                     pnlMap[todayDate] = todayPnl + closedTodayPnl;
                   }
 
@@ -3155,11 +3166,9 @@
                   for (let i = 0; i < startDay; i++) cells.push(null);
                   for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const dayDate = new Date(year, month, d);
-                    const dayOfWeek = dayDate.getDay();
-                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                    // Don't show P&L for weekends (market closed)
-                    cells.push({ day: d, date: dateStr, pnl: isWeekend ? undefined : pnlMap[dateStr], isWeekend });
+                    const marketClosed = isMarketClosed(dateStr);
+                    // Don't show P&L for market closed days (weekends/holidays)
+                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed });
                   }
 
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -3191,10 +3200,10 @@
                           if (!cell) return <div key={`empty-${i}`} />;
                           const hasPnl = cell.pnl !== undefined;
                           const isToday = cell.date === todayStr;
-                          const isWeekend = cell.isWeekend;
+                          const marketClosed = cell.isMarketClosed;
                           let bg = 'bg-gray-50/30';
-                          if (isWeekend) {
-                            bg = 'bg-gray-100/50'; // Weekend cells greyed out
+                          if (marketClosed) {
+                            bg = 'bg-gray-100/50'; // Market closed days greyed out
                           } else if (hasPnl) {
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }

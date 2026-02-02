@@ -276,6 +276,11 @@ python -m http.server 8000
   - Daily % change calculated from our own data (not Yahoo's unreliable previousClose)
   - Yahoo's `meta.previousClose` was returning stale data (2+ days old)
   - Priority: yesterday's stored price → Yahoo previousClose → current price
+- **HKEX Holiday support** - Market closed days handled correctly
+  - No snapshots created on HKEX holidays
+  - Previous close uses last trading day (skips holidays)
+  - Calendar greys out holidays
+  - Holidays hardcoded for 2025-2027
 - **Cloudflare Worker CORS proxy** - Custom proxy for reliable Yahoo Finance API
   - Primary proxy: `https://yahoo-proxy.marccharnal.workers.dev/`
   - Fallback to allorigins and corsproxy.io

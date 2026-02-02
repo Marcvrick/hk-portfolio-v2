@@ -175,10 +175,14 @@ settlementFee = min(max(amount * 0.002%, 2), 100)
 | 61-120 | Orange |
 | 120+ | Red |
 
-### Weekend Handling
-- Snapshots not saved on weekends
-- Performance tab shows last trading day's % change on weekends
-- Positions added on weekends use Yahoo previousClose (not entry price)
+### Market Closed Days (Weekends + HKEX Holidays)
+- Snapshots not saved on market closed days (weekends and HKEX holidays)
+- Performance tab shows last trading day's % change on closed days
+- Calendar greys out market closed days
+- HKEX holidays are hardcoded for 2025-2027 (update yearly)
+
+**HKEX Holidays 2026:**
+Jan 1, Feb 17-19 (LNY), Apr 3/6/7 (Easter/Ching Ming), May 1/25, Jun 19, Jul 1, Oct 1/19, Dec 25
 
 ### Position Adding with Past Date
 When a position is added with an entry date before today:
