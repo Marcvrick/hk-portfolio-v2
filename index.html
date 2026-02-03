@@ -3388,10 +3388,49 @@
                     if (snap.dailyPnL !== undefined && snap.date !== todayDate) {
                       pnlMap[snap.date] = snap.dailyPnL;
                     } else if (i > 0) {
-                      // Fallback for old snapshots without dailyPnL: calculate from difference
-                      const unrealizedChange = (snap.unrealizedPnL || 0) - (sortedSnaps[i - 1].unrealizedPnL || 0);
-                      const realizedChange = (snap.realizedPnL || 0) - (sortedSnaps[i - 1].realizedPnL || 0);
-                      pnlMap[snap.date] = unrealizedChange + realizedChange;
+                      const prevSnap = sortedSnaps[i - 1];
+                      // Better fallback: use closingPrices when available
+                      if (snap.closingPrices && prevSnap.closingPrices && snap.positionsAtClose) {
+                        // Calculate from positionsAtClose + closingPrices difference
+                        let calculatedPnL = 0;
+                        for (const pos of snap.positionsAtClose) {
+                          const ct = pos.ticker.replace(/b\.HK$/, '.HK');
+                          const todayClose = snap.closingPrices[ct];
+                          const prevClose = prevSnap.closingPrices[ct];
+
+                          if (todayClose !== undefined && prevClose !== undefined) {
+                            // Position existed before: P&L = (today - yesterday) × qty
+                            calculatedPnL += (todayClose - prevClose) * pos.quantity;
+                          } else if (todayClose !== undefined && pos.entryDate === snap.date) {
+                            // New position bought today: P&L = (close - entry) × qty
+                            calculatedPnL += (todayClose - pos.entryPrice) * pos.quantity;
+                          }
+                        }
+                        // Add realized P&L change (from closed positions)
+                        const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+                        pnlMap[snap.date] = calculatedPnL + realizedChange;
+                      } else if (snap.closingPrices && prevSnap.closingPrices) {
+                        // Calculate from closingPrices for common tickers (less accurate without positionsAtClose)
+                        let calculatedPnL = 0;
+                        for (const ticker in snap.closingPrices) {
+                          if (prevSnap.closingPrices[ticker] !== undefined) {
+                            // Estimate quantity from portfolio value / price (rough approximation)
+                            const priceDiff = snap.closingPrices[ticker] - prevSnap.closingPrices[ticker];
+                            // Skip if no price change (can't estimate impact)
+                            if (Math.abs(priceDiff) < 0.001) continue;
+                            // Use unrealizedPnL method as fallback since we don't have quantities
+                          }
+                        }
+                        // Fall back to unrealizedPnL difference if we can't calculate properly
+                        const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
+                        const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+                        pnlMap[snap.date] = unrealizedChange + realizedChange;
+                      } else {
+                        // Last resort fallback: unrealizedPnL difference (inaccurate with new purchases)
+                        const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
+                        const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+                        pnlMap[snap.date] = unrealizedChange + realizedChange;
+                      }
                     }
                   }
                   // Always show today's daily gain from live price data (sum of each position's daily P&L)
