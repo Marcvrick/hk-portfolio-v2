@@ -272,6 +272,25 @@ python -m http.server 8000
 
 ## Changelog
 
+### v2.7 (Feb 2026)
+- **Immutable dailyPnL** - Calendar P&L values no longer change when snapshots are modified
+  - Each snapshot stores `dailyPnL` at creation time
+  - Historical values are preserved even when positions change
+- **Position audit trail** - Snapshots now store `positionsAtClose` array
+  - Full details: ticker, name, qty, entry price, closing price, P&L
+  - Useful for recovery and historical analysis
+- **Calendar day click modal** - Click any day to view snapshot details
+  - Shows positions held at close
+  - Edit portfolioValue and dailyPnL if needed
+  - Debug section with calculation breakdown
+- **Improved P&L calculation** - Calendar fallback now uses closingPrices difference
+  - Handles new purchases correctly (old method used unrealizedPnL diff)
+  - Uses positionsAtClose when available for accurate calculation
+- **Live market indicator** - Orange pulsing "live" dot on "Aujourd'hui" tile
+  - Shows when HK market is open (9:30-12:00, 13:00-16:00 HKT)
+- **TradingView links** - Click tickers to open personal TradingView chart (owner only)
+- **Performance tab sorting** - Click column headers to sort by % Change, Daily $, Weight
+
 ### v2.6 (Feb 2026)
 - **Accurate daily % change** - Performance tab now uses stored closing prices
   - Snapshots now store `closingPrices` for all positions at end of day

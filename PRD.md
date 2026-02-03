@@ -74,12 +74,28 @@ Single-page React applications for tracking stock portfolio performance with Fir
   positionCount: number,
   closingPrices: {           // Added v2.6 - for accurate daily % change
     "XXXX.HK": number        // Closing price per ticker
-  }
+  },
+  dailyPnL: number,          // Added v2.7 - immutable daily P&L (calculated at snapshot creation)
+  positionsAtClose: [        // Added v2.7 - full position details for audit/recovery
+    {
+      ticker: "XXXX.HK",
+      name: string,
+      quantity: number,
+      entryPrice: number,
+      entryDate: "YYYY-MM-DD",
+      closingPrice: number,
+      marketValue: number,
+      pnl: number,
+      pnlPercent: number
+    }
+  ]
 }
 ```
 - Snapshots auto-save daily on weekdays only (market closed weekends)
 - Used for P&L calendar and equity curve calculations
 - `closingPrices` stores actual closing prices for next day's % change calculation (more reliable than Yahoo's previousClose)
+- `dailyPnL` is immutable once stored - prevents historical values from changing when snapshots are modified
+- `positionsAtClose` provides full audit trail of positions held at each day's close
 
 ### Wishlist Item
 ```javascript
@@ -125,10 +141,16 @@ Single-page React applications for tracking stock portfolio performance with Fir
 
 ### 2. Performance
 - Daily movers table with % change from previous close
+- **Sortable columns**: Click headers to sort by % Change, Daily $, Weight
 - Today's P&L summary (gainers/losers count)
 - Top 3 gainers/losers badges
+- **TradingView links**: Click ticker to open in TradingView (owner only)
 - **P&L Calendar**: Monthly heatmap of daily gains/losses
+  - Click any day to view snapshot details (modal)
+  - Edit portfolioValue and dailyPnL manually if needed
+  - Debug section shows calculation breakdown
 - **Equity Curve**: Total P&L over time chart
+- **Live market indicator**: Orange pulsing "live" dot when HK market is open (9:30-12:00, 13:00-16:00 HKT)
 
 ### 3. Completed Trades (History)
 - All closed positions with net P&L (after fees)
@@ -230,6 +252,15 @@ Requires CORS proxy. Available proxies:
 ---
 
 ## Known Issues / Recent Fixes
+
+### Fixed (2026-02-03)
+1. **Immutable dailyPnL**: Calendar P&L values no longer change when snapshots are modified. Each snapshot now stores `dailyPnL` at creation time.
+
+2. **Accurate calendar P&L calculation**: Fallback calculation (for old snapshots without dailyPnL) now uses `positionsAtClose` + `closingPrices` when available, instead of unreliable `unrealizedPnL` difference which doesn't account for new purchases.
+
+3. **Position audit trail**: Snapshots now store `positionsAtClose` with full position details for each day (ticker, qty, entry, close price, P&L).
+
+4. **Calendar day click modal**: Click any calendar day to view snapshot details and manually edit P&L if needed.
 
 ### Fixed (2026-02-02)
 1. **Accurate daily % change**: Performance tab now uses yesterday's stored closing prices (from snapshot) instead of Yahoo's unreliable `meta.previousClose`. Yahoo's previousClose was returning data 2+ days old, causing incorrect % change calculations.
