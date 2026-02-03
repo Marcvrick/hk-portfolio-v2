@@ -354,6 +354,13 @@
                 closingPrices[ct] = priceCache[ct].price;
               }
             });
+            // Also include wishlist tickers
+            wishlist.forEach(w => {
+              const ct = w.ticker.replace(/b\.HK$/, '.HK');
+              if (priceCache[ct]?.success && !closingPrices[ct]) {
+                closingPrices[ct] = priceCache[ct].price;
+              }
+            });
             console.log('Migration: Added closingPrices to snapshot', s.date, 'from priceCache dated', priceCacheDate);
             return { ...s, closingPrices };
           } else {
@@ -1068,11 +1075,18 @@
           .reduce((sum, t) => sum + t.amount, 0);
 
         // Store priceCache in snapshot for accurate % change calculations next day
-        // Only store relevant prices (for current positions) to keep snapshot size small
+        // Store prices for positions AND wishlist items
         const snapshotPriceCache = {};
         positions.forEach(p => {
           const ct = p.ticker.replace(/b\.HK$/, '.HK');
           if (priceCache[ct]?.success) {
+            snapshotPriceCache[ct] = priceCache[ct].price;
+          }
+        });
+        // Also store wishlist ticker prices for accurate daily % change
+        wishlist.forEach(w => {
+          const ct = w.ticker.replace(/b\.HK$/, '.HK');
+          if (priceCache[ct]?.success && !snapshotPriceCache[ct]) {
             snapshotPriceCache[ct] = priceCache[ct].price;
           }
         });
