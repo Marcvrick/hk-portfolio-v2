@@ -1133,6 +1133,23 @@
           return sum + (t.exitPrice - prevClose) * t.quantity;
         }, 0);
 
+        // Create complete positions snapshot for audit/recovery
+        const positionsAtClose = positions.map(p => {
+          const ct = p.ticker.replace(/b\.HK$/, '.HK');
+          const closingPrice = snapshotPriceCache[ct] || p.currentPrice;
+          return {
+            ticker: p.ticker,
+            name: p.name,
+            quantity: p.quantity,
+            entryPrice: p.entryPrice,
+            entryDate: p.entryDate,
+            closingPrice: closingPrice,
+            marketValue: closingPrice * p.quantity,
+            pnl: (closingPrice - p.entryPrice) * p.quantity,
+            pnlPercent: ((closingPrice - p.entryPrice) / p.entryPrice) * 100
+          };
+        });
+
         const newSnapshot = {
           date: today,
           capitalEngaged,  // Coût d'achat des positions ouvertes
@@ -1142,7 +1159,8 @@
           totalDividends,
           positionCount: positions.length,
           closingPrices: snapshotPriceCache,  // Store closing prices for next day's % change
-          dailyPnL: calculatedDailyPnL + closedTodayPnLForSnapshot  // Store daily P&L permanently
+          dailyPnL: calculatedDailyPnL + closedTodayPnLForSnapshot,  // Store daily P&L permanently
+          positionsAtClose: positionsAtClose  // Complete positions snapshot for audit/recovery
         };
 
         // Check if snapshot changed (to avoid unnecessary saves)
