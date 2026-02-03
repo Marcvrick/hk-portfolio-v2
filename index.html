@@ -3585,6 +3585,34 @@
                             const calculatedPnL = prevSnap
                               ? (snap.unrealizedPnL - prevSnap.unrealizedPnL) + (snap.realizedPnL - prevSnap.realizedPnL)
                               : null;
+
+                            // Calculate P&L from closingPrices difference
+                            const prevClosingPrices = prevSnap?.closingPrices || {};
+                            const currClosingPrices = snap.closingPrices || {};
+                            const posAtClose = snap.positionsAtClose || [];
+
+                            // Recalculate P&L based on price differences
+                            let recalculatedPnL = 0;
+                            let breakdown = [];
+                            posAtClose.forEach(p => {
+                              const ticker = p.ticker?.replace(/b\.HK$/, '.HK');
+                              const prevClose = prevClosingPrices[ticker];
+                              const currClose = currClosingPrices[ticker] || p.closingPrice;
+                              const isNewPosition = p.entryDate === snap.date;
+
+                              if (isNewPosition) {
+                                // New position: P&L = (close - entry) × qty
+                                const pnl = (currClose - p.entryPrice) * p.quantity;
+                                recalculatedPnL += pnl;
+                                breakdown.push({ ticker, type: 'NEW', prevClose: p.entryPrice, currClose, qty: p.quantity, pnl });
+                              } else if (prevClose && currClose) {
+                                // Existing position: P&L = (currClose - prevClose) × qty
+                                const pnl = (currClose - prevClose) * p.quantity;
+                                recalculatedPnL += pnl;
+                                breakdown.push({ ticker, type: 'HOLD', prevClose, currClose, qty: p.quantity, pnl });
+                              }
+                            });
+
                             return (
                               <div className="mt-4 pt-4 border-t border-gray-200 text-xs">
                                 <div className="text-muted font-semibold mb-2">🔍 Calcul du P&L (debug)</div>
@@ -3597,9 +3625,39 @@
                                     <div className="mt-2 pt-2 border-t border-gray-300">
                                       <div>ΔUnrealized: {fmt(snap.unrealizedPnL - prevSnap.unrealizedPnL)}</div>
                                       <div>ΔRealized: {fmt(snap.realizedPnL - prevSnap.realizedPnL)}</div>
-                                      <div className="font-bold">= P&L calculé: {fmt(calculatedPnL)}</div>
-                                      {snap.dailyPnL !== undefined && <div className="text-lime-hover">dailyPnL stocké: {fmt(snap.dailyPnL)}</div>}
+                                      <div className="font-bold">= P&L (méthode diff): {fmt(calculatedPnL)}</div>
                                     </div>
+
+                                    {/* Recalculated P&L from closing prices */}
+                                    {breakdown.length > 0 && (
+                                      <div className="mt-3 pt-2 border-t border-gray-300">
+                                        <div className="font-semibold text-lime-hover mb-1">📊 Recalcul via closingPrices:</div>
+                                        {breakdown.map((b, i) => (
+                                          <div key={i} className="text-[10px]">
+                                            {b.ticker?.replace('.HK','')}: {b.type === 'NEW' ? '🆕' : ''} ({b.prevClose?.toFixed(2)} → {b.currClose?.toFixed(2)}) × {b.qty} = <span className={b.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{b.pnl >= 0 ? '+' : ''}{fmt(b.pnl)}</span>
+                                          </div>
+                                        ))}
+                                        <div className="font-bold mt-1">= P&L recalculé: {fmt(recalculatedPnL)}</div>
+                                        <button
+                                          onClick={() => {
+                                            if (confirm(`Mettre à jour le P&L du ${snap.date} à ${fmt(recalculatedPnL)} HKD ?`)) {
+                                              updateSnapshot(snap.date, { dailyPnL: recalculatedPnL });
+                                              setSelectedSnapshotDate(null);
+                                              setTimeout(() => setSelectedSnapshotDate(snap.date), 100);
+                                            }
+                                          }}
+                                          className="mt-2 bg-lime-accent hover:bg-lime-hover text-dark-text px-3 py-1 rounded text-xs font-semibold"
+                                        >
+                                          Appliquer ce P&L ({fmt(recalculatedPnL)})
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {breakdown.length === 0 && (
+                                      <div className="mt-2 text-muted">Pas de positionsAtClose pour recalculer</div>
+                                    )}
+
+                                    {snap.dailyPnL !== undefined && <div className="mt-2 text-lime-hover">dailyPnL stocké actuel: {fmt(snap.dailyPnL)}</div>}
                                   </div>
                                 ) : (
                                   <div className="text-muted">Pas de snapshot précédent</div>
