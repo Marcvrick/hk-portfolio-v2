@@ -804,6 +804,7 @@
       const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
       const [dataLoaded, setDataLoaded] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
+      const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: new Date().toISOString().split('T')[0], sellQuantity: '' });
       const [today] = useState(new Date().toISOString().split('T')[0]);
       const [editingEntryDate, setEditingEntryDate] = useState(null);
@@ -1858,6 +1859,7 @@
       };
 
       const sort = (key) => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'desc' ? 'asc' : 'desc' });
+      const sortPerf = (key) => setPerfSortConfig({ key, direction: perfSortConfig.key === key && perfSortConfig.direction === 'desc' ? 'asc' : 'desc' });
 
       // ===== FORMATTING =====
       const m = calculateMetrics;
@@ -3114,7 +3116,17 @@
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
               });
-              const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
+              // Sort allMovers based on perfSortConfig
+              const allMovers = [...moversData, ...closedTodayData].sort((a, b) => {
+                let aV, bV;
+                switch (perfSortConfig.key) {
+                  case 'dailyChangePercent': aV = a.dailyChangePercent; bV = b.dailyChangePercent; break;
+                  case 'dailyChangeDollar': aV = a.dailyChangeDollar; bV = b.dailyChangeDollar; break;
+                  case 'weight': aV = a.weight; bV = b.weight; break;
+                  default: aV = a.dailyChangePercent; bV = b.dailyChangePercent;
+                }
+                return perfSortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
+              });
 
               const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
@@ -3175,9 +3187,15 @@
                         <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
                         <th className="px-2 py-1.5 text-right">Prev Close</th>
                         <th className="px-2 py-1.5 text-right">Actuel</th>
-                        <th className="px-2 py-1.5 text-right">% Change</th>
-                        <th className="px-2 py-1.5 text-right">Daily $</th>
-                        <th className="px-2 py-1.5 text-right">Weight</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('dailyChangePercent')}>
+                          % Change {perfSortConfig.key === 'dailyChangePercent' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                        </th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('dailyChangeDollar')}>
+                          Daily $ {perfSortConfig.key === 'dailyChangeDollar' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                        </th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('weight')}>
+                          Weight {perfSortConfig.key === 'weight' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                        </th>
                         <th className="px-1 py-1.5 text-center w-6"></th>
                       </tr>
                     </thead>
