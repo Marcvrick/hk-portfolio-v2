@@ -953,6 +953,42 @@
         }
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, viewingFriendEmail]);
 
+      // ===== ONE-TIME DATA CORRECTION: Feb 2 P&L and 1361.HK entry price =====
+      useEffect(() => {
+        if (!dataLoaded || viewingFriendEmail) return;
+
+        let needsSave = false;
+        let correctedPositions = positions;
+        let correctedSnapshots = snapshots;
+
+        // Fix 1361.HK entry price: 5.75 → 5.717
+        const pos1361 = positions.find(p => p.ticker === '1361.HK');
+        if (pos1361 && pos1361.entryPrice === 5.75) {
+          correctedPositions = positions.map(p =>
+            p.ticker === '1361.HK' ? { ...p, entryPrice: 5.717 } : p
+          );
+          console.log('Corrected 1361.HK entry price: 5.75 → 5.717');
+          needsSave = true;
+        }
+
+        // Fix Feb 2 dailyPnL: calculated correctly as -14650
+        // The -22k was wrong because it used unrealizedPnL diff which doesn't account for new purchases
+        const feb2Snap = snapshots.find(s => s.date === '2026-02-02');
+        if (feb2Snap && !feb2Snap.dailyPnL) {
+          correctedSnapshots = snapshots.map(s =>
+            s.date === '2026-02-02' ? { ...s, dailyPnL: -14650 } : s
+          );
+          console.log('Corrected Feb 2 dailyPnL: set to -14650 (was showing ~-22k from unrealizedPnL diff)');
+          needsSave = true;
+        }
+
+        if (needsSave) {
+          setPositions(correctedPositions);
+          setSnapshots(correctedSnapshots);
+          saveData(correctedPositions, closedTrades, transactions, priceCache, correctedSnapshots, settings);
+        }
+      }, [dataLoaded]);
+
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0) return;
