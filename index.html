@@ -958,12 +958,12 @@
         if (!dataLoaded || viewingFriendEmail) return;
 
         let needsSave = false;
-        let correctedPositions = positions;
-        let correctedSnapshots = snapshots;
+        let correctedPositions = [...positions];
+        let correctedSnapshots = [...snapshots];
 
         // Fix 1361.HK entry price: 5.75 → 5.717
         const pos1361 = positions.find(p => p.ticker === '1361.HK');
-        if (pos1361 && pos1361.entryPrice === 5.75) {
+        if (pos1361 && Math.abs(pos1361.entryPrice - 5.75) < 0.01) {
           correctedPositions = positions.map(p =>
             p.ticker === '1361.HK' ? { ...p, entryPrice: 5.717 } : p
           );
@@ -974,11 +974,12 @@
         // Fix Feb 2 dailyPnL: calculated correctly as -14650
         // The -22k was wrong because it used unrealizedPnL diff which doesn't account for new purchases
         const feb2Snap = snapshots.find(s => s.date === '2026-02-02');
-        if (feb2Snap && !feb2Snap.dailyPnL) {
+        // Apply fix if: no dailyPnL, or dailyPnL is the wrong value (~-22k)
+        if (feb2Snap && (feb2Snap.dailyPnL === undefined || Math.abs(feb2Snap.dailyPnL - (-22000)) < 3000)) {
           correctedSnapshots = snapshots.map(s =>
             s.date === '2026-02-02' ? { ...s, dailyPnL: -14650 } : s
           );
-          console.log('Corrected Feb 2 dailyPnL: set to -14650 (was showing ~-22k from unrealizedPnL diff)');
+          console.log('Corrected Feb 2 dailyPnL: set to -14650 (was:', feb2Snap.dailyPnL, ')');
           needsSave = true;
         }
 
