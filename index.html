@@ -1638,11 +1638,18 @@
 
       // Get wishlist items with current prices and gap calculation
       const getWishlistWithPrices = () => {
+        // Get yesterday's snapshot closingPrices (same logic as Performance tab)
+        const todayStr = new Date().toISOString().split('T')[0];
+        const sortedSnaps = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const yesterdaySnapshot = sortedSnaps.find(s => s.date < todayStr && isTradingDay(s.date));
+        const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
+
         return wishlist.map(w => {
           const cleanTicker = w.ticker.replace(/b\.HK$/, '.HK');
           const cached = priceCache[cleanTicker];
           const currentPrice = cached?.price || null;
-          const previousClose = cached?.previousClose || currentPrice;
+          // Priority: manual override → yesterday's stored closingPrices → Yahoo's previousClose
+          const previousClose = cached?.previousCloseOverride || yesterdayClosingPrices[cleanTicker] || (cached?.previousClose) || currentPrice;
           const dailyChange = currentPrice && previousClose ? currentPrice - previousClose : 0;
           const dailyChangePercent = previousClose ? (dailyChange / previousClose) * 100 : 0;
           const gap = currentPrice ? ((currentPrice - w.targetPrice) / w.targetPrice) * 100 : null;
@@ -1650,6 +1657,7 @@
           return {
             ...w,
             currentPrice,
+            previousClose,
             dailyChange,
             dailyChangePercent,
             gap,
