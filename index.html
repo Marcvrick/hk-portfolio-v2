@@ -3576,6 +3576,37 @@
                             <div><span className="text-muted">P&L réalisé:</span> <strong>{fmt(snap.realizedPnL)}</strong></div>
                             <div><span className="text-muted">Positions:</span> <strong>{snap.positionCount}</strong></div>
                           </div>
+
+                          {/* Debug: Show calculation breakdown */}
+                          {(() => {
+                            const sortedSnaps = [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
+                            const snapIndex = sortedSnaps.findIndex(s => s.date === snap.date);
+                            const prevSnap = snapIndex > 0 ? sortedSnaps[snapIndex - 1] : null;
+                            const calculatedPnL = prevSnap
+                              ? (snap.unrealizedPnL - prevSnap.unrealizedPnL) + (snap.realizedPnL - prevSnap.realizedPnL)
+                              : null;
+                            return (
+                              <div className="mt-4 pt-4 border-t border-gray-200 text-xs">
+                                <div className="text-muted font-semibold mb-2">🔍 Calcul du P&L (debug)</div>
+                                {prevSnap ? (
+                                  <div className="bg-gray-50 rounded p-3 space-y-1 font-mono">
+                                    <div>Jour précédent: <strong>{prevSnap.date}</strong></div>
+                                    <div>└ Portfolio: {fmt(prevSnap.portfolioValue)} | Unrealized: {fmt(prevSnap.unrealizedPnL)} | Realized: {fmt(prevSnap.realizedPnL)}</div>
+                                    <div className="mt-2">Ce jour: <strong>{snap.date}</strong></div>
+                                    <div>└ Portfolio: {fmt(snap.portfolioValue)} | Unrealized: {fmt(snap.unrealizedPnL)} | Realized: {fmt(snap.realizedPnL)}</div>
+                                    <div className="mt-2 pt-2 border-t border-gray-300">
+                                      <div>ΔUnrealized: {fmt(snap.unrealizedPnL - prevSnap.unrealizedPnL)}</div>
+                                      <div>ΔRealized: {fmt(snap.realizedPnL - prevSnap.realizedPnL)}</div>
+                                      <div className="font-bold">= P&L calculé: {fmt(calculatedPnL)}</div>
+                                      {snap.dailyPnL !== undefined && <div className="text-lime-hover">dailyPnL stocké: {fmt(snap.dailyPnL)}</div>}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-muted">Pas de snapshot précédent</div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
