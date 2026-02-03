@@ -1534,6 +1534,15 @@
         saveData(positions, closedTrades, transactions, newCache, snapshots, settings);
       };
 
+      // Update dailyPnL for a specific snapshot (manual correction)
+      const updateSnapshotDailyPnL = (date, newPnL) => {
+        const updatedSnapshots = snapshots.map(s =>
+          s.date === date ? { ...s, dailyPnL: parseFloat(newPnL) || 0 } : s
+        );
+        setSnapshots(updatedSnapshots);
+        saveData(positions, closedTrades, transactions, priceCache, updatedSnapshots, settings);
+      };
+
       const closePosition = () => {
         const { position, exitPrice, exitDate, sellQuantity } = closeModal;
         const qty = parseFloat(sellQuantity) || position.quantity;
@@ -3469,10 +3478,28 @@
                         <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
                           <div>
                             <h3 className="font-bold text-lg">Clôture du {fmtDate(snap.date)}</h3>
-                            <div className="flex gap-4 text-sm mt-1">
+                            <div className="flex gap-4 text-sm mt-1 items-center">
                               <span>Valeur: <strong>{fmt(snap.portfolioValue)}</strong> HKD</span>
-                              <span className={snap.dailyPnL >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                Jour: <strong>{snap.dailyPnL >= 0 ? '+' : ''}{fmt(snap.dailyPnL || 0)}</strong> HKD
+                              <span className="flex items-center gap-1">
+                                P&L Jour:
+                                <input
+                                  type="number"
+                                  step="1"
+                                  defaultValue={Math.round(snap.dailyPnL || 0)}
+                                  onBlur={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val !== snap.dailyPnL) {
+                                      updateSnapshotDailyPnL(snap.date, val);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.target.blur();
+                                    }
+                                  }}
+                                  className={`w-24 text-right font-bold border border-dashed border-gray-400 rounded px-2 py-0.5 focus:border-lime-accent focus:outline-none ${(snap.dailyPnL || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                                />
+                                <span className="text-muted">HKD</span>
                               </span>
                             </div>
                           </div>
