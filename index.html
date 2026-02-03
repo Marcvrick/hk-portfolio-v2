@@ -264,6 +264,31 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
+    // Check if HK market is currently open (real-time check)
+    // HK trading hours: 9:30-12:00 (morning), 13:00-16:00 (afternoon) HKT
+    const isMarketOpen = () => {
+      const now = new Date();
+      // Convert to HKT (UTC+8)
+      const hktOffset = 8 * 60; // minutes
+      const localOffset = now.getTimezoneOffset(); // minutes (negative for UTC+)
+      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+
+      const hours = hktTime.getHours();
+      const minutes = hktTime.getMinutes();
+      const timeInMinutes = hours * 60 + minutes;
+
+      // Check if it's a trading day
+      const todayStr = now.toISOString().split('T')[0];
+      if (!isTradingDay(todayStr)) return false;
+
+      // Morning session: 9:30 (570) - 12:00 (720)
+      // Afternoon session: 13:00 (780) - 16:00 (960)
+      const isMorningSession = timeInMinutes >= 570 && timeInMinutes < 720;
+      const isAfternoonSession = timeInMinutes >= 780 && timeInMinutes < 960;
+
+      return isMorningSession || isAfternoonSession;
+    };
+
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
       if (ticker.startsWith('HKG:')) {
@@ -762,7 +787,7 @@
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
       const [lastRefresh, setLastRefresh] = useState(null);
-      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
+      const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false });
       const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
       const [darkMode, setDarkMode] = useState(() => {
         const saved = localStorage.getItem('portfolioDarkMode');
@@ -971,15 +996,16 @@
             const realizedChange = (fridaySnap.realizedPnL || 0) - (thursdaySnap.realizedPnL || 0);
             const fridayGain = unrealizedChange + realizedChange;
             const percent = thursdaySnap.portfolioValue > 0 ? (fridayGain / thursdaySnap.portfolioValue) * 100 : 0;
-            setDailyGain({ value: fridayGain, percent, hasYesterday: true, isWeekend: true });
+            setDailyGain({ value: fridayGain, percent, hasYesterday: true, isWeekend: true, isLive: false });
           } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true });
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true, isLive: false });
           }
         } else {
           // Weekday: use live price data
           // Use yesterday's stored closing prices for accurate % change
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
           const hasPriceData = Object.values(priceCache).some(c => c?.success);
+          const marketCurrentlyOpen = isMarketOpen();
           if (hasPriceData) {
             const gain = positions.reduce((sum, p) => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
@@ -1014,15 +1040,15 @@
             }, 0);
             const totalGain = gain + closedTodayGain;
             const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false });
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen });
           } else if (yesterdaySnapshot) {
             const gain = currentValue - yesterdaySnapshot.portfolioValue;
             const percent = yesterdaySnapshot.portfolioValue > 0
               ? (gain / yesterdaySnapshot.portfolioValue) * 100
               : 0;
-            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false });
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isLive: false });
           } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false });
           }
         }
 
@@ -1939,8 +1965,14 @@
                 </span>
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">
+                <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1 flex items-center gap-1">
                   {dailyGain.isWeekend ? 'Vendredi' : "Aujourd'hui"}
+                  {dailyGain.isLive && (
+                    <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-orange-500 font-medium normal-case">
+                      <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
+                      live
+                    </span>
+                  )}
                 </div>
                 {dailyGain.hasYesterday ? (
                   <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -2386,7 +2418,7 @@
                           </h3>
                           <div className="space-y-2">
                             {alerts.map(w => (
-                              <div key={w.id} className="flex items-center justify-between bg-white/60 rounded-lg px-3 py-2">
+                              <div key={w.id} className="flex items-center justify-between bg-green-100 rounded-lg px-3 py-2">
                                 <div>
                                   <span className="font-semibold text-green-900">{w.ticker}</span>
                                   <span className="text-green-700 ml-2">{w.name}</span>
