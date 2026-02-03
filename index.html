@@ -972,10 +972,9 @@
         }
 
         // Fix Feb 2 dailyPnL: calculated correctly as -14650
-        // The -22k was wrong because it used unrealizedPnL diff which doesn't account for new purchases
+        // Calculation: existing positions -12,723 + 1361.HK intraday (5.61-5.717)*18000 = -1,926 → Total -14,649
         const feb2Snap = snapshots.find(s => s.date === '2026-02-02');
-        // Apply fix if: no dailyPnL, or dailyPnL is the wrong value (~-22k)
-        if (feb2Snap && (feb2Snap.dailyPnL === undefined || Math.abs(feb2Snap.dailyPnL - (-22000)) < 3000)) {
+        if (feb2Snap && feb2Snap.dailyPnL !== -14650) {
           correctedSnapshots = snapshots.map(s =>
             s.date === '2026-02-02' ? { ...s, dailyPnL: -14650 } : s
           );
