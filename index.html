@@ -492,21 +492,37 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Use meta.previousClose as primary source (most reliable for "yesterday's close")
-      // Fallback to last close in the time series if meta.previousClose is unavailable
-      const closes = result?.indicators?.quote?.[0]?.close;
-      let previousClose = meta.previousClose || meta.chartPreviousClose;
-      if (!previousClose && closes && closes.length >= 1) {
-        // Find the last valid close (the most recent completed trading day)
-        for (let i = closes.length - 1; i >= 0; i--) {
-          if (closes[i] != null) {
-            previousClose = closes[i];
-            break;
-          }
+      // Calculate previousClose from time series data (more reliable than meta.previousClose)
+      const timestamps = result?.timestamp || [];
+      const closes = result?.indicators?.quote?.[0]?.close || [];
+
+      // Get valid closes with their timestamps
+      const validData = timestamps.map((t, i) => ({ timestamp: t, close: closes[i] }))
+        .filter(d => d.close != null);
+
+      let previousClose;
+      const todayStart = new Date().setHours(0, 0, 0, 0) / 1000; // Unix timestamp for today midnight
+
+      if (validData.length >= 2) {
+        // Check if the last data point is from today
+        const lastTimestamp = validData[validData.length - 1].timestamp;
+        if (lastTimestamp >= todayStart) {
+          // Last point is today, use second-to-last as previousClose
+          previousClose = validData[validData.length - 2].close;
+        } else {
+          // Last point is from yesterday or earlier (market closed), use the last one
+          previousClose = validData[validData.length - 1].close;
         }
+      } else if (validData.length === 1) {
+        // Only one data point, use meta.previousClose as fallback
+        previousClose = meta.previousClose || meta.chartPreviousClose || validData[0].close;
+      } else {
+        // No time series data, fall back to meta
+        previousClose = meta.previousClose || meta.chartPreviousClose || price;
       }
+
       previousClose = previousClose || price; // final fallback
-      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} ${meta.currency || 'HKD'}`);
+      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} (from timeseries) ${meta.currency || 'HKD'}`);
 
       return {
         success: true,
@@ -1358,9 +1374,20 @@
             const price = meta.regularMarketPrice;
             const timestamps = result.timestamp || [];
             const closes = result.indicators?.quote?.[0]?.close || [];
-            const validCloses = closes.filter(c => c != null);
-            // Use meta.previousClose as primary source, fallback to last valid close
-            const previousClose = meta.previousClose || meta.chartPreviousClose || (validCloses.length >= 1 ? validCloses[validCloses.length - 1] : price);
+
+            // Calculate previousClose from time series (more reliable)
+            const validData = timestamps.map((t, i) => ({ timestamp: t, close: closes[i] }))
+              .filter(d => d.close != null);
+            const todayStartTs = new Date().setHours(0, 0, 0, 0) / 1000;
+            let previousClose;
+            if (validData.length >= 2) {
+              const lastTs = validData[validData.length - 1].timestamp;
+              previousClose = lastTs >= todayStartTs
+                ? validData[validData.length - 2].close
+                : validData[validData.length - 1].close;
+            } else {
+              previousClose = meta.previousClose || meta.chartPreviousClose || price;
+            }
 
             if (price) {
               const newCache = { ...priceCache, [cleanTicker]: {
@@ -1594,10 +1621,23 @@
           if (result) {
             const meta = result.meta || {};
             const price = meta.regularMarketPrice;
+            const timestamps = result.timestamp || [];
             const closes = result.indicators?.quote?.[0]?.close || [];
-            const validCloses = closes.filter(c => c != null);
-            // Use meta.previousClose as primary source, fallback to last valid close
-            const previousClose = meta.previousClose || meta.chartPreviousClose || (validCloses.length >= 1 ? validCloses[validCloses.length - 1] : price);
+
+            // Calculate previousClose from time series (more reliable)
+            const validData = timestamps.map((t, i) => ({ timestamp: t, close: closes[i] }))
+              .filter(d => d.close != null);
+            const todayStartTs = new Date().setHours(0, 0, 0, 0) / 1000;
+            let previousClose;
+            if (validData.length >= 2) {
+              const lastTs = validData[validData.length - 1].timestamp;
+              previousClose = lastTs >= todayStartTs
+                ? validData[validData.length - 2].close
+                : validData[validData.length - 1].close;
+            } else {
+              previousClose = meta.previousClose || meta.chartPreviousClose || price;
+            }
+
             if (price) {
               const newCache = { ...priceCache, [cleanTicker]: {
                 success: true,
@@ -1610,7 +1650,7 @@
               }};
               setPriceCache(newCache);
               saveData(positions, closedTrades, transactions, newCache, snapshots, settings, newWl, wishlistAlertsDismissed);
-              console.log(`Auto-fetched price for wishlist ${ticker}: ${price}`);
+              console.log(`Auto-fetched price for wishlist ${ticker}: ${price}, prevClose: ${previousClose}`);
             }
           }
         } catch (e) {
