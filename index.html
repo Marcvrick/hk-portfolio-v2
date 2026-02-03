@@ -2571,7 +2571,14 @@
                           <tr key={w.id} className={rowClass}>
                             <td className="px-2 py-1.5 font-mono font-semibold">
                               {w.targetReached && <span className="mr-1">✅</span>}
-                              {w.ticker}
+                              <a
+                                href={`https://www.tradingview.com/chart/?symbol=HKEX:${w.ticker.replace('.HK', '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-lime-hover hover:underline"
+                              >
+                                {w.ticker}
+                              </a>
                             </td>
                             <td className="px-2 py-1.5 truncate max-w-[120px]" title={w.name}>{w.name}</td>
                             <td className="px-2 py-1.5 text-right font-mono">
