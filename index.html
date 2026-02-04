@@ -3909,11 +3909,8 @@
                     return sum; // Skip if no previousClose (don't use entryPrice as fallback)
                   }, 0);
                   dailyPnL = todayPnl + closedTodayPnl;
-                } else if (snap.dailyPnL !== undefined) {
-                  // Past days: use stored dailyPnL
-                  dailyPnL = snap.dailyPnL;
                 } else if (i > 0) {
-                  // Fallback for old snapshots without dailyPnL: calculate from price movements
+                  // Past days: recalculate from closingPrices (don't use stored dailyPnL - may have old formula)
                   const prevSnap = sortedSnaps[i - 1];
                   if (snap.closingPrices && prevSnap.closingPrices && snap.positionsAtClose) {
                     let calculatedPnL = 0;
