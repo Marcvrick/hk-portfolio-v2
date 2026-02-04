@@ -3959,11 +3959,20 @@
                 return `${d.getFullYear()}-S${String(week).padStart(2, '0')}`;
               };
               const weeklyMap = {};
+              const weeklyDates = {}; // Track first date of each week to determine if uncertain
               dailyPnls.forEach(d => {
                 const wk = getWeekKey(d.date);
                 weeklyMap[wk] = (weeklyMap[wk] || 0) + d.pnl;
+                if (!weeklyDates[wk] || d.date < weeklyDates[wk]) {
+                  weeklyDates[wk] = d.date;
+                }
               });
-              const weeklyData = Object.entries(weeklyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([week, pnl]) => ({ week, pnl }));
+              // First week with reliable data (February 2026 = week 6 approximately)
+              const firstReliableWeek = '2026-S06';
+              const weeklyData = Object.entries(weeklyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([week, pnl]) => {
+                const isUncertain = week < firstReliableWeek; // January weeks are uncertain
+                return { week, pnl, uncertain: isUncertain };
+              });
 
               // Monthly aggregation
               const monthlyMap = {};
@@ -3972,9 +3981,12 @@
                 monthlyMap[mk] = (monthlyMap[mk] || 0) + d.pnl;
               });
               const monthNames = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+              // First month with reliable data (set to February 2026 - January has no starting point)
+              const firstReliableMonth = '2026-02';
               const monthlyData = Object.entries(monthlyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([mk, pnl]) => {
                 const [y, mo] = mk.split('-');
-                return { month: `${monthNames[parseInt(mo) - 1]} ${y}`, pnl };
+                const isUncertain = mk < firstReliableMonth; // January 2026 and earlier are uncertain
+                return { month: `${monthNames[parseInt(mo) - 1]} ${y}`, pnl, uncertain: isUncertain, monthKey: mk };
               });
 
               return (
@@ -4030,10 +4042,14 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="week" stroke="#9CA3AF" tick={{ fontSize: 9 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' HKD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip formatter={(v, name, props) => {
+                            const item = props.payload;
+                            if (item.uncertain) return [fmt(v) + ' HKD (données incomplètes)', 'P&L'];
+                            return [fmt(v) + ' HKD', 'P&L'];
+                          }} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
                           <Bar dataKey="pnl" name="P&L">
                             {weeklyData.map((d, i) => (
-                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                              <Cell key={i} fill={d.uncertain ? '#9CA3AF' : (d.pnl >= 0 ? '#10B981' : '#EF4444')} />
                             ))}
                           </Bar>
                         </BarChart>
@@ -4051,9 +4067,12 @@
                         </thead>
                         <tbody>
                           {[...weeklyData].reverse().map(w => (
-                            <tr key={w.week} className="border-t border-gray-100">
-                              <td className="px-2 py-1.5 font-mono">{w.week}</td>
-                              <td className={`px-2 py-1.5 text-right font-bold ${w.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}</td>
+                            <tr key={w.week} className={`border-t border-gray-100 ${w.uncertain ? 'opacity-50' : ''}`}>
+                              <td className="px-2 py-1.5 font-mono">
+                                {w.week}
+                                {w.uncertain && <span className="ml-1 text-gray-400 text-xs">(incomplet)</span>}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${w.uncertain ? 'text-gray-400' : (w.pnl >= 0 ? 'text-green-600' : 'text-red-600')}`}>{w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -4070,10 +4089,14 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' HKD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip formatter={(v, name, props) => {
+                            const item = props.payload;
+                            if (item.uncertain) return [fmt(v) + ' HKD (données incomplètes)', 'P&L'];
+                            return [fmt(v) + ' HKD', 'P&L'];
+                          }} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
                           <Bar dataKey="pnl" name="P&L">
                             {monthlyData.map((d, i) => (
-                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                              <Cell key={i} fill={d.uncertain ? '#9CA3AF' : (d.pnl >= 0 ? '#10B981' : '#EF4444')} />
                             ))}
                           </Bar>
                         </BarChart>
@@ -4091,9 +4114,14 @@
                         </thead>
                         <tbody>
                           {[...monthlyData].reverse().map(mo => (
-                            <tr key={mo.month} className="border-t border-gray-100">
-                              <td className="px-2 py-1.5">{mo.month}</td>
-                              <td className={`px-2 py-1.5 text-right font-bold ${mo.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{mo.pnl >= 0 ? '+' : ''}{fmt(mo.pnl)}</td>
+                            <tr key={mo.month} className={`border-t border-gray-100 ${mo.uncertain ? 'opacity-50' : ''}`}>
+                              <td className="px-2 py-1.5">
+                                {mo.month}
+                                {mo.uncertain && <span className="ml-1 text-gray-400 text-xs">(incomplet)</span>}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${mo.uncertain ? 'text-gray-400' : (mo.pnl >= 0 ? 'text-green-600' : 'text-red-600')}`}>
+                                {mo.pnl >= 0 ? '+' : ''}{fmt(mo.pnl)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
