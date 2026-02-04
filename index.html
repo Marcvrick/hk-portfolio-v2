@@ -3967,8 +3967,8 @@
                   weeklyDates[wk] = d.date;
                 }
               });
-              // First week with reliable data (February 2026 = week 6 approximately)
-              const firstReliableWeek = '2026-S06';
+              // First week with reliable data (data starts Jan 26 = week 5)
+              const firstReliableWeek = '2026-S05';
               const weeklyData = Object.entries(weeklyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([week, pnl]) => {
                 const isUncertain = week < firstReliableWeek; // January weeks are uncertain
                 return { week, pnl, uncertain: isUncertain };
