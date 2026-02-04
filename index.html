@@ -3938,8 +3938,10 @@
                     }
                     dailyPnL = calculatedPnL;
                   } else {
-                    // Last resort: skip this day (can't calculate accurately)
-                    continue;
+                    // Fallback for very old snapshots: use unrealizedPnL change only (not perfect but preserves history)
+                    // Note: This doesn't include realized gains correctly, but keeps historical data visible
+                    const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
+                    dailyPnL = unrealizedChange;
                   }
                 } else {
                   continue; // First snapshot, no previous day to compare
