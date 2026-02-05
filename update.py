@@ -164,11 +164,22 @@ def run():
         for p in positions:
             clean = p["ticker"].replace("b.HK", ".HK")
             cur_price = p.get("currentPrice", p.get("entryPrice", 0))
-            prev_close = yesterday_closing.get(clean)
-            if prev_close is not None:
-                daily_pnl += (cur_price - prev_close) * p["quantity"]
-            elif p.get("entryDate") == today:
+            if p.get("entryDate") == today:
+                # Entirely new position added today
                 daily_pnl += (cur_price - p.get("entryPrice", 0)) * p["quantity"]
+            elif p.get("addedTodayDate") == today and p.get("addedTodayQty", 0) > 0 and p.get("qtyBeforeToday", 0) > 0:
+                # Existing position with intraday addition: split calculation
+                prev_close = yesterday_closing.get(clean)
+                old_qty = p["qtyBeforeToday"]
+                added_qty = p["addedTodayQty"]
+                added_price = p.get("addedTodayPrice", 0)
+                if prev_close is not None:
+                    daily_pnl += (cur_price - prev_close) * old_qty
+                daily_pnl += (cur_price - added_price) * added_qty
+            else:
+                prev_close = yesterday_closing.get(clean)
+                if prev_close is not None:
+                    daily_pnl += (cur_price - prev_close) * p["quantity"]
         # Add realized P&L change
         yesterday_realized = yesterday_snap.get("realizedPnL", 0)
         daily_pnl += (realized_pnl - yesterday_realized)
@@ -200,6 +211,11 @@ def run():
         print(f"\nNew snapshot for {today}")
 
     print(f"  Value: {current_value:,.0f} HKD | Capital: {capital_engaged:,.0f} HKD | P&L: {current_value - capital_engaged:,.0f} HKD")
+
+    # Clean up intraday addition fields (no longer needed after snapshot)
+    for p in positions:
+        for field in ["addedTodayDate", "addedTodayQty", "addedTodayPrice", "qtyBeforeToday"]:
+            p.pop(field, None)
 
     # 3. Save to Firestore
     update_data = {
