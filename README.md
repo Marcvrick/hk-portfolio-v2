@@ -272,6 +272,19 @@ python -m http.server 8000
 
 ## Changelog
 
+### v2.8 (Feb 2026)
+- **Intraday position additions** - Accurate daily P&L when adding shares during market hours
+  - Previously: adding 9000 shares to existing 10000 shares would calculate daily P&L using yesterday's close for ALL 19000 shares (incorrect)
+  - Now: splits calculation between old shares (use previous close) and new shares (use purchase price)
+  - Example: 10000 old @ prev close 3.08, add 9000 new @ 2.90, current 2.88
+    - Old: (2.88 - 3.08) × 10000 = -2000
+    - New: (2.88 - 2.90) × 9000 = -180
+    - Total: -2180 (not -3800 as before)
+  - Temporary fields stored on position: `addedTodayDate`, `addedTodayQty`, `addedTodayPrice`, `qtyBeforeToday`
+  - Fields automatically cleaned up after daily snapshot
+  - Supports multiple additions in same day (accumulates correctly)
+  - Applied to: live daily gain, snapshot P&L, Performance tab, backend cron
+
 ### v2.7 (Feb 2026)
 - **Enriched cron snapshots** - `update.py` now stores complete snapshot data
   - `closingPrices` for all positions (enables accurate next-day % change)
@@ -359,6 +372,7 @@ python -m http.server 8000
   - If ticker already exists, quantities are merged
   - Entry price recalculated as weighted average
   - Example: 1000 @ $10 + 500 @ $13 → 1500 @ $11
+  - See v2.8 for intraday addition P&L accuracy fix
 - **Wishlist alert popup** - On login notification:
   - Popup appears when stocks reach target price
   - Shows all triggered alerts with current vs target price
