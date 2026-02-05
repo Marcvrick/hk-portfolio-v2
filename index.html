@@ -839,6 +839,9 @@
         // Subscribe to real-time updates from Firestore
         const unsubscribe = firestoreStorage.subscribeToUpdates((data) => {
           if (!data) return;
+          // DEBUG: log raw Boyaa data from Firestore
+          const rawBoyaa = data.positions?.find(p => p.ticker?.includes('0434'));
+          console.log('RAW Boyaa from Firestore:', rawBoyaa);
           const migrated = migrateDataToV7(data);
           console.log('Real-time update from Firestore:', {
             positions: migrated.positions?.length,
