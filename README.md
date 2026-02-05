@@ -273,6 +273,22 @@ python -m http.server 8000
 ## Changelog
 
 ### v2.7 (Feb 2026)
+- **Enriched cron snapshots** - `update.py` now stores complete snapshot data
+  - `closingPrices` for all positions (enables accurate next-day % change)
+  - `dailyPnL` calculated from yesterday's closing prices
+  - `positionsAtClose` with full position details (audit trail)
+  - Previously only stored basic metrics (portfolioValue, capitalEngaged)
+- **Calendar backfill** - Missing trading days are automatically estimated
+  - If a day has no snapshot, P&L is estimated from surrounding snapshots
+  - Distributes unrealized+realized change evenly across gap days
+  - Prevents empty holes in the calendar
+- **Calendar uses dailyGain state for today** - Today's calendar cell uses the same value as the header "Aujourd'hui" card, ensuring consistency
+- **3-layer data protection for daily snapshots:**
+  1. Cron (`update.py`) runs every weekday at 16:30 HKT with complete data
+  2. Frontend creates/updates snapshot when app is open
+  3. Backfill estimates missing days from adjacent data
+- **Colored P&L tooltips** - Weekly/Monthly chart tooltips now show P&L in green (positive) or red (negative) instead of hard-to-read black text
+- **History starts Feb 2026** - January data excluded (unreliable without starting point)
 - **Immutable dailyPnL** - Calendar P&L values no longer change when snapshots are modified
   - Each snapshot stores `dailyPnL` at creation time
   - Historical values are preserved even when positions change
