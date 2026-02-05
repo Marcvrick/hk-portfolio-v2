@@ -3439,6 +3439,39 @@
                     pnlMap[todayDate] = dailyGain.value;
                   }
 
+                  // Backfill missing trading days: if a trading day has no pnlMap entry but
+                  // we have snapshots before and after it, estimate P&L by distributing
+                  // the total unrealized+realized change evenly across the gap
+                  const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+                  for (let d = 1; d <= daysInCurrentMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    if (pnlMap[dateStr] !== undefined) continue;
+                    if (!isTradingDay(dateStr)) continue;
+                    if (dateStr >= todayDate) continue;
+                    // Find nearest snapshot BEFORE and AFTER this gap date
+                    const snapBefore = sortedSnaps.filter(s => s.date < dateStr).pop();
+                    let snapAfter = sortedSnaps.find(s => s.date > dateStr);
+                    // If no snapshot after, use today's snapshot as endpoint
+                    if (!snapAfter) {
+                      snapAfter = snapshots.find(s => s.date === todayDate);
+                    }
+                    if (snapBefore && snapAfter) {
+                      // Count trading days in the gap (excluding snapBefore date)
+                      let tradingDaysBetween = 0;
+                      const start = new Date(snapBefore.date);
+                      const end = new Date(snapAfter.date);
+                      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+                        const ds = dt.toISOString().split('T')[0];
+                        if (ds !== snapBefore.date && isTradingDay(ds)) tradingDaysBetween++;
+                      }
+                      if (tradingDaysBetween > 0) {
+                        const unrealizedChange = (snapAfter.unrealizedPnL || 0) - (snapBefore.unrealizedPnL || 0);
+                        const realizedChange = (snapAfter.realizedPnL || 0) - (snapBefore.realizedPnL || 0);
+                        pnlMap[dateStr] = (unrealizedChange + realizedChange) / tradingDaysBetween;
+                      }
+                    }
+                  }
+
                   // Build calendar grid
                   const firstDay = new Date(year, month, 1);
                   const daysInMonth = new Date(year, month + 1, 0).getDate();

@@ -132,6 +132,50 @@ def run():
     realized_pnl = sum((t.get("exitPrice", 0) - t.get("entryPrice", 0)) * t.get("quantity", 0) for t in closed_trades)
     total_dividends = sum(t.get("amount", 0) for t in transactions if t.get("type") == "dividend")
 
+    # Build closingPrices map and positionsAtClose for accurate calendar P&L
+    closing_prices = {}
+    positions_at_close = []
+    for p in positions:
+        clean = p["ticker"].replace("b.HK", ".HK")
+        cur_price = p.get("currentPrice", p.get("entryPrice", 0))
+        closing_prices[clean] = cur_price
+        positions_at_close.append({
+            "ticker": p["ticker"],
+            "name": p.get("name", ""),
+            "quantity": p["quantity"],
+            "entryPrice": p.get("entryPrice", 0),
+            "entryDate": p.get("entryDate", ""),
+            "closingPrice": cur_price,
+            "marketValue": cur_price * p["quantity"],
+            "pnl": (cur_price - p.get("entryPrice", 0)) * p["quantity"],
+            "pnlPercent": ((cur_price - p.get("entryPrice", 0)) / p["entryPrice"] * 100) if p.get("entryPrice") else 0,
+        })
+
+    # Calculate dailyPnL from yesterday's snapshot closingPrices
+    yesterday_snap = None
+    for s in sorted(snapshots, key=lambda x: x["date"], reverse=True):
+        if s["date"] < today:
+            yesterday_snap = s
+            break
+
+    daily_pnl = 0
+    if yesterday_snap:
+        yesterday_closing = yesterday_snap.get("closingPrices", {})
+        for p in positions:
+            clean = p["ticker"].replace("b.HK", ".HK")
+            cur_price = p.get("currentPrice", p.get("entryPrice", 0))
+            prev_close = yesterday_closing.get(clean)
+            if prev_close is not None:
+                daily_pnl += (cur_price - prev_close) * p["quantity"]
+            elif p.get("entryDate") == today:
+                daily_pnl += (cur_price - p.get("entryPrice", 0)) * p["quantity"]
+        # Add realized P&L change
+        yesterday_realized = yesterday_snap.get("realizedPnL", 0)
+        daily_pnl += (realized_pnl - yesterday_realized)
+    else:
+        # No yesterday snapshot: use unrealized P&L as approximation
+        daily_pnl = round(current_value - capital_engaged, 2)
+
     snapshot = {
         "date": today,
         "capitalEngaged": round(capital_engaged, 2),
@@ -140,6 +184,9 @@ def run():
         "realizedPnL": round(realized_pnl, 2),
         "totalDividends": round(total_dividends, 2),
         "positionCount": len(positions),
+        "closingPrices": closing_prices,
+        "dailyPnL": round(daily_pnl, 2),
+        "positionsAtClose": positions_at_close,
     }
 
     # Replace today's snapshot if exists, otherwise append
