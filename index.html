@@ -3382,6 +3382,8 @@
                     .filter(s => isTradingDay(s.date)) // Exclude market closed days
                     .sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
+                  // DEBUG: Log all snapshot dates to identify missing days
+                  console.log('[Calendar Debug] todayDate:', todayDate, '| All snapshot dates:', snapshots.map(s => s.date).sort(), '| Trading day snaps:', sortedSnaps.map(s => `${s.date}(pnl:${s.dailyPnL},cp:${s.closingPrices ? 'yes' : 'no'})`));
                   for (let i = 0; i < sortedSnaps.length; i++) {
                     const snap = sortedSnaps[i];
                     // Prefer stored dailyPnL (immutable) over calculated value
@@ -3471,6 +3473,8 @@
                       }
                     }
                   }
+                  // DEBUG: Final pnlMap for February
+                  console.log('[Calendar Debug] pnlMap:', JSON.stringify(Object.entries(pnlMap).filter(([k]) => k.startsWith(`${year}-${String(month+1).padStart(2,'0')}`)).sort()));
 
                   // Build calendar grid
                   const firstDay = new Date(year, month, 1);
