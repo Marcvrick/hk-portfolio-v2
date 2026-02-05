@@ -3433,42 +3433,10 @@
                       }
                     }
                   }
-                  // Always show today's daily gain from live price data (sum of each position's daily P&L)
-                  // Use stored closingPrices from yesterday's snapshot for accurate calculation
-                  const sortedSnapsForCalendar = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
-                  const yesterdaySnapForCalendar = sortedSnapsForCalendar.find(s => s.date < todayDate && isTradingDay(s.date));
-                  const yesterdayClosingPricesForCalendar = yesterdaySnapForCalendar?.closingPrices || {};
-
-                  const todayPnl = positions.reduce((sum, p) => {
-                    const ct = p.ticker.replace(/b\.HK$/, '.HK');
-                    const cached = priceCache[ct];
-                    const isNewToday = p.entryDate === todayDate;
-                    if (isNewToday) {
-                      const curPrice = cached?.success ? cached.price : p.currentPrice;
-                      return sum + (curPrice - p.entryPrice) * p.quantity;
-                    }
-                    // Priority: manual override → stored closing price → Yahoo's previousClose
-                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
-                    if (cached?.success && prevClose) {
-                      return sum + (cached.price - prevClose) * p.quantity;
-                    }
-                    return sum;
-                  }, 0);
-                  // Add P&L from positions closed today (exitPrice - previousClose)
-                  // Note: Only include if we have previousClose - don't fallback to entryPrice (that would be total realized, not daily)
-                  const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
-                    const ct = t.ticker.replace(/b\.HK$/, '.HK');
-                    const cached = priceCache[ct];
-                    // Priority: manual override → stored closing price → Yahoo's previousClose
-                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
-                    if (prevClose) {
-                      return sum + (t.exitPrice - prevClose) * t.quantity;
-                    }
-                    return sum; // Skip if no previousClose available
-                  }, 0);
-                  // Only set today's P&L if it's a trading day (not weekend/holiday)
-                  if (Object.values(priceCache).some(c => c?.success) && isTradingDay(todayDate)) {
-                    pnlMap[todayDate] = todayPnl + closedTodayPnl;
+                  // Use dailyGain state for today's P&L (same source as header card)
+                  // This ensures calendar and header always show the same value
+                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend) {
+                    pnlMap[todayDate] = dailyGain.value;
                   }
 
                   // Build calendar grid
@@ -3970,7 +3938,12 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="week" stroke="#9CA3AF" tick={{ fontSize: 9 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' HKD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
+                            <div style={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', padding: '8px 12px', fontSize: '12px' }}>
+                              <div style={{ color: 'white', fontWeight: 'bold' }}>{label}</div>
+                              <div style={{ color: payload[0].value >= 0 ? '#10B981' : '#F87171' }}>P&L : {fmt(payload[0].value)} HKD</div>
+                            </div>
+                          ) : null} />
                           <Bar dataKey="pnl" name="P&L">
                             {weeklyData.map((d, i) => (
                               <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
@@ -4010,7 +3983,12 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' HKD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
+                            <div style={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', padding: '8px 12px', fontSize: '12px' }}>
+                              <div style={{ color: 'white', fontWeight: 'bold' }}>{label}</div>
+                              <div style={{ color: payload[0].value >= 0 ? '#10B981' : '#F87171' }}>P&L : {fmt(payload[0].value)} HKD</div>
+                            </div>
+                          ) : null} />
                           <Bar dataKey="pnl" name="P&L">
                             {monthlyData.map((d, i) => (
                               <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
