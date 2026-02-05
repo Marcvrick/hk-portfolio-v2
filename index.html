@@ -982,6 +982,73 @@
           needsSave = true;
         }
 
+        // Reconstruct Feb 4 snapshot from available data
+        // Feb 3 snapshot has closingPrices, and priceCache.previousClose = Feb 4 closing prices
+        const feb4Snap = correctedSnapshots.find(s => s.date === '2026-02-04');
+        const feb3Snap = correctedSnapshots.find(s => s.date === '2026-02-03');
+        const hasPriceData = Object.values(priceCache).some(c => c?.success && c?.previousClose);
+        if (feb3Snap?.closingPrices && hasPriceData && (!feb4Snap || !feb4Snap.closingPrices || !feb4Snap.dailyPnL)) {
+          // Build Feb 4 closing prices from priceCache.previousClose (= yesterday's close = Feb 4 close)
+          const feb4ClosingPrices = {};
+          const feb4PositionsAtClose = [];
+          let feb4DailyPnL = 0;
+          let feb4PortfolioValue = 0;
+          let feb4CapitalEngaged = 0;
+
+          positions.forEach(p => {
+            const ct = p.ticker.replace(/b\.HK$/, '.HK');
+            const cached = priceCache[ct];
+            // previousClose from today's priceCache = Feb 4's closing price
+            const feb4Close = cached?.previousClose || cached?.price;
+            const feb3Close = feb3Snap.closingPrices[ct];
+
+            if (feb4Close) {
+              feb4ClosingPrices[ct] = feb4Close;
+              feb4PortfolioValue += feb4Close * p.quantity;
+              feb4CapitalEngaged += p.entryPrice * p.quantity;
+
+              if (feb3Close) {
+                feb4DailyPnL += (feb4Close - feb3Close) * p.quantity;
+              }
+
+              feb4PositionsAtClose.push({
+                ticker: p.ticker,
+                name: p.name,
+                quantity: p.quantity,
+                entryPrice: p.entryPrice,
+                entryDate: p.entryDate,
+                closingPrice: feb4Close,
+                marketValue: feb4Close * p.quantity,
+                pnl: (feb4Close - p.entryPrice) * p.quantity,
+                pnlPercent: ((feb4Close - p.entryPrice) / p.entryPrice) * 100
+              });
+            }
+          });
+
+          const feb4Reconstructed = {
+            date: '2026-02-04',
+            capitalEngaged: Math.round(feb4CapitalEngaged),
+            portfolioValue: Math.round(feb4PortfolioValue),
+            unrealizedPnL: Math.round(feb4PortfolioValue - feb4CapitalEngaged),
+            realizedPnL: feb4Snap?.realizedPnL || feb3Snap.realizedPnL || 0,
+            totalDividends: feb4Snap?.totalDividends || feb3Snap.totalDividends || 0,
+            positionCount: positions.length,
+            closingPrices: feb4ClosingPrices,
+            dailyPnL: Math.round(feb4DailyPnL),
+            positionsAtClose: feb4PositionsAtClose
+          };
+
+          if (feb4Snap) {
+            correctedSnapshots = correctedSnapshots.map(s =>
+              s.date === '2026-02-04' ? feb4Reconstructed : s
+            );
+          } else {
+            correctedSnapshots = [...correctedSnapshots, feb4Reconstructed].sort((a, b) => a.date.localeCompare(b.date));
+          }
+          console.log('Reconstructed Feb 4 snapshot: dailyPnL =', Math.round(feb4DailyPnL), 'portfolioValue =', Math.round(feb4PortfolioValue));
+          needsSave = true;
+        }
+
         if (needsSave) {
           setPositions(correctedPositions);
           setSnapshots(correctedSnapshots);
