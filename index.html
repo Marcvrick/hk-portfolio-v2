@@ -3261,6 +3261,19 @@
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
                 const isNewToday = p.entryDate === todayStr;
                 const hasIntradayAdd = p.addedTodayDate === todayStr && p.addedTodayQty > 0 && p.qtyBeforeToday > 0 && !isMarketClosedToday;
+                // DEBUG - remove after fixing
+                if (cleanTicker === '0434.HK') {
+                  console.log('DEBUG Boyaa:', {
+                    addedTodayDate: p.addedTodayDate,
+                    todayStr,
+                    addedTodayQty: p.addedTodayQty,
+                    qtyBeforeToday: p.qtyBeforeToday,
+                    isMarketClosedToday,
+                    hasIntradayAdd,
+                    currentPrice,
+                    previousCloseWillBe: cached?.previousCloseOverride || yesterdayClosingPrices[cleanTicker] || cached?.previousClose
+                  });
+                }
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
