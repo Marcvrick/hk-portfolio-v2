@@ -1304,7 +1304,7 @@
           const newSnapshots = [...filteredSnapshots, newSnapshot].sort((a, b) => new Date(a.date) - new Date(b.date));
           setSnapshots(newSnapshots);
 
-          // Save to localStorage
+          // Save to localStorage (backup)
           storage.set('hk-portfolio-v7', JSON.stringify({
             version: 7,
             positions,
@@ -1314,6 +1314,9 @@
             snapshots: newSnapshots,
             settings
           }));
+
+          // Also save to Firestore so the snapshot with correct dailyPnL (using tracking fields) persists
+          saveData(positions, closedTrades, transactions, priceCache, newSnapshots, settings);
 
           console.log('Snapshot updated for', today, todaySnapshot ? '(replaced)' : '(new)');
         }
@@ -1542,7 +1545,9 @@
         }
 
         setPositions(newPos);
-        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        // IMPORTANT: await to ensure tracking fields (addedTodayDate, addedTodayQty, etc.)
+        // are saved to Firestore before cron runs - fixes intraday P&L calculation bug
+        await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
 
         // Auto-fetch price for new position
