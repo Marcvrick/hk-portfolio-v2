@@ -1132,24 +1132,8 @@
         // On market closed days: show last trading day's P&L from snapshots
         // On trading days: prefer live price cache, fallback to snapshots
         if (isMarketClosedToday) {
-          // On weekends/holidays: show last trading day's STORED dailyPnL (don't recalculate!)
-          const tradingDaySnapshots = sortedSnapshots.filter(s => isTradingDay(s.date));
-          if (tradingDaySnapshots.length >= 1) {
-            const lastTradingSnap = tradingDaySnapshots[0];
-            // Use stored dailyPnL if available, otherwise calculate from previous snapshot
-            let fridayGain = lastTradingSnap.dailyPnL;
-            if (fridayGain === undefined && tradingDaySnapshots.length >= 2) {
-              const prevSnap = tradingDaySnapshots[1];
-              const unrealizedChange = (lastTradingSnap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
-              const realizedChange = (lastTradingSnap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
-              fridayGain = unrealizedChange + realizedChange;
-            }
-            const prevPortfolioValue = tradingDaySnapshots.length >= 2 ? tradingDaySnapshots[1].portfolioValue : lastTradingSnap.portfolioValue;
-            const percent = prevPortfolioValue > 0 ? ((fridayGain || 0) / prevPortfolioValue) * 100 : 0;
-            setDailyGain({ value: fridayGain || 0, percent, hasYesterday: true, isWeekend: true, isLive: false });
-          } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true, isLive: false });
-          }
+          // On weekends/holidays: show 0 (no trading happened today)
+          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false });
         } else {
           // Weekday: use live price data
           // Use yesterday's stored closing prices for accurate % change
