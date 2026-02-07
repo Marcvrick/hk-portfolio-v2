@@ -272,6 +272,22 @@ python -m http.server 8000
 
 ## Changelog
 
+### v2.9 (Feb 2026)
+- **Friend viewing is now READ-ONLY** - When viewing a friend's portfolio:
+  - Purple-tinted background (visual distinction from your own portfolio)
+  - All edit buttons hidden (add position, delete, close position)
+  - All wishlist edit buttons hidden
+  - All transaction edit buttons hidden
+  - Prevents accidental modifications to friend's data
+- **Fixed US portfolio friend viewing bug** - Was querying wrong Firestore collection
+  - Bug: friend viewing in `index-us.html` queried `portfolios` (HK) instead of `us-portfolios`
+  - Result: US portfolio was showing HK positions when viewing a friend
+  - Fix: Changed line 1536 to query `us-portfolios` collection
+- **Fixed daily P&L on weekends** - Now correctly shows $0 on Saturday/Sunday
+  - Bug: Was showing Friday's P&L value on weekends
+  - User expectation: $0 because no trading happened on Saturday
+  - Fix: Simplified weekend logic to always show 0
+
 ### v2.8 (Feb 2026)
 - **Intraday position additions** - Accurate daily P&L when adding shares during market hours
   - Previously: adding 9000 shares to existing 10000 shares would calculate daily P&L using yesterday's close for ALL 19000 shares (incorrect)
