@@ -803,6 +803,8 @@
       const [loginAlertShown, setLoginAlertShown] = useState(false);
       const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
       const [dataLoaded, setDataLoaded] = useState(false);
+      const [pendingInvites, setPendingInvites] = useState([]); // invites from friends who authorized viewing
+      const [showInvitePopup, setShowInvitePopup] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: new Date().toISOString().split('T')[0], sellQuantity: '' });
@@ -831,6 +833,13 @@
 
       // Load data on mount
       useEffect(() => { loadData(); }, []);
+
+      // Check for pending invites when data is loaded
+      useEffect(() => {
+        if (dataLoaded && !viewingFriendEmail) {
+          checkPendingInvites();
+        }
+      }, [dataLoaded]);
 
       // Real-time sync with Firestore (multi-device)
       useEffect(() => {
@@ -2017,7 +2026,7 @@
         console.log('Returned to own portfolio');
       };
 
-      const addAllowedViewer = (email) => {
+      const addAllowedViewer = async (email) => {
         if (!email || !email.includes('@')) {
           alert('Email invalide');
           return;
@@ -2037,12 +2046,70 @@
           ownerEmail: userEmail // Store owner email for friend lookup
         };
         firestoreStorage.saveToFirestore(dataToSave);
+
+        // Create invite notification for the friend
+        try {
+          await db.collection('viewerInvites').add({
+            inviterEmail: userEmail,
+            inviteeEmail: email.toLowerCase(),
+            portfolioType: 'hk',
+            createdAt: new Date().toISOString(),
+            seen: false
+          });
+        } catch (e) {
+          console.error('Failed to create invite:', e);
+        }
       };
 
       const removeAllowedViewer = (email) => {
         const newViewers = allowedViewers.filter(e => e !== email);
         setAllowedViewers(newViewers);
         saveData(null, null, null, null, null, null, null, null, newViewers);
+      };
+
+      // Check for pending invites from friends who authorized this user
+      const checkPendingInvites = async () => {
+        try {
+          const snapshot = await db.collection('viewerInvites')
+            .where('inviteeEmail', '==', userEmail.toLowerCase())
+            .where('seen', '==', false)
+            .get();
+
+          if (!snapshot.empty) {
+            const invites = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            setPendingInvites(invites);
+            setShowInvitePopup(true);
+          }
+        } catch (e) {
+          console.error('Failed to check invites:', e);
+        }
+      };
+
+      // Mark invites as seen
+      const dismissInvites = async () => {
+        try {
+          const batch = db.batch();
+          pendingInvites.forEach(invite => {
+            const ref = db.collection('viewerInvites').doc(invite.id);
+            batch.update(ref, { seen: true });
+          });
+          await batch.commit();
+          setPendingInvites([]);
+          setShowInvitePopup(false);
+        } catch (e) {
+          console.error('Failed to dismiss invites:', e);
+          setShowInvitePopup(false);
+        }
+      };
+
+      // View friend's portfolio from invite
+      const viewFriendFromInvite = async (inviterEmail) => {
+        await dismissInvites();
+        // Trigger friend view
+        viewFriendPortfolio(inviterEmail);
       };
 
       // ===== SORTING =====
@@ -2381,6 +2448,47 @@
                 </div>
               );
             })()}
+
+            {/* Invite Popup - Show when someone authorized you to view their portfolio */}
+            {showInvitePopup && pendingInvites.length > 0 && (
+              <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-4xl">👀</span>
+                    <div>
+                      <h3 className="text-xl font-bold text-dark-text">Invitation Portfolio!</h3>
+                      <p className="text-sm text-muted">{pendingInvites.length} personne{pendingInvites.length > 1 ? 's' : ''} {pendingInvites.length > 1 ? 'ont' : 'a'} partagé {pendingInvites.length > 1 ? 'leurs' : 'son'} portfolio avec toi</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {pendingInvites.map(invite => (
+                      <div key={invite.id} className="bg-purple-50 border border-purple-200 rounded-xl p-3 flex justify-between items-center">
+                        <div>
+                          <span className="font-semibold text-purple-700">{invite.inviterEmail}</span>
+                          <span className="text-xs text-muted ml-2 bg-purple-100 px-2 py-0.5 rounded">
+                            {invite.portfolioType === 'hk' ? '🇭🇰 HK' : '🇺🇸 US'}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => viewFriendFromInvite(invite.inviterEmail)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          Voir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3 pt-4 mt-4 border-t border-gray-100">
+                    <button
+                      onClick={dismissInvites}
+                      className="flex-1 bg-gray-100 hover:bg-gray-200 text-dark-text font-medium rounded-xl py-3 transition-colors"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Portfolio Tab */}
             {activeTab === 'portfolio' && (

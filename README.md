@@ -130,6 +130,14 @@ service cloud.firestore {
       allow read: if request.auth != null
                   && request.auth.token.email in resource.data.allowedViewers;
     }
+    // Viewer Invites (notifications when someone shares their portfolio)
+    match /viewerInvites/{inviteId} {
+      // Anyone authenticated can create invites
+      allow create: if request.auth != null;
+      // Invitees can read and update (mark as seen) their invites
+      allow read, update: if request.auth != null
+                          && request.auth.token.email == resource.data.inviteeEmail;
+    }
   }
 }
 ```
@@ -137,6 +145,7 @@ service cloud.firestore {
 This ensures:
 - ✅ Users can only read/write their own portfolio (HK or US)
 - ✅ Authorized friends can READ portfolios where they're in `allowedViewers`
+- ✅ Invitees receive notifications when added as viewers
 - ✅ Unauthenticated users have no access
 
 ### 5. Cron Setup (update.py)
@@ -279,6 +288,12 @@ python -m http.server 8000
   - All wishlist edit buttons hidden
   - All transaction edit buttons hidden
   - Prevents accidental modifications to friend's data
+- **Invite notifications** - When someone adds you as a viewer:
+  - Popup appears on login: "X a partagé son portfolio avec toi"
+  - Shows portfolio type (🇭🇰 HK or 🇺🇸 US)
+  - "Voir" button to immediately view their portfolio
+  - Invites stored in `viewerInvites` Firestore collection
+  - Requires updated security rules (see README)
 - **Fixed US portfolio friend viewing bug** - Was querying wrong Firestore collection
   - Bug: friend viewing in `index-us.html` queried `portfolios` (HK) instead of `us-portfolios`
   - Result: US portfolio was showing HK positions when viewing a friend
@@ -287,6 +302,7 @@ python -m http.server 8000
   - Bug: Was showing Friday's P&L value on weekends
   - User expectation: $0 because no trading happened on Saturday
   - Fix: Simplified weekend logic to always show 0
+- **UI: Removed dashed border from Prev Close field** - Cleaner look in Performance tab
 
 ### v2.8 (Feb 2026)
 - **Intraday position additions** - Accurate daily P&L when adding shares during market hours
