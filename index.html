@@ -4314,6 +4314,90 @@
             {/* Settings Tab */}
             {activeTab === 'settings' && (
               <div className="space-y-4">
+                {/* Share Portfolio - Allow others to view */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      Partager mon portfolio
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Autorisez d'autres personnes à consulter votre portfolio (lecture seule)</p>
+
+                    {/* Add viewer form */}
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="email"
+                        placeholder="Email de la personne à autoriser"
+                        id="newViewerEmailTop"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('newViewerEmailTop');
+                          if (input.value) {
+                            addAllowedViewer(input.value);
+                            input.value = '';
+                          }
+                        }}
+                        className="bg-lime-accent hover:bg-lime-hover text-dark-text font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Autoriser
+                      </button>
+                    </div>
+
+                    {/* List of allowed viewers */}
+                    {allowedViewers.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted font-medium">Personnes autorisées:</p>
+                        {allowedViewers.map(email => (
+                          <div key={email} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                            <span className="text-sm">{email}</span>
+                            <button
+                              onClick={() => removeAllowedViewer(email)}
+                              className="text-red-600 hover:text-red-700 text-xs font-medium"
+                            >
+                              Retirer
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted">Aucune personne autorisée</p>
+                    )}
+                  </div>
+                )}
+
+                {/* View Friend's Portfolio */}
+                {!viewingFriendEmail && (
+                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      Voir portfolio d'un ami
+                    </h3>
+                    <p className="text-muted text-xs mb-3">Consultez le portfolio d'un ami qui vous a autorisé</p>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        placeholder="Email de votre ami"
+                        id="friendEmailTop"
+                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('friendEmailTop');
+                          if (input.value) {
+                            viewFriendPortfolio(input.value);
+                          }
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded text-sm"
+                      >
+                        Voir
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Price Fetching Settings */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                   <h3 className="font-semibold mb-3 flex items-center gap-2"><Settings size={16}/> Configuration des prix</h3>
@@ -4396,90 +4480,6 @@
                     <span className="text-lg">🇺🇸</span> Portfolio US (USD)
                   </a>
                 </div>
-
-                {/* Share Portfolio - Allow others to view */}
-                {!viewingFriendEmail && (
-                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                      Partager mon portfolio
-                    </h3>
-                    <p className="text-muted text-xs mb-3">Autorisez d'autres personnes à consulter votre portfolio (lecture seule)</p>
-
-                    {/* Add viewer form */}
-                    <div className="flex gap-2 mb-3">
-                      <input
-                        type="email"
-                        placeholder="Email de la personne à autoriser"
-                        id="newViewerEmail"
-                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
-                      />
-                      <button
-                        onClick={() => {
-                          const input = document.getElementById('newViewerEmail');
-                          if (input.value) {
-                            addAllowedViewer(input.value);
-                            input.value = '';
-                          }
-                        }}
-                        className="bg-lime-accent hover:bg-lime-hover text-dark-text font-medium px-4 py-2 rounded text-sm"
-                      >
-                        Autoriser
-                      </button>
-                    </div>
-
-                    {/* List of allowed viewers */}
-                    {allowedViewers.length > 0 ? (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted font-medium">Personnes autorisées:</p>
-                        {allowedViewers.map(email => (
-                          <div key={email} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
-                            <span className="text-sm">{email}</span>
-                            <button
-                              onClick={() => removeAllowedViewer(email)}
-                              className="text-red-600 hover:text-red-700 text-xs font-medium"
-                            >
-                              Retirer
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted">Aucune personne autorisée</p>
-                    )}
-                  </div>
-                )}
-
-                {/* View Friend's Portfolio */}
-                {!viewingFriendEmail && (
-                  <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                      Voir portfolio d'un ami
-                    </h3>
-                    <p className="text-muted text-xs mb-3">Consultez le portfolio d'un ami qui vous a autorisé</p>
-
-                    <div className="flex gap-2">
-                      <input
-                        type="email"
-                        placeholder="Email de votre ami"
-                        id="friendEmail"
-                        className="flex-1 bg-gray-50 rounded px-3 py-2 text-sm"
-                      />
-                      <button
-                        onClick={() => {
-                          const input = document.getElementById('friendEmail');
-                          if (input.value) {
-                            viewFriendPortfolio(input.value);
-                          }
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded text-sm"
-                      >
-                        Voir
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 {/* Account / Logout */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
