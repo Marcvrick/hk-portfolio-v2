@@ -1533,7 +1533,7 @@
           // Find user by email
           // Note: This requires a Firestore query on email field
           // We need to find the userId for this email from the portfolios collection
-          const querySnapshot = await db.collection('portfolios').get();
+          const querySnapshot = await db.collection('us-portfolios').get();
           let friendUserId = null;
           let friendData = null;
 
