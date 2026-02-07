@@ -303,6 +303,7 @@ python -m http.server 8000
   - User expectation: $0 because no trading happened on Saturday
   - Fix: Simplified weekend logic to always show 0
 - **UI: Removed dashed border from Prev Close field** - Cleaner look in Performance tab
+- **UI: Settings tab reorganized** - Share/View friend sections moved to top for easier access
 
 ### v2.8 (Feb 2026)
 - **Intraday position additions** - Accurate daily P&L when adding shares during market hours
