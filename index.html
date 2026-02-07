@@ -953,18 +953,36 @@
         }
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, viewingFriendEmail]);
 
-      // ===== ONE-TIME DATA CORRECTION: Feb 2 P&L and 1361.HK entry price =====
+      // ===== DATA CORRECTION: Clean up stale tracking fields, fix historical data =====
       useEffect(() => {
         if (!dataLoaded || viewingFriendEmail) return;
 
         let needsSave = false;
         let correctedPositions = [...positions];
         let correctedSnapshots = [...snapshots];
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // Clean up stale intraday tracking fields (from previous days)
+        // These should be cleaned up after the daily snapshot, but if cron didn't run, clean them here
+        const hasStaleTrackingFields = positions.some(p =>
+          p.addedTodayDate && p.addedTodayDate !== todayStr
+        );
+        if (hasStaleTrackingFields) {
+          correctedPositions = correctedPositions.map(p => {
+            if (p.addedTodayDate && p.addedTodayDate !== todayStr) {
+              console.log(`Cleaning up stale tracking fields for ${p.ticker} (was from ${p.addedTodayDate})`);
+              const { addedTodayDate, addedTodayQty, addedTodayPrice, qtyBeforeToday, ...cleanPos } = p;
+              return cleanPos;
+            }
+            return p;
+          });
+          needsSave = true;
+        }
 
         // Fix 1361.HK entry price: 5.75 → 5.717
-        const pos1361 = positions.find(p => p.ticker === '1361.HK');
+        const pos1361 = correctedPositions.find(p => p.ticker === '1361.HK');
         if (pos1361 && Math.abs(pos1361.entryPrice - 5.75) < 0.01) {
-          correctedPositions = positions.map(p =>
+          correctedPositions = correctedPositions.map(p =>
             p.ticker === '1361.HK' ? { ...p, entryPrice: 5.717 } : p
           );
           console.log('Corrected 1361.HK entry price: 5.75 → 5.717');
@@ -1114,17 +1132,21 @@
         // On market closed days: show last trading day's P&L from snapshots
         // On trading days: prefer live price cache, fallback to snapshots
         if (isMarketClosedToday) {
-          // Find the last two trading day snapshots to calculate last trading day's P&L
+          // On weekends/holidays: show last trading day's STORED dailyPnL (don't recalculate!)
           const tradingDaySnapshots = sortedSnapshots.filter(s => isTradingDay(s.date));
-          if (tradingDaySnapshots.length >= 2) {
-            // Friday's P&L = Friday snapshot - Thursday snapshot
-            const fridaySnap = tradingDaySnapshots[0];
-            const thursdaySnap = tradingDaySnapshots[1];
-            const unrealizedChange = (fridaySnap.unrealizedPnL || 0) - (thursdaySnap.unrealizedPnL || 0);
-            const realizedChange = (fridaySnap.realizedPnL || 0) - (thursdaySnap.realizedPnL || 0);
-            const fridayGain = unrealizedChange + realizedChange;
-            const percent = thursdaySnap.portfolioValue > 0 ? (fridayGain / thursdaySnap.portfolioValue) * 100 : 0;
-            setDailyGain({ value: fridayGain, percent, hasYesterday: true, isWeekend: true, isLive: false });
+          if (tradingDaySnapshots.length >= 1) {
+            const lastTradingSnap = tradingDaySnapshots[0];
+            // Use stored dailyPnL if available, otherwise calculate from previous snapshot
+            let fridayGain = lastTradingSnap.dailyPnL;
+            if (fridayGain === undefined && tradingDaySnapshots.length >= 2) {
+              const prevSnap = tradingDaySnapshots[1];
+              const unrealizedChange = (lastTradingSnap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
+              const realizedChange = (lastTradingSnap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+              fridayGain = unrealizedChange + realizedChange;
+            }
+            const prevPortfolioValue = tradingDaySnapshots.length >= 2 ? tradingDaySnapshots[1].portfolioValue : lastTradingSnap.portfolioValue;
+            const percent = prevPortfolioValue > 0 ? ((fridayGain || 0) / prevPortfolioValue) * 100 : 0;
+            setDailyGain({ value: fridayGain || 0, percent, hasYesterday: true, isWeekend: true, isLive: false });
           } else {
             setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: true, isLive: false });
           }
@@ -3260,10 +3282,18 @@
               const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr && isTradingDay(s.date));
               const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
 
+              // On weekends/holidays: use stored closing prices, show 0 daily change
+              // Find last trading day's closing prices for "current" on weekends
+              const lastTradingSnapshot = sortedSnapsForPrevClose.find(s => isTradingDay(s.date));
+              const lastTradingClosingPrices = lastTradingSnapshot?.closingPrices || {};
+
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[cleanTicker];
-                const currentPrice = cached?.success ? cached.price : p.currentPrice;
+                // On weekends: use last trading day's closing price instead of stale priceCache
+                const currentPrice = isMarketClosedToday && lastTradingClosingPrices[cleanTicker]
+                  ? lastTradingClosingPrices[cleanTicker]
+                  : (cached?.success ? cached.price : p.currentPrice);
                 const isNewToday = p.entryDate === todayStr;
                 const hasIntradayAdd = p.addedTodayDate === todayStr && p.addedTodayQty > 0 && p.qtyBeforeToday > 0 && !isMarketClosedToday;
                 // Priority for previousClose:
@@ -3284,16 +3314,18 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                // For % change, use the stock's actual previous close (not blended)
-                const dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-                // For $ change, split calculation if intraday addition exists
-                let dailyChangeDollar;
-                if (hasIntradayAdd) {
-                  const oldQtyGain = (currentPrice - previousClose) * p.qtyBeforeToday;
-                  const newQtyGain = (currentPrice - p.addedTodayPrice) * p.addedTodayQty;
-                  dailyChangeDollar = oldQtyGain + newQtyGain;
-                } else {
-                  dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
+                // On weekends: daily change is 0 (no trading), otherwise calculate normally
+                let dailyChangePercent = 0;
+                let dailyChangeDollar = 0;
+                if (!isMarketClosedToday) {
+                  dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+                  if (hasIntradayAdd) {
+                    const oldQtyGain = (currentPrice - previousClose) * p.qtyBeforeToday;
+                    const newQtyGain = (currentPrice - p.addedTodayPrice) * p.addedTodayQty;
+                    dailyChangeDollar = oldQtyGain + newQtyGain;
+                  } else {
+                    dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
+                  }
                 }
                 const marketValue = currentPrice * p.quantity;
                 const weight = totalPortfolioValue > 0 ? (marketValue / totalPortfolioValue) * 100 : 0;
