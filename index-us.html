@@ -679,6 +679,7 @@
       const [wishlist, setWishlist] = useState([]);
       const [wishlistAlertsDismissed, setWishlistAlertsDismissed] = useState({}); // { tickerId: true } for dismissed alerts
       const [allowedViewers, setAllowedViewers] = useState([]); // emails allowed to view this portfolio
+      const [savedFriends, setSavedFriends] = useState([]); // friend emails we can view
       const [viewingFriendEmail, setViewingFriendEmail] = useState(null); // email of friend's portfolio being viewed
       const [viewingFriendPortfolioType, setViewingFriendPortfolioType] = useState(null); // 'HK' or 'US'
       const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
@@ -774,6 +775,7 @@
             setWishlist(data.wishlist || []);
             setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
             setAllowedViewers(data.allowedViewers || []);
+            setSavedFriends(data.savedFriends || []);
           } else {
             // No Firestore data - try to migrate from localStorage
             console.log('No Firestore data, checking localStorage for migration...');
@@ -837,6 +839,7 @@
           wishlist: newWishlist ?? wishlist,
           wishlistAlertsDismissed: newWishlistAlerts ?? wishlistAlertsDismissed,
           allowedViewers: newAllowedViewers ?? allowedViewers,
+          savedFriends,
           ownerEmail: userEmail // For friend portfolio lookup
         };
         // Save to Firestore (primary)
@@ -845,7 +848,7 @@
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('us-portfolio-v7', JSON.stringify(dataToSave));
         }
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, viewingFriendEmail]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail]);
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
@@ -1571,11 +1574,25 @@
           setViewingFriendPortfolioType(friendData._portfolioType);
           setActiveTab('portfolio');
 
+          // Auto-save friend email for quick access later
+          if (!savedFriends.includes(friendEmail)) {
+            const newFriends = [...savedFriends, friendEmail];
+            setSavedFriends(newFriends);
+            // Persist directly to Firestore
+            db.doc(getPortfolioDoc(userId)).update({ savedFriends: newFriends });
+          }
+
           console.log(`Viewing portfolio of ${friendEmail}`);
         } catch (e) {
           console.error('Error loading friend portfolio:', e);
           alert('Erreur lors du chargement du portfolio: ' + e.message);
         }
+      };
+
+      const removeSavedFriend = (email) => {
+        const newFriends = savedFriends.filter(e => e !== email);
+        setSavedFriends(newFriends);
+        db.doc(getPortfolioDoc(userId)).update({ savedFriends: newFriends });
       };
 
       const returnToOwnPortfolio = () => {
@@ -1615,6 +1632,7 @@
           positions, closedTrades, transactions, priceCache, snapshots, settings,
           wishlist, wishlistAlertsDismissed,
           allowedViewers: newViewers,
+          savedFriends,
           ownerEmail: userEmail // Store owner email for friend lookup
         };
         firestoreStorage.saveToFirestore(dataToSave);
@@ -3582,7 +3600,7 @@
                     </h3>
                     <p className="text-muted text-xs mb-3">Consultez le portfolio d'un ami qui vous a autorisé</p>
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mb-3">
                       <input
                         type="email"
                         placeholder="Email de votre ami"
@@ -3601,6 +3619,33 @@
                         Voir
                       </button>
                     </div>
+
+                    {savedFriends.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted font-medium">Amis enregistrés:</p>
+                        {savedFriends.map(email => (
+                          <div key={email} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                            <span className="text-sm">{email}</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => viewFriendPortfolio(email)}
+                                className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                              >
+                                Voir
+                              </button>
+                              <button
+                                onClick={() => removeSavedFriend(email)}
+                                className="text-red-600 hover:text-red-700 text-xs font-medium"
+                              >
+                                Retirer
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted">Aucun ami enregistré</p>
+                    )}
                   </div>
                 )}
 
