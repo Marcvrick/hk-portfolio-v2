@@ -210,6 +210,7 @@
       corsProxy: 'https://api.allorigins.win/raw?url=',
       autoRefresh: true,
       alertThreshold: 8,
+      dangerThreshold: 10,
     };
 
 
@@ -2172,7 +2173,7 @@
                         const displayTicker = p.ticker.replace('.HK', '');
 
                         const warnThreshold = settings.alertThreshold || 8;
-                        const dangerThreshold = warnThreshold + 2;
+                        const dangerThreshold = settings.dangerThreshold || 10;
                         const isWarning = pnlP <= -warnThreshold && pnlP > -dangerThreshold;
                         const isDanger = pnlP <= -dangerThreshold;
 
@@ -3031,7 +3032,7 @@
                 // Calculate total P&L from entry for danger/warning status
                 const totalPnlPercent = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
                 const perfWarnThreshold = settings.alertThreshold || 8;
-                const perfDangerThreshold = perfWarnThreshold + 2;
+                const perfDangerThreshold = settings.dangerThreshold || 10;
                 const isDanger = totalPnlPercent <= -perfDangerThreshold;
                 const isWarning = totalPnlPercent <= -perfWarnThreshold && totalPnlPercent > -perfDangerThreshold;
                 return {
@@ -3721,9 +3722,23 @@
                           onChange={(e) => updateSettings({ ...settings, alertThreshold: parseInt(e.target.value) || 8 })}
                           className="bg-gray-50 rounded px-3 py-2 w-24 text-sm"
                         />
-                        <span className="text-muted text-xs">⚠️ à -{settings.alertThreshold || 8}% · 🚨 à -{(settings.alertThreshold || 8) + 2}%</span>
+                        <span className="text-muted text-xs">⚠️ Alerte orange à -{settings.alertThreshold || 8}%</span>
                       </div>
-                      <p className="text-muted text-xs mt-1">Alerte orange quand une position perd ce %, stop loss rouge à +2%</p>
+                    </div>
+                    <div>
+                      <label className="text-muted text-xs block mb-1">Seuil stop loss (%)</label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          step="1"
+                          value={settings.dangerThreshold || 10}
+                          onChange={(e) => updateSettings({ ...settings, dangerThreshold: parseInt(e.target.value) || 10 })}
+                          className="bg-gray-50 rounded px-3 py-2 w-24 text-sm"
+                        />
+                        <span className="text-muted text-xs">🚨 Fond rouge à -{settings.dangerThreshold || 10}%</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-muted text-xs block mb-1">CORS Proxy</label>
