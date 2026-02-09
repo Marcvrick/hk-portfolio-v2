@@ -54,8 +54,10 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index.html` | HK Portfolio - Production app (dark mode default) |
 | `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
-| `update.py` | Cron script for Yahoo Finance prices |
-| `.github/workflows/daily-update.yml` | GitHub Actions workflow |
+| `update.py` | Cron script for HK Yahoo Finance prices |
+| `update-us.py` | Cron script for US Yahoo Finance prices |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) |
+| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) |
 
 ---
 
@@ -148,11 +150,20 @@ This ensures:
 - ✅ Invitees receive notifications when added as viewers
 - ✅ Unauthenticated users have no access
 
-### 5. Cron Setup (update.py)
+### 5. Cron Setup (update.py / update-us.py)
 
 1. Firebase Console > Project Settings > Service Accounts
 2. Generate new private key
 3. Add as GitHub secret: `FIREBASE_CREDENTIALS_JSON`
+
+**Two separate cron workflows:**
+
+| Workflow | Script | Schedule | Collection |
+|----------|--------|----------|------------|
+| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:30 UTC (16:30 HKT) | `portfolios` |
+| `daily-update-us.yml` | `update-us.py` | Mon-Fri 21:00 UTC (16:00 ET) | `us-portfolios` |
+
+Both share the same `FIREBASE_CREDENTIALS_JSON` secret. To trigger manually: GitHub > Actions > Select workflow > "Run workflow".
 
 ---
 
@@ -230,8 +241,11 @@ Sufficient for personal portfolio tracking.
 ## Local Development
 
 ```bash
-# Test cron locally
+# Test HK cron locally
 GOOGLE_APPLICATION_CREDENTIALS=firebase-credentials.json python update.py
+
+# Test US cron locally
+GOOGLE_APPLICATION_CREDENTIALS=firebase-credentials.json python update-us.py
 
 # Serve locally (optional)
 python -m http.server 8000
@@ -263,13 +277,16 @@ python -m http.server 8000
 3. Commit et push
 
 ### Key Business Rules (Quick Reference)
-| Rule | Value |
-|------|-------|
-| Warning threshold | P&L <= -8% |
-| Danger threshold | P&L <= -10% |
-| Weekend snapshots | Disabled |
-| Fee calculation | See PRD.md for 7 components |
-| Ticker format | XXXX.HK |
+| Rule | HK | US |
+|------|----|----|
+| Warning threshold | P&L <= -8% | P&L <= -8% |
+| Danger threshold | P&L <= -10% | P&L <= -10% |
+| Weekend snapshots | Disabled | Disabled |
+| Fee calculation | See PRD.md (7 components) | See PRD.md |
+| Ticker format | `XXXX.HK` | `AAPL`, `MSFT` |
+| Firestore collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
+| Cron schedule | 08:30 UTC (16:30 HKT) | 21:00 UTC (16:00 ET) |
+| Currency | HKD | USD |
 
 ### Common Maintenance Tasks
 - **Add new fee component**: Update `calcTradingFees()` in index.html + PRD.md

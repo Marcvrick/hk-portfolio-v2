@@ -208,7 +208,7 @@
     ];
 
     const DEFAULT_SETTINGS = {
-      corsProxy: 'https://api.allorigins.win/raw?url=',
+      corsProxy: 'https://yahoo-proxy.marccharnal.workers.dev/?url=',
       autoRefresh: true,
       alertThreshold: 8,
       dangerThreshold: 10,
@@ -361,15 +361,17 @@
 
     // ===== PRICE FETCHING =====
     const PROXY_LIST = [
+      { name: 'cloudflare', build: (url) => `https://yahoo-proxy.marccharnal.workers.dev/?url=${encodeURIComponent(url)}` },
       { name: 'allorigins', build: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
       { name: 'corsproxy.io', build: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
       { name: 'cors.sh', build: (url) => `https://cors.sh/${url}` },
     ];
 
     const buildProxyUrl = (yahooUrl, corsProxy) => {
-      if (corsProxy.includes('allorigins')) return PROXY_LIST[0].build(yahooUrl);
-      if (corsProxy.includes('corsproxy.io')) return PROXY_LIST[1].build(yahooUrl);
-      if (corsProxy.includes('cors.sh')) return PROXY_LIST[2].build(yahooUrl);
+      if (corsProxy.includes('workers.dev')) return PROXY_LIST[0].build(yahooUrl);
+      if (corsProxy.includes('allorigins')) return PROXY_LIST[1].build(yahooUrl);
+      if (corsProxy.includes('corsproxy.io')) return PROXY_LIST[2].build(yahooUrl);
+      if (corsProxy.includes('cors.sh')) return PROXY_LIST[3].build(yahooUrl);
       return `${corsProxy}${encodeURIComponent(yahooUrl)}`;
     };
 
@@ -3748,7 +3750,8 @@
                         onChange={(e) => updateSettings({ ...settings, corsProxy: e.target.value })}
                         className="bg-gray-50 rounded px-3 py-2 w-full text-sm"
                       >
-                        <option value="https://api.allorigins.win/raw?url=">allorigins.win (recommandé)</option>
+                        <option value="https://yahoo-proxy.marccharnal.workers.dev/?url=">Cloudflare Worker (recommandé)</option>
+                        <option value="https://api.allorigins.win/raw?url=">allorigins.win</option>
                         <option value="https://corsproxy.io/?">corsproxy.io</option>
                         <option value="https://cors.sh/?">cors.sh</option>
                       </select>
