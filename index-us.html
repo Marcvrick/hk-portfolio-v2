@@ -680,6 +680,7 @@
       const [wishlistAlertsDismissed, setWishlistAlertsDismissed] = useState({}); // { tickerId: true } for dismissed alerts
       const [allowedViewers, setAllowedViewers] = useState([]); // emails allowed to view this portfolio
       const [viewingFriendEmail, setViewingFriendEmail] = useState(null); // email of friend's portfolio being viewed
+      const [viewingFriendPortfolioType, setViewingFriendPortfolioType] = useState(null); // 'HK' or 'US'
       const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [activeTab, setActiveTab] = useState('portfolio');
       const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
@@ -1542,6 +1543,7 @@
               const doc = querySnapshot.docs[0];
               friendUserId = doc.id;
               friendData = doc.data();
+              friendData._portfolioType = collectionName === 'portfolios' ? 'HK' : 'US';
               break;
             }
           }
@@ -1566,6 +1568,7 @@
           setSnapshots(migrated.snapshots || []);
           setWishlist(migrated.wishlist || []);
           setViewingFriendEmail(friendEmail);
+          setViewingFriendPortfolioType(friendData._portfolioType);
           setActiveTab('portfolio');
 
           console.log(`Viewing portfolio of ${friendEmail}`);
@@ -1591,6 +1594,7 @@
 
         setOwnDataBackup(null);
         setViewingFriendEmail(null);
+        setViewingFriendPortfolioType(null);
         console.log('Returned to own portfolio');
       };
 
@@ -1807,9 +1811,9 @@
             <div className="flex flex-wrap justify-between items-start gap-4">
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-dark-text tracking-tight">
-                  Portfolio US
+                  {viewingFriendEmail ? `Portfolio ${viewingFriendPortfolioType || 'US'}` : 'Portfolio US'}
                 </h1>
-                <p className="text-xs text-muted font-mono bg-gray-100 px-2 py-0.5 rounded inline-block">{userEmail}</p>
+                <p className="text-xs text-muted font-mono bg-gray-100 px-2 py-0.5 rounded inline-block">{viewingFriendEmail || userEmail}</p>
                 <div className="flex items-center gap-3 mt-2">
                   {dailyGain.hasYesterday && (
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
