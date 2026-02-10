@@ -770,10 +770,13 @@
 
           if (data) {
             data = migrateDataToV7(data);
-            // Auto-migrate dead CORS proxies to Cloudflare Worker
-            if (data.settings?.corsProxy && !data.settings.corsProxy.includes('workers.dev')) {
-              console.log('Migrating dead CORS proxy to Cloudflare Worker:', data.settings.corsProxy);
-              data.settings.corsProxy = DEFAULT_SETTINGS.corsProxy;
+            // Auto-migrate dead CORS proxies to Cloudflare Worker + persist to Firestore
+            const loadedSettings = data.settings || DEFAULT_SETTINGS;
+            if (loadedSettings.corsProxy && !loadedSettings.corsProxy.includes('workers.dev')) {
+              console.log('Migrating dead CORS proxy to Cloudflare Worker:', loadedSettings.corsProxy);
+              loadedSettings.corsProxy = DEFAULT_SETTINGS.corsProxy;
+              // Persist migrated setting to Firestore so it sticks
+              firestoreStorage.saveToFirestore({ ...data, settings: loadedSettings });
             }
             console.log('Data loaded from Firestore:', {
               positions: data.positions?.length,
@@ -785,7 +788,7 @@
             setTransactions(data.transactions || INITIAL_TRANSACTIONS);
             setPriceCache(data.priceCache || {});
             setSnapshots(data.snapshots || []);
-            setSettings(data.settings || DEFAULT_SETTINGS);
+            setSettings(loadedSettings);
             setWishlist(data.wishlist || []);
             setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
             setAllowedViewers(data.allowedViewers || []);
@@ -878,6 +881,8 @@
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0) return;
+        // Wait for settings to have the correct proxy (migration may be async)
+        if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
         // Auto-refresh prices when page loads (if no recent cache)
         const cacheValues = Object.values(priceCache);
         const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
@@ -889,7 +894,7 @@
           console.log('Auto-refreshing prices on load...');
           refreshPrices();
         }
-      }, [dataLoaded]);
+      }, [dataLoaded, settings.corsProxy]);
 
       // ===== SHOW WISHLIST ALERT POPUP ON LOGIN =====
       useEffect(() => {
