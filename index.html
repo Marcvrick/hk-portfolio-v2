@@ -1171,15 +1171,11 @@
         const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
 
         // Calculate daily gain
-        // Priority: use cron snapshot data when available (most accurate), fallback to live calculation
+        // Always calculate live for today so it reflects current priceCache
+        // (stored snapshot dailyPnL may be stale if priceCache was refreshed since snapshot creation)
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
           setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false });
-        } else if (todaySnapshot && todaySnapshot.dailyPnL !== undefined) {
-          // Use cron-calculated daily P&L from snapshot (most accurate source)
-          const prevValue = yesterdaySnapshot?.portfolioValue || capitalEngaged;
-          const percent = prevValue > 0 ? (todaySnapshot.dailyPnL / prevValue) * 100 : 0;
-          setDailyGain({ value: todaySnapshot.dailyPnL, percent, hasYesterday: !!yesterdaySnapshot, isWeekend: false, isLive: false });
         } else {
           // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
