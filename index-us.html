@@ -649,22 +649,39 @@
         return () => unsubscribe();
       }, []);
 
-      // Auto-detect: if user has no US data but has HK data, redirect to index.html
+      // Auto-detect: redirect to HK if user has no US data, or has HK tickers leaked into US collection
       useEffect(() => {
         if (!user) return;
         const checkPortfolioRedirect = async () => {
           setRedirectChecking(true);
           try {
             const currentDoc = await db.doc(`us-portfolios/${user.uid}`).get();
-            const hasCurrentData = currentDoc.exists && (currentDoc.data().positions?.length > 0);
-            if (!hasCurrentData) {
-              const otherDoc = await db.doc(`portfolios/${user.uid}`).get();
-              const hasOtherData = otherDoc.exists && (otherDoc.data().positions?.length > 0);
-              if (hasOtherData) {
-                console.log('Auto-redirecting to HK portfolio (no US data, HK data found)');
-                window.location.href = 'index.html';
-                return;
+            let shouldRedirect = false;
+
+            if (currentDoc.exists) {
+              const positions = currentDoc.data().positions || [];
+              if (positions.length === 0) {
+                // No positions in US collection — check if HK has data
+                const otherDoc = await db.doc(`portfolios/${user.uid}`).get();
+                shouldRedirect = otherDoc.exists && (otherDoc.data().positions?.length > 0);
+              } else {
+                // Has positions — check if they look like HK tickers (all pure numeric = wrong market)
+                const allNumeric = positions.every(p => /^\d+$/.test(p.ticker));
+                if (allNumeric) {
+                  console.log('Detected HK tickers in US collection, redirecting...');
+                  shouldRedirect = true;
+                }
               }
+            } else {
+              // No US document at all — check if HK has data
+              const otherDoc = await db.doc(`portfolios/${user.uid}`).get();
+              shouldRedirect = otherDoc.exists && (otherDoc.data().positions?.length > 0);
+            }
+
+            if (shouldRedirect) {
+              console.log('Auto-redirecting to HK portfolio');
+              window.location.href = 'index.html';
+              return;
             }
           } catch (e) {
             console.error('Portfolio redirect check error:', e);
