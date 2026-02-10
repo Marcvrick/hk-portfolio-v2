@@ -1616,6 +1616,11 @@
             settings, wishlist, wishlistAlertsDismissed, allowedViewers
           });
 
+          // Set ref IMMEDIATELY (before state updates and Firestore writes)
+          // to prevent onSnapshot race condition: the savedFriends Firestore write
+          // below triggers onSnapshot which fires before useEffect can update the ref
+          viewingFriendRef.current = friendEmail;
+
           // Load friend's data
           const migrated = migrateDataToV7(friendData);
           setPositions(migrated.positions || []);
@@ -1664,6 +1669,7 @@
         setAllowedViewers(ownDataBackup.allowedViewers);
 
         setOwnDataBackup(null);
+        viewingFriendRef.current = null; // Clear ref immediately (mirror the imperative set in viewFriendPortfolio)
         setViewingFriendEmail(null);
         setViewingFriendPortfolioType(null);
         console.log('Returned to own portfolio');
