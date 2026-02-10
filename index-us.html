@@ -636,6 +636,7 @@
     const App = () => {
       const [user, setUser] = useState(null);
       const [authLoading, setAuthLoading] = useState(true);
+      const [redirectChecking, setRedirectChecking] = useState(false);
       const [loginError, setLoginError] = useState('');
       const [loginLoading, setLoginLoading] = useState(false);
 
@@ -647,6 +648,31 @@
         });
         return () => unsubscribe();
       }, []);
+
+      // Auto-detect: if user has no US data but has HK data, redirect to index.html
+      useEffect(() => {
+        if (!user) return;
+        const checkPortfolioRedirect = async () => {
+          setRedirectChecking(true);
+          try {
+            const currentDoc = await db.doc(`us-portfolios/${user.uid}`).get();
+            const hasCurrentData = currentDoc.exists && (currentDoc.data().positions?.length > 0);
+            if (!hasCurrentData) {
+              const otherDoc = await db.doc(`portfolios/${user.uid}`).get();
+              const hasOtherData = otherDoc.exists && (otherDoc.data().positions?.length > 0);
+              if (hasOtherData) {
+                console.log('Auto-redirecting to HK portfolio (no US data, HK data found)');
+                window.location.href = 'index.html';
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Portfolio redirect check error:', e);
+          }
+          setRedirectChecking(false);
+        };
+        checkPortfolioRedirect();
+      }, [user]);
 
       const handleLogin = async (email, password) => {
         setLoginError('');
@@ -676,8 +702,8 @@
         }
       };
 
-      // Show loading spinner while checking auth
-      if (authLoading) {
+      // Show loading spinner while checking auth or portfolio redirect
+      if (authLoading || redirectChecking) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center">
             <div className="text-center">
