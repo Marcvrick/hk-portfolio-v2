@@ -422,19 +422,18 @@
         const lastBarDate = new Date(lastTimestamp * 1000).toISOString().split('T')[0];
         const todayStr = new Date().toISOString().split('T')[0];
 
-        if (lastBarDate === todayStr) {
-          // Last bar is today (market is open) → second-to-last is yesterday's close
-          for (let i = closes.length - 2; i >= 0; i--) {
-            if (closes[i] != null) {
-              previousClose = closes[i];
-              break;
-            }
+        // Offset: if last bar is today (market open), skip it and use second-to-last;
+        // if last bar is a past day (before market opens), the last bar IS yesterday's close
+        const startIdx = (lastBarDate === todayStr) ? closes.length - 2 : closes.length - 1;
+        for (let i = startIdx; i >= 0; i--) {
+          if (closes[i] != null) {
+            previousClose = closes[i];
+            break;
           }
-        } else {
-          // Last bar is NOT today (before market opens) → last bar IS yesterday's close
-          // Using second-to-last here would give the day before yesterday (wrong!)
-          // Use meta.previousClose (always = last completed session's close)
-          previousClose = meta.previousClose || meta.chartPreviousClose || closes[closes.length - 1] || price;
+        }
+        // Fallback to meta if no valid close found in time series
+        if (previousClose === price) {
+          previousClose = meta.previousClose || meta.chartPreviousClose || price;
         }
       } else {
         previousClose = meta.previousClose || meta.chartPreviousClose || price;
