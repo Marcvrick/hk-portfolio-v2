@@ -770,6 +770,11 @@
 
           if (data) {
             data = migrateDataToV7(data);
+            // Auto-migrate dead CORS proxies to Cloudflare Worker
+            if (data.settings?.corsProxy && !data.settings.corsProxy.includes('workers.dev')) {
+              console.log('Migrating dead CORS proxy to Cloudflare Worker:', data.settings.corsProxy);
+              data.settings.corsProxy = DEFAULT_SETTINGS.corsProxy;
+            }
             console.log('Data loaded from Firestore:', {
               positions: data.positions?.length,
               closedTrades: data.closedTrades?.length,
