@@ -417,13 +417,24 @@
       const timestamps = result?.timestamp;
       let previousClose = price; // fallback
       if (closes && timestamps && closes.length >= 2) {
-        // Find the second-to-last valid close (yesterday's close)
-        // The last entry is today (may be intraday), so we want the one before
-        for (let i = closes.length - 2; i >= 0; i--) {
-          if (closes[i] != null) {
-            previousClose = closes[i];
-            break;
+        // Check if the last bar is today (market open/intraday) or a past day (before market opens)
+        const lastTimestamp = timestamps[timestamps.length - 1];
+        const lastBarDate = new Date(lastTimestamp * 1000).toISOString().split('T')[0];
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        if (lastBarDate === todayStr) {
+          // Last bar is today (market is open) → second-to-last is yesterday's close
+          for (let i = closes.length - 2; i >= 0; i--) {
+            if (closes[i] != null) {
+              previousClose = closes[i];
+              break;
+            }
           }
+        } else {
+          // Last bar is NOT today (before market opens) → last bar IS yesterday's close
+          // Using second-to-last here would give the day before yesterday (wrong!)
+          // Use meta.previousClose (always = last completed session's close)
+          previousClose = meta.previousClose || meta.chartPreviousClose || closes[closes.length - 1] || price;
         }
       } else {
         previousClose = meta.previousClose || meta.chartPreviousClose || price;
