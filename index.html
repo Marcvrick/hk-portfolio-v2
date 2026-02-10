@@ -473,9 +473,22 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Use Yahoo's meta.previousClose — the official previous session close
-      // This is more reliable than extracting from timeseries which can have null gaps
-      const previousClose = meta.previousClose || meta.chartPreviousClose || price;
+      // Find previousClose: most recent non-null close from BEFORE today (UTC midnight)
+      // Uses timestamps to correctly skip today's data, handles null gaps properly
+      const timestamps = result?.timestamp || [];
+      const closes = result?.indicators?.quote?.[0]?.close || [];
+      const now = new Date();
+      const todayUTCStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
+      let previousClose = null;
+      for (let i = timestamps.length - 1; i >= 0; i--) {
+        if (closes[i] != null && timestamps[i] < todayUTCStart) {
+          previousClose = closes[i];
+          break;
+        }
+      }
+      if (!previousClose) {
+        previousClose = meta.previousClose || meta.chartPreviousClose || price;
+      }
       console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} ${meta.currency || 'HKD'}`);
 
       return {
