@@ -241,6 +241,7 @@
       autoRefresh: true,
       alertThreshold: 8,
       dangerThreshold: 10,
+      enableDualPortfolio: false,
     };
 
 
@@ -804,6 +805,7 @@
       const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [showFriendDropdown, setShowFriendDropdown] = useState(false);
       const friendDropdownRef = useRef(null);
+      const viewingFriendRef = useRef(null);
       const [activeTab, setActiveTab] = useState('portfolio');
       const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
@@ -850,6 +852,9 @@
         }
       }, [dataLoaded]);
 
+      // Keep ref in sync with viewingFriendEmail state (for use in Firestore listener callback)
+      useEffect(() => { viewingFriendRef.current = viewingFriendEmail; }, [viewingFriendEmail]);
+
       // Real-time sync with Firestore (multi-device)
       useEffect(() => {
         if (!dataLoaded) return;
@@ -857,6 +862,8 @@
         // Subscribe to real-time updates from Firestore
         const unsubscribe = firestoreStorage.subscribeToUpdates((data) => {
           if (!data) return;
+          // Don't overwrite friend data with own data when viewing a friend's portfolio
+          if (viewingFriendRef.current) return;
           const migrated = migrateDataToV7(data);
           console.log('Real-time update from Firestore:', {
             positions: migrated.positions?.length,
@@ -1107,7 +1114,7 @@
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Auto-refresh prices when page loads (if no recent cache)
         const cacheValues = Object.values(priceCache);
         const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
@@ -1137,7 +1144,7 @@
 
       // ===== AUTO DAILY SNAPSHOT =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
 
         // Calculate current portfolio value
         const currentValue = positions.reduce((sum, p) => {
@@ -1335,7 +1342,7 @@
           todaySnapshot.positionCount !== positions.length ||
           Math.abs(todaySnapshot.capitalEngaged - capitalEngaged) > 1;
 
-        if (snapshotChanged) {
+        if (snapshotChanged && !viewingFriendRef.current) {
           // Replace existing or add new snapshot
           const filteredSnapshots = snapshots.filter(s => s.date !== today);
           const newSnapshots = [...filteredSnapshots, newSnapshot].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1423,6 +1430,11 @@
             }
             return p;
           });
+
+          if (viewingFriendRef.current) {
+            console.log('Skipping price update - switched to friend view during refresh');
+            return;
+          }
 
           setPriceCache(newCache);
           setPositions(newPositions);
@@ -2017,6 +2029,7 @@
           setPriceCache(migrated.priceCache || {});
           setSnapshots(migrated.snapshots || []);
           setWishlist(migrated.wishlist || []);
+          viewingFriendRef.current = friendEmail;
           setViewingFriendEmail(friendEmail);
           setViewingFriendPortfolioType(friendData._portfolioType);
           setActiveTab('portfolio');
@@ -2042,23 +2055,28 @@
         db.doc(getPortfolioDoc(userId)).update({ savedFriends: newFriends });
       };
 
-      const returnToOwnPortfolio = () => {
-        if (!ownDataBackup) return;
-
-        // Restore own data
-        setPositions(ownDataBackup.positions);
-        setClosedTrades(ownDataBackup.closedTrades);
-        setTransactions(ownDataBackup.transactions);
-        setPriceCache(ownDataBackup.priceCache);
-        setSnapshots(ownDataBackup.snapshots);
-        setSettings(ownDataBackup.settings);
-        setWishlist(ownDataBackup.wishlist);
-        setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
-        setAllowedViewers(ownDataBackup.allowedViewers);
-
-        setOwnDataBackup(null);
+      const returnToOwnPortfolio = async () => {
+        // Clear friend state FIRST
+        viewingFriendRef.current = null;
         setViewingFriendEmail(null);
         setViewingFriendPortfolioType(null);
+
+        if (ownDataBackup) {
+          setPositions(ownDataBackup.positions);
+          setClosedTrades(ownDataBackup.closedTrades);
+          setTransactions(ownDataBackup.transactions);
+          setPriceCache(ownDataBackup.priceCache);
+          setSnapshots(ownDataBackup.snapshots);
+          setSettings(ownDataBackup.settings);
+          setWishlist(ownDataBackup.wishlist);
+          setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
+          setAllowedViewers(ownDataBackup.allowedViewers);
+          setOwnDataBackup(null);
+        } else {
+          console.warn('No backup found, reloading from Firestore...');
+          await loadData();
+        }
+        setActiveTab('portfolio');
         console.log('Returned to own portfolio');
       };
 
@@ -4550,6 +4568,18 @@
                       </select>
                       <p className="text-muted text-xs mt-1">Proxy utilisé pour contourner les restrictions CORS de Yahoo Finance</p>
                     </div>
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.enableDualPortfolio || false}
+                          onChange={(e) => updateSettings({ ...settings, enableDualPortfolio: e.target.checked })}
+                          className="rounded"
+                        />
+                        <span className="text-sm">Activer double portfolio (HK + US)</span>
+                      </label>
+                      <p className="text-muted text-xs mt-1">Affiche le lien vers le portfolio US dans les paramètres</p>
+                    </div>
                   </div>
                 </div>
 
@@ -4602,6 +4632,7 @@
                 </div>
 
                 {/* Switch Portfolio */}
+                {settings.enableDualPortfolio && (
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 3h5v5M8 3H3v5M3 16v5h5M21 16v5h-5M3 12h18M12 3v18"/></svg>
@@ -4614,6 +4645,7 @@
                     <span className="text-lg">🇺🇸</span> Portfolio US (USD)
                   </a>
                 </div>
+                )}
 
                 {/* Account / Logout */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
