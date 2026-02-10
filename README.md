@@ -298,6 +298,24 @@ python -m http.server 8000
 
 ## Changelog
 
+### v2.10 (Feb 2026)
+- **Fixed US portfolio price refresh** - All positions were failing to update
+  - **Root cause 1: Dead CORS proxies** - `allorigins.win` (408/522), `corsproxy.io` (403), `cors.sh` (308) all broken
+  - Fix: Added Cloudflare Worker (`yahoo-proxy.marccharnal.workers.dev`) as primary proxy (same as HK version)
+  - Auto-migration: existing users with dead proxy saved in Firestore are automatically switched to Cloudflare Worker on load
+  - Migration persists to Firestore so it sticks across sessions
+  - **Root cause 2: Tickers stored with `.HK` suffix** - Positions entered as `GOOG.HK` instead of `GOOG`, causing Yahoo Finance 404
+  - Fix: `convertOldTicker()` now strips `.HK` suffix and trims whitespace (also caught `COIN ` with trailing space)
+  - Migration cleans positions, closedTrades, wishlist tickers, and priceCache keys
+  - Cleaned data auto-persists to Firestore
+  - **Root cause 3: GitHub Actions cron never ran** - `daily-update-us.yml` had YAML syntax error (fixed in `bafe854`, first successful run triggered manually)
+- **Fixed auto-refresh race condition** - Price refresh was firing before proxy migration completed
+  - Auto-refresh `useEffect` now depends on `settings.corsProxy` to wait for correct proxy
+- **US friend viewing: prioritize US collection** - `viewFriendPortfolio` now searches `us-portfolios` before `portfolios`
+  - Falls through to HK if friend has no US portfolio
+- **Cron safety** (`update-us.py`) - Strips `.HK` suffix and whitespace from tickers before Yahoo API calls
+- **Updated README** - Files table, cron docs, and HK/US business rules reference table
+
 ### v2.9 (Feb 2026)
 - **Friend viewing is now READ-ONLY** - When viewing a friend's portfolio:
   - Purple-tinted background (visual distinction from your own portfolio)
