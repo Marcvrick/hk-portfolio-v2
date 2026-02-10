@@ -240,11 +240,10 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
-    // US version - tickers don't need .HK suffix
+    // US version - strip .HK suffix if present (data entry error) and uppercase
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
-      // US tickers don't need conversion
-      return ticker.toUpperCase();
+      return ticker.replace(/\.HK$/i, '').toUpperCase();
     };
 
     const migrateDataToV7 = (data) => {
@@ -263,8 +262,12 @@
       // Keep or create transactions
       const transactions = data.transactions || INITIAL_TRANSACTIONS;
 
-      // Keep or create priceCache
-      const priceCache = data.priceCache || {};
+      // Convert priceCache keys (strip .HK if present)
+      const rawCache = data.priceCache || {};
+      const priceCache = {};
+      Object.entries(rawCache).forEach(([key, val]) => {
+        priceCache[convertOldTicker(key)] = val;
+      });
 
       // Keep or create snapshots (renamed from equityHistory)
       const snapshots = data.snapshots || data.equityHistory || [];
@@ -272,8 +275,11 @@
       // Keep or create settings
       const settings = data.settings || DEFAULT_SETTINGS;
 
-      // Keep or create wishlist
-      const wishlist = data.wishlist || [];
+      // Convert wishlist tickers
+      const wishlist = (data.wishlist || []).map(w => ({
+        ...w,
+        ticker: convertOldTicker(w.ticker)
+      }));
       const wishlistAlertsDismissed = data.wishlistAlertsDismissed || {};
 
       // Keep or create allowed viewers
@@ -769,14 +775,19 @@
           let data = await firestoreStorage.loadFromFirestore();
 
           if (data) {
+            const rawData = JSON.stringify(data);
             data = migrateDataToV7(data);
-            // Auto-migrate dead CORS proxies to Cloudflare Worker + persist to Firestore
+            // Auto-migrate dead CORS proxies to Cloudflare Worker
             const loadedSettings = data.settings || DEFAULT_SETTINGS;
             if (loadedSettings.corsProxy && !loadedSettings.corsProxy.includes('workers.dev')) {
               console.log('Migrating dead CORS proxy to Cloudflare Worker:', loadedSettings.corsProxy);
               loadedSettings.corsProxy = DEFAULT_SETTINGS.corsProxy;
-              // Persist migrated setting to Firestore so it sticks
-              firestoreStorage.saveToFirestore({ ...data, settings: loadedSettings });
+            }
+            // Persist migrations to Firestore if data changed (proxy fix, .HK ticker cleanup, etc.)
+            const migratedData = { ...data, settings: loadedSettings };
+            if (JSON.stringify(migratedData) !== rawData) {
+              console.log('Data migrated, persisting to Firestore...');
+              firestoreStorage.saveToFirestore(migratedData);
             }
             console.log('Data loaded from Firestore:', {
               positions: data.positions?.length,
@@ -1226,8 +1237,8 @@
       // ===== POSITION ACTIONS =====
       const addPosition = async () => {
         if (!newPosition.ticker || !newPosition.quantity || !newPosition.entryPrice) return alert('Remplir Ticker, Qté et Prix');
-        // US tickers - just uppercase, no suffix needed
-        let ticker = newPosition.ticker.toUpperCase();
+        // US tickers - uppercase, strip .HK if accidentally added
+        let ticker = newPosition.ticker.replace(/\.HK$/i, '').toUpperCase();
 
         const newQty = parseFloat(newPosition.quantity);
         const newPrice = parseFloat(newPosition.entryPrice);
