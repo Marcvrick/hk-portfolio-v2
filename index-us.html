@@ -212,6 +212,7 @@
       autoRefresh: true,
       alertThreshold: 8,
       dangerThreshold: 10,
+      enableDualPortfolio: false,
     };
 
 
@@ -412,20 +413,21 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Extract yesterday's close from time series (last completed trading day)
+      // Extract yesterday's close from time series (always second-to-last bar)
       const closes = result?.indicators?.quote?.[0]?.close;
       const timestamps = result?.timestamp;
       let previousClose = price; // fallback
+      let marketDay = new Date().toISOString().split('T')[0]; // default to today
       if (closes && timestamps && closes.length >= 2) {
-        // Check if the last bar is today (market open/intraday) or a past day (before market opens)
+        // marketDay = date of the last bar in Yahoo's time series
+        // Before market opens: last bar = previous trading day (e.g. Monday on Tuesday pre-market)
+        // During/after market hours: last bar = today
         const lastTimestamp = timestamps[timestamps.length - 1];
-        const lastBarDate = new Date(lastTimestamp * 1000).toISOString().split('T')[0];
-        const todayStr = new Date().toISOString().split('T')[0];
-
-        // Offset: if last bar is today (market open), skip it and use second-to-last;
-        // if last bar is a past day (before market opens), the last bar IS yesterday's close
-        const startIdx = (lastBarDate === todayStr) ? closes.length - 2 : closes.length - 1;
-        for (let i = startIdx; i >= 0; i--) {
+        marketDay = new Date(lastTimestamp * 1000).toISOString().split('T')[0];
+        // Always use second-to-last close as previousClose for meaningful % changes:
+        // - Pre-market Tuesday: previousClose=Friday, price=Monday close → shows Monday's perf
+        // - During Tuesday: previousClose=Monday close, price=live → shows today's perf
+        for (let i = closes.length - 2; i >= 0; i--) {
           if (closes[i] != null) {
             previousClose = closes[i];
             break;
@@ -438,7 +440,7 @@
       } else {
         previousClose = meta.previousClose || meta.chartPreviousClose || price;
       }
-      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} ${meta.currency || 'USD'}`);
+      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} marketDay: ${marketDay} ${meta.currency || 'USD'}`);
 
       return {
         success: true,
@@ -447,6 +449,7 @@
         change: price - previousClose,
         changePercent: ((price - previousClose) / previousClose) * 100,
         currency: meta.currency || 'USD',
+        marketDay: marketDay,
         lastUpdated: new Date().toISOString()
       };
     };
@@ -914,7 +917,7 @@
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0 || viewingFriendEmail) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Wait for settings to have the correct proxy (migration may be async)
         if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
         // Auto-refresh prices when page loads (if no recent cache)
@@ -946,7 +949,7 @@
 
       // ===== AUTO DAILY SNAPSHOT =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0 || viewingFriendEmail) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
 
         // Calculate current portfolio value
         const currentValue = positions.reduce((sum, p) => {
@@ -960,6 +963,9 @@
 
         // Check if market is closed today (weekend or NYSE holiday)
         const isMarketClosedToday = isMarketClosed(today);
+        // Detect if market has opened today (Yahoo's last bar date matches today)
+        // Before market opens, all tickers have marketDay = previous trading day
+        const marketOpenToday = Object.values(priceCache).some(c => c?.success && c.marketDay === today);
 
         // Check if we have a snapshot for today
         const todaySnapshot = snapshots.find(s => s.date === today);
@@ -1013,15 +1019,15 @@
             }, 0);
             const totalGain = gain + closedTodayGain;
             const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false });
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isPremarket: !marketOpenToday });
           } else if (yesterdaySnapshot) {
             const gain = currentValue - yesterdaySnapshot.portfolioValue;
             const percent = yesterdaySnapshot.portfolioValue > 0
               ? (gain / yesterdaySnapshot.portfolioValue) * 100
               : 0;
-            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false });
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isPremarket: !marketOpenToday });
           } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false });
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isPremarket: !marketOpenToday });
           }
         }
 
@@ -1029,6 +1035,10 @@
         // Skip market closed days (weekends and NYSE holidays)
         if (isMarketClosedToday) {
           console.log('Skipping snapshot - market closed (weekend or holiday)');
+          return;
+        }
+        if (!marketOpenToday) {
+          console.log('Skipping snapshot - market not open yet today (pre-market)');
           return;
         }
 
@@ -1067,7 +1077,7 @@
           todaySnapshot.positionCount !== positions.length ||
           Math.abs(todaySnapshot.capitalEngaged - capitalEngaged) > 1;
 
-        if (snapshotChanged) {
+        if (snapshotChanged && !viewingFriendRef.current) {
           // Replace existing or add new snapshot
           const filteredSnapshots = snapshots.filter(s => s.date !== today);
           const newSnapshots = [...filteredSnapshots, newSnapshot].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1152,6 +1162,11 @@
             }
             return p;
           });
+
+          if (viewingFriendRef.current) {
+            console.log('Skipping price update - switched to friend view during refresh');
+            return;
+          }
 
           setPriceCache(newCache);
           setPositions(newPositions);
@@ -1664,24 +1679,28 @@
         db.doc(getPortfolioDoc(userId)).update({ savedFriends: newFriends });
       };
 
-      const returnToOwnPortfolio = () => {
-        if (!ownDataBackup) return;
-
-        // Restore own data
-        setPositions(ownDataBackup.positions);
-        setClosedTrades(ownDataBackup.closedTrades);
-        setTransactions(ownDataBackup.transactions);
-        setPriceCache(ownDataBackup.priceCache);
-        setSnapshots(ownDataBackup.snapshots);
-        setSettings(ownDataBackup.settings);
-        setWishlist(ownDataBackup.wishlist);
-        setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
-        setAllowedViewers(ownDataBackup.allowedViewers);
-
-        setOwnDataBackup(null);
-        viewingFriendRef.current = null; // Clear ref immediately (mirror the imperative set in viewFriendPortfolio)
+      const returnToOwnPortfolio = async () => {
+        // Clear friend state FIRST
+        viewingFriendRef.current = null;
         setViewingFriendEmail(null);
         setViewingFriendPortfolioType(null);
+
+        if (ownDataBackup) {
+          setPositions(ownDataBackup.positions);
+          setClosedTrades(ownDataBackup.closedTrades);
+          setTransactions(ownDataBackup.transactions);
+          setPriceCache(ownDataBackup.priceCache);
+          setSnapshots(ownDataBackup.snapshots);
+          setSettings(ownDataBackup.settings);
+          setWishlist(ownDataBackup.wishlist);
+          setWishlistAlertsDismissed(ownDataBackup.wishlistAlertsDismissed);
+          setAllowedViewers(ownDataBackup.allowedViewers);
+          setOwnDataBackup(null);
+        } else {
+          console.warn('No backup found, reloading from Firestore...');
+          await loadData();
+        }
+        setActiveTab('portfolio');
         console.log('Returned to own portfolio');
       };
 
@@ -1999,7 +2018,7 @@
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">
-                  {dailyGain.isWeekend ? 'Vendredi' : "Aujourd'hui"}
+                  {dailyGain.isWeekend ? 'Vendredi' : dailyGain.isPremarket ? 'Hier' : "Aujourd'hui"}
                 </div>
                 {dailyGain.hasYesterday ? (
                   <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -3285,8 +3304,11 @@
                     const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
-                  // Only set today's P&L if it's a trading day (not weekend/holiday)
-                  if (Object.values(priceCache).some(c => c?.success) && isTradingDay(todayDate)) {
+                  // Only show live P&L override when market has opened today
+                  // Before market opens, snapshot-based data already covers previous trading days
+                  const marketDayFromCache = Object.values(priceCache).find(c => c?.success)?.marketDay;
+                  const marketOpenForCalendar = !marketDayFromCache || marketDayFromCache === todayDate;
+                  if (marketOpenForCalendar && Object.values(priceCache).some(c => c?.success) && isTradingDay(todayDate)) {
                     pnlMap[todayDate] = todayPnl + closedTodayPnl;
                   }
 
@@ -3807,6 +3829,20 @@
                       </select>
                       <p className="text-muted text-xs mt-1">Proxy utilisé pour contourner les restrictions CORS de Yahoo Finance</p>
                     </div>
+                    <div>
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.enableDualPortfolio || false}
+                          onChange={(e) => updateSettings({ ...settings, enableDualPortfolio: e.target.checked })}
+                          className="w-4 h-4 rounded"
+                        />
+                        <div>
+                          <span className="text-sm font-medium">Activer double portfolio (HK + US)</span>
+                          <p className="text-muted text-xs">Affiche le lien vers le portfolio HK dans les paramètres</p>
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -3859,6 +3895,7 @@
                 </div>
 
                 {/* Switch Portfolio */}
+                {settings.enableDualPortfolio && (
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 3h5v5M8 3H3v5M3 16v5h5M21 16v5h-5M3 12h18M12 3v18"/></svg>
@@ -3871,6 +3908,7 @@
                     <span className="text-lg">🇭🇰</span> Portfolio HK (HKD)
                   </a>
                 </div>
+                )}
 
                 {/* Account / Logout */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
