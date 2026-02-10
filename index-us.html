@@ -1576,7 +1576,7 @@
           let friendUserId = null;
           let friendData = null;
 
-          const collections = ['portfolios', 'us-portfolios'];
+          const collections = ['us-portfolios', 'portfolios'];
           for (const collectionName of collections) {
             const querySnapshot = await db.collection(collectionName)
               .where('ownerEmail', '==', friendEmail)
