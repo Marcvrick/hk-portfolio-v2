@@ -1175,14 +1175,17 @@
         const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
 
         // Calculate daily gain
-        // On market closed days: show last trading day's P&L from snapshots
-        // On trading days: prefer live price cache, fallback to snapshots
+        // Priority: use cron snapshot data when available (most accurate), fallback to live calculation
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
           setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false });
+        } else if (todaySnapshot && todaySnapshot.dailyPnL !== undefined) {
+          // Use cron-calculated daily P&L from snapshot (most accurate source)
+          const prevValue = yesterdaySnapshot?.portfolioValue || capitalEngaged;
+          const percent = prevValue > 0 ? (todaySnapshot.dailyPnL / prevValue) * 100 : 0;
+          setDailyGain({ value: todaySnapshot.dailyPnL, percent, hasYesterday: !!yesterdaySnapshot, isWeekend: false, isLive: false });
         } else {
-          // Weekday: use live price data
-          // Use yesterday's stored closing prices for accurate % change
+          // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
           const hasPriceData = Object.values(priceCache).some(c => c?.success);
           const marketCurrentlyOpen = isMarketOpen();
@@ -1194,17 +1197,14 @@
               const isNewToday = p.entryDate === today;
               const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
               if (isNewToday) {
-                // Entirely new position added today
                 return sum + (curPrice - p.entryPrice) * p.quantity;
               }
               if (hasIntradayAdd) {
-                // Position with intraday addition: split calculation
                 const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
                 const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
                 const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
                 return sum + oldQtyGain + newQtyGain;
               }
-              // Priority: manual override → yesterday's stored price → Yahoo's previousClose
               const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
               if (cached?.success && prevClose) {
                 return sum + (curPrice - prevClose) * p.quantity;
@@ -1220,19 +1220,15 @@
                 return sum + p.entryPrice * p.quantity;
               }
               if (hasIntradayAdd) {
-                // Old shares use previous close, new shares use their entry price
                 const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
                 return sum + prevClose * p.qtyBeforeToday + p.addedTodayPrice * p.addedTodayQty;
               }
-              // Priority: manual override → entry price for new → yesterday's stored → Yahoo's previousClose
               const prev = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
               return sum + prev * p.quantity;
             }, 0);
-            // Add P&L from positions closed today (exitPrice - previousClose)
             const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
               const ct = t.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
-              // Priority: manual override → yesterday's stored price → Yahoo's previousClose
               const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
