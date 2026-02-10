@@ -70,6 +70,9 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Fix previousClose extraction (timestamp-based) | ✅ | ❌ | — |
+| Live daily P&L for today (no stale snapshot) | ✅ | ❌ | — |
+| Auto-refresh cache threshold 5 min | ✅ | ❌ | — |
 | Multi-user cron (iterate all docs) | ✅ | ✅ | 2026-02-10 |
 | `viewingFriendRef` guards (7 locations) | ✅ | ✅ | 2026-02-10 |
 | `returnToOwnPortfolio` async + fallback | ✅ | ✅ | 2026-02-10 |
@@ -331,8 +334,16 @@ python -m http.server 8000
   - **Why dcharnal saw correct numbers:** When viewing Marc's portfolio as a friend, the email query (`where('ownerEmail', '==', ...)`) found `portfolios/main` (cron-updated), not `portfolios/{uid}`.
   - **Fix:** Refactored `update.py` to iterate ALL documents in the `portfolios` collection (same pattern as `update-us.py`). Extracted `update_portfolio()` function, replaced hardcoded path with `COLLECTION = "portfolios"` + `collection_ref.stream()`.
   - **Migration:** Created `migrate-main-to-uid.py` to merge cron-generated snapshots from `portfolios/main` into `portfolios/{marc_uid}`. Merges by date, preferring cron data (has `closingPrices`, `dailyPnL`, `positionsAtClose`). Run with `--delete-main` to clean up the orphan document.
+- **Fixed previousClose extraction from Yahoo Finance** — Caused wrong daily % change (+2.35% or 0% instead of correct +1.25%)
+  - **Root cause:** Both browser and cron extracted `previousClose` from Yahoo's timeseries `closes` array. When Yahoo returned `null` for recent trading days, the extraction logic picked wrong values (skipped to older days or landed on the same value as current price).
+  - **Why `meta.previousClose` didn't work:** Yahoo returns `null` for `meta.previousClose` on HK stocks. `meta.chartPreviousClose` returns the close before the chart range (e.g., Feb 3), not yesterday's close.
+  - **Fix (browser + cron):** New timestamp-based extraction — iterates backwards through raw timeseries, finds the most recent non-null close where `timestamp < UTC midnight today`. Correctly handles null gaps and timezone differences.
+  - **Priority chain (Performance tab):** manual override → new today (entry price) → Yahoo `meta.previousClose` from priceCache → yesterday's snapshot closingPrices → current price
+- **Fixed stale daily P&L in header/calendar** — Calendar showed -1600 while Performance tab showed -3895
+  - **Root cause:** Header used stored `todaySnapshot.dailyPnL` (calculated earlier with wrong priceCache) instead of live data. Calendar copied the header value.
+  - **Fix:** Header now always calculates today's daily P&L live from current priceCache. Past days still use stored snapshot values (immutable). Calendar and header are always consistent.
+- **Lowered auto-refresh cache threshold** from 30 min to 5 min — Prevents stale priceCache data from persisting after code fixes
 - **Auto-redirect between HK/US portfolios at login** — Detects wrong-market tickers and redirects
-- **Daily P&L header prefers cron snapshot** `dailyPnL` over browser recalculation
 - **Ported v2.11 `viewingFriendRef` race condition fixes from US to HK**
 - **Emptied hardcoded `INITIAL_POSITIONS`** for new users (both HK and US)
 
