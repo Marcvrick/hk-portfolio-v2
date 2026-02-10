@@ -240,10 +240,10 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
-    // US version - strip .HK suffix if present (data entry error) and uppercase
+    // US version - strip .HK suffix if present (data entry error), trim whitespace, uppercase
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
-      return ticker.replace(/\.HK$/i, '').toUpperCase();
+      return ticker.trim().replace(/\.HK$/i, '').toUpperCase();
     };
 
     const migrateDataToV7 = (data) => {
@@ -1237,8 +1237,8 @@
       // ===== POSITION ACTIONS =====
       const addPosition = async () => {
         if (!newPosition.ticker || !newPosition.quantity || !newPosition.entryPrice) return alert('Remplir Ticker, Qté et Prix');
-        // US tickers - uppercase, strip .HK if accidentally added
-        let ticker = newPosition.ticker.replace(/\.HK$/i, '').toUpperCase();
+        // US tickers - trim, uppercase, strip .HK if accidentally added
+        let ticker = newPosition.ticker.trim().replace(/\.HK$/i, '').toUpperCase();
 
         const newQty = parseFloat(newPosition.quantity);
         const newPrice = parseFloat(newPosition.entryPrice);

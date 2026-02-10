@@ -114,7 +114,7 @@ def update_portfolio(db, doc_ref, user_id: str, today: str):
     # 1. Fetch prices
     print("  Fetching prices...")
     for p in positions:
-        ticker = p["ticker"].replace(".HK", "").upper()  # Strip .HK if accidentally present
+        ticker = p["ticker"].strip().replace(".HK", "").upper()  # Strip whitespace and .HK
         p["ticker"] = ticker  # Fix in-place for Firestore persistence
         result = fetch_yahoo_price(ticker)
         if result["success"]:
