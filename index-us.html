@@ -703,6 +703,7 @@
       const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [showFriendDropdown, setShowFriendDropdown] = useState(false);
       const friendDropdownRef = useRef(null);
+      const viewingFriendRef = useRef(null);
       const [activeTab, setActiveTab] = useState('portfolio');
       const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
@@ -747,6 +748,9 @@
         }
       }, [dataLoaded]);
 
+      // Keep ref in sync with viewingFriendEmail state (for use in Firestore listener callback)
+      useEffect(() => { viewingFriendRef.current = viewingFriendEmail; }, [viewingFriendEmail]);
+
       // Real-time sync with Firestore (multi-device)
       useEffect(() => {
         if (!dataLoaded) return;
@@ -754,6 +758,8 @@
         // Subscribe to real-time updates from Firestore
         const unsubscribe = firestoreStorage.subscribeToUpdates((data) => {
           if (!data) return;
+          // Don't overwrite friend data with own data when viewing a friend's portfolio
+          if (viewingFriendRef.current) return;
           const migrated = migrateDataToV7(data);
           console.log('Real-time update from Firestore:', {
             positions: migrated.positions?.length,
