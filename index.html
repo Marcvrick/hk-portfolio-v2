@@ -1124,7 +1124,7 @@
         const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
           if (!c?.lastUpdated) return false;
           const age = Date.now() - new Date(c.lastUpdated).getTime();
-          return age < 30 * 60 * 1000; // less than 30 min old
+          return age < 5 * 60 * 1000; // less than 5 min old
         });
         if (!hasRecentCache && !isRefreshing) {
           console.log('Auto-refreshing prices on load...');
