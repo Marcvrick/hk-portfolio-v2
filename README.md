@@ -63,6 +63,26 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 
 ---
 
+## HK / US Sync Status
+
+Both `index.html` (HK) and `index-us.html` (US) share the same core features but are maintained as separate files. When making changes, **always apply to both files** unless the change is market-specific.
+
+| Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
+|---|:---:|:---:|---|
+| `viewingFriendRef` guards (7 locations) | ✅ | ✅ | 2026-02-10 |
+| `returnToOwnPortfolio` async + fallback | ✅ | ✅ | 2026-02-10 |
+| `enableDualPortfolio` toggle | ✅ | ✅ | 2026-02-10 |
+| "Voir" → "Ajouter" button rename | ✅ | ✅ | 2026-02-10 |
+| Dynamic currency label (HKD/USD) | ✅ | ✅ | 2026-02-10 |
+| Friend daily P&L shows friend's data | ✅ | ✅ | 2026-02-10 |
+| Cloudflare Worker as primary CORS proxy | ✅ | ✅ | 2026-02-08 |
+| Dead proxy auto-migration | — | ✅ | 2026-02-08 |
+| `convertOldTicker()` strips `.HK` + whitespace | — | ✅ | 2026-02-08 |
+
+**How to use this table:** After applying a change to one file, update this table to track which file still needs the same change. This prevents the HK/US drift that caused the 2026-02-10 incident.
+
+---
+
 ## Setup Firebase
 
 ### 1. Create Firebase Project
@@ -303,20 +323,21 @@ python -m http.server 8000
 ## Changelog
 
 ### v2.11 (Feb 2026)
-- **Fixed friend portfolio return bug** - Returning from friend's HK portfolio could show friend's data with wrong header
+- **Fixed friend portfolio return bug** — Applied to both `index.html` (HK) and `index-us.html` (US)
   - Root cause 1: Async race in `refreshPrices` — stale closure could overwrite restored backup with friend's positions
   - Root cause 2: Snapshot useEffect could save friend data to own localStorage (state-based guard had timing gap)
   - Root cause 3: `returnToOwnPortfolio` silently failed when backup was missing
   - Fix: Added `viewingFriendRef` guards to auto-refresh, snapshot save, and refreshPrices save path
   - Fix: `returnToOwnPortfolio` now clears friend state FIRST, falls back to Firestore reload if backup is null, and switches to portfolio tab
+  - **Incident (2026-02-10):** HK version was missing `viewingFriendRef` guards while US had them. Marc's HK portfolio got stuck showing friend's US data. Ported all 7 guards from US to HK — resolved.
 - **Dynamic currency label** - Shows HKD when viewing a friend's HK portfolio, USD otherwise
   - All UI labels (P&L, charts, tooltips, inputs) switch dynamically
   - Previously hardcoded "USD" everywhere
 - **Friend daily P&L now shows friend's data** - Was stuck showing own P&L when viewing friend
   - Split snapshot useEffect: dailyGain calculation runs for friend views (read-only), snapshot saving remains guarded
 - **Dual portfolio setting** - New `enableDualPortfolio` toggle in Settings > Configuration
-  - When off (default): "Autre Portfolio" HK link hidden in Settings
-  - When on: HK portfolio link appears
+  - When off (default): "Autre Portfolio" link hidden in Settings
+  - When on: Portfolio switch link appears
   - Prevents accidental navigation for users with only one portfolio
 - **UI: Friend input button renamed** - "Voir" → "Ajouter" for clarity (the button adds + views)
 
