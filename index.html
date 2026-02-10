@@ -1425,10 +1425,19 @@
           let failCount = 0;
           const failedTickers = [];
 
-          // Merge with existing cache
+          // Merge with existing cache, preserving cron's previousClose when it's fresher
+          const todayDate = new Date().toISOString().split('T')[0];
           const newCache = { ...priceCache };
           Object.entries(results).forEach(([ticker, result]) => {
             if (result.success) {
+              // If existing cache has a previousClose from cron (fetched today or later in HKT),
+              // preserve it — the cron fetches at market close when Yahoo data is settled,
+              // while browser fetches may get null/stale data for the most recent trading day
+              const existing = priceCache[ticker];
+              const existingDate = existing?.lastUpdated?.split?.('T')?.[0];
+              if (existing?.previousClose && existingDate && existingDate >= todayDate && result.previousClose !== existing.previousClose) {
+                result = { ...result, previousClose: existing.previousClose };
+              }
               newCache[ticker] = result;
               successCount++;
             } else {
