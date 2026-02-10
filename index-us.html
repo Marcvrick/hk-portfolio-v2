@@ -362,6 +362,11 @@
         } catch (e) {
           console.error('Storage error:', e);
         }
+      },
+      remove: (key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {}
       }
     };
 
@@ -804,6 +809,8 @@
             setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
             setAllowedViewers(data.allowedViewers || []);
             setSavedFriends(data.savedFriends || []);
+            // Clear localStorage backup to prevent stale/corrupted data from being used as fallback
+            storage.remove('us-portfolio-v7');
           } else {
             // No Firestore data - try to migrate from localStorage
             console.log('No Firestore data, checking localStorage for migration...');
@@ -891,7 +898,7 @@
 
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail) return;
         // Wait for settings to have the correct proxy (migration may be async)
         if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
         // Auto-refresh prices when page loads (if no recent cache)
@@ -923,7 +930,7 @@
 
       // ===== AUTO DAILY SNAPSHOT =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0) return;
+        if (!dataLoaded || positions.length === 0 || viewingFriendEmail) return;
 
         // Calculate current portfolio value
         const currentValue = positions.reduce((sum, p) => {
