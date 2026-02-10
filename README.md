@@ -18,6 +18,8 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 - Position duration tracking with visual alerts
 - Closed trades history with win rate analytics
 - **Wishlist** - Track stocks you want to buy with target price alerts
+- **Friend portfolio viewing** - View friends' portfolios (HK or US) with dynamic currency labels
+- **Dual portfolio toggle** - Optional HK+US portfolio switching (off by default)
 
 ### UI/UX (v2.3)
 - **Dark mode** (default) with light mode toggle (sun/moon icon)
@@ -103,7 +105,9 @@ portfolios/
       ├── wishlistAlertsDismissed: {}
       ├── snapshots: []
       ├── settings: {}
-      └── priceCache: {}
+      ├── priceCache: {}
+      ├── allowedViewers: []
+      └── savedFriends: []
 ```
 
 ### 4. Security Rules (IMPORTANT!)
@@ -297,6 +301,24 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.11 (Feb 2026)
+- **Fixed friend portfolio return bug** - Returning from friend's HK portfolio could show friend's data with wrong header
+  - Root cause 1: Async race in `refreshPrices` — stale closure could overwrite restored backup with friend's positions
+  - Root cause 2: Snapshot useEffect could save friend data to own localStorage (state-based guard had timing gap)
+  - Root cause 3: `returnToOwnPortfolio` silently failed when backup was missing
+  - Fix: Added `viewingFriendRef` guards to auto-refresh, snapshot save, and refreshPrices save path
+  - Fix: `returnToOwnPortfolio` now clears friend state FIRST, falls back to Firestore reload if backup is null, and switches to portfolio tab
+- **Dynamic currency label** - Shows HKD when viewing a friend's HK portfolio, USD otherwise
+  - All UI labels (P&L, charts, tooltips, inputs) switch dynamically
+  - Previously hardcoded "USD" everywhere
+- **Friend daily P&L now shows friend's data** - Was stuck showing own P&L when viewing friend
+  - Split snapshot useEffect: dailyGain calculation runs for friend views (read-only), snapshot saving remains guarded
+- **Dual portfolio setting** - New `enableDualPortfolio` toggle in Settings > Configuration
+  - When off (default): "Autre Portfolio" HK link hidden in Settings
+  - When on: HK portfolio link appears
+  - Prevents accidental navigation for users with only one portfolio
+- **UI: Friend input button renamed** - "Voir" → "Ajouter" for clarity (the button adds + views)
 
 ### v2.10 (Feb 2026)
 - **Fixed US portfolio price refresh** - All positions were failing to update
