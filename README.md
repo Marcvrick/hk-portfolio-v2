@@ -75,6 +75,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | "Voir" → "Ajouter" button rename | ✅ | ✅ | 2026-02-10 |
 | Dynamic currency label (HKD/USD) | ✅ | ✅ | 2026-02-10 |
 | Friend daily P&L shows friend's data | ✅ | ✅ | 2026-02-10 |
+| Empty `INITIAL_POSITIONS/TRADES/TRANSACTIONS` | ✅ | ✅ | 2026-02-10 |
 | Cloudflare Worker as primary CORS proxy | ✅ | ✅ | 2026-02-08 |
 | Dead proxy auto-migration | — | ✅ | 2026-02-08 |
 | `convertOldTicker()` strips `.HK` + whitespace | — | ✅ | 2026-02-08 |
@@ -340,6 +341,11 @@ python -m http.server 8000
   - When on: Portfolio switch link appears
   - Prevents accidental navigation for users with only one portfolio
 - **UI: Friend input button renamed** - "Voir" → "Ajouter" for clarity (the button adds + views)
+- **Removed hardcoded personal data from `INITIAL_POSITIONS`** - New users were getting Marc's portfolio as default
+  - `INITIAL_POSITIONS`, `INITIAL_CLOSED_TRADES`, `INITIAL_TRANSACTIONS` now empty `[]`
+  - Each user's data lives exclusively in Firestore — no hardcoded fallback
+  - `index-us.html` already had empty defaults; HK version now matches
+  - **Incident (2026-02-10):** dcharnal@gmail.com (new account) loaded Marc's 16 HK positions on first login. Fixed by emptying defaults + Reinitialiser on the affected account.
 
 ### v2.10 (Feb 2026)
 - **Fixed US portfolio price refresh** - All positions were failing to update
