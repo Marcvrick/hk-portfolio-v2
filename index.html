@@ -235,6 +235,19 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
+    // Get previousClose with fresh cache priority
+    // When priceCache was fetched recently, its timeseries previousClose = actual exchange close
+    // This is more reliable than browser-captured snapshot closingPrices
+    // Uses >= to handle timezone differences (cron uses HKT, browser uses UTC)
+    const getPrevClose = (cached, ticker, yesterdayPrices, todayStr, fallback) => {
+      if (cached?.previousCloseOverride) return cached.previousCloseOverride;
+      const cd = cached?.lastUpdated?.split?.('T')?.[0];
+      if (cd && cd >= todayStr && cached?.previousClose) return cached.previousClose;
+      if (yesterdayPrices?.[ticker]) return yesterdayPrices[ticker];
+      if (cached?.success && cached?.previousClose) return cached.previousClose;
+      return fallback ?? null;
+    };
+
     // Check if HK market is currently open (real-time check)
     // HK trading hours: 9:30-12:00 (morning), 13:00-16:00 (afternoon) HKT
     const isMarketOpen = () => {
@@ -1200,12 +1213,12 @@
                 return sum + (curPrice - p.entryPrice) * p.quantity;
               }
               if (hasIntradayAdd) {
-                const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+                const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
                 const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
                 const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
                 return sum + oldQtyGain + newQtyGain;
               }
-              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+              const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
               if (cached?.success && prevClose) {
                 return sum + (curPrice - prevClose) * p.quantity;
               }
@@ -1220,16 +1233,16 @@
                 return sum + p.entryPrice * p.quantity;
               }
               if (hasIntradayAdd) {
-                const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+                const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, p.currentPrice);
                 return sum + prevClose * p.qtyBeforeToday + p.addedTodayPrice * p.addedTodayQty;
               }
-              const prev = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice);
+              const prev = getPrevClose(cached, ct, yesterdayClosingPrices, today, p.currentPrice);
               return sum + prev * p.quantity;
             }, 0);
             const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
               const ct = t.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
-              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+              const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, t.entryPrice);
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
             const totalGain = gain + closedTodayGain;
@@ -1291,12 +1304,12 @@
             return sum + (curPrice - p.entryPrice) * p.quantity;
           }
           if (hasIntradayAdd) {
-            const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForSnapshot[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+            const prevClose = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null);
             const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
             const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
             return sum + oldQtyGain + newQtyGain;
           }
-          const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForSnapshot[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+          const prevClose = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null);
           if (cached?.success && prevClose) {
             return sum + (curPrice - prevClose) * p.quantity;
           }
@@ -1306,7 +1319,7 @@
         const closedTodayPnLForSnapshot = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
           const ct = t.ticker.replace(/b\.HK$/, '.HK');
           const cached = priceCache[ct];
-          const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForSnapshot[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+          const prevClose = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, t.entryPrice);
           return sum + (t.exitPrice - prevClose) * t.quantity;
         }, 0);
 
@@ -1956,8 +1969,7 @@
           const cleanTicker = w.ticker.replace(/b\.HK$/, '.HK');
           const cached = priceCache[cleanTicker];
           const currentPrice = cached?.price || null;
-          // Priority: manual override → yesterday's stored closingPrices → Yahoo's previousClose
-          const previousClose = cached?.previousCloseOverride || yesterdayClosingPrices[cleanTicker] || (cached?.previousClose) || currentPrice;
+          const previousClose = getPrevClose(cached, cleanTicker, yesterdayClosingPrices, todayStr, currentPrice);
           const dailyChange = currentPrice && previousClose ? currentPrice - previousClose : 0;
           const dailyChangePercent = previousClose ? (dailyChange / previousClose) * 100 : 0;
           const gap = currentPrice ? ((currentPrice - w.targetPrice) / w.targetPrice) * 100 : null;
@@ -3498,14 +3510,19 @@
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
-                // 2. Yesterday's snapshot closingPrices (our stored data - most reliable)
-                // 3. Fallback to Yahoo's previousClose (can be stale/incorrect)
-                // 4. Last fallback to current price
+                // 2. Fresh Yahoo timeseries previousClose (fetched today — actual exchange close)
+                // 3. Yesterday's snapshot closingPrices (fallback when no fresh fetch)
+                // 4. Stale Yahoo previousClose (better than nothing)
+                // 5. Last fallback to current price
+                const cacheDate = cached?.lastUpdated?.split?.('T')?.[0];
+                const isCacheFresh = cacheDate && cacheDate >= todayStr;
                 let previousClose;
                 if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
                 } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
+                } else if (isCacheFresh && cached?.previousClose) {
+                  previousClose = cached.previousClose;
                 } else if (yesterdayClosingPrices[cleanTicker]) {
                   previousClose = yesterdayClosingPrices[cleanTicker];
                 } else if (cached?.success && cached.previousClose) {
@@ -3553,8 +3570,7 @@
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
                 const ct = t.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[ct];
-                // Priority: manual override → stored closing price → Yahoo's previousClose
-                const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+                const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, todayStr, t.entryPrice);
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
