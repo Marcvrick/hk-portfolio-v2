@@ -751,6 +751,9 @@
         localStorage.setItem('portfolioDarkMode', JSON.stringify(darkMode));
       }, [darkMode]);
 
+      // Currency label: HKD when viewing a friend's HK portfolio, USD otherwise
+      const currencyLabel = (viewingFriendEmail && viewingFriendPortfolioType === 'HK') ? 'HKD' : 'USD';
+
       // Load data on mount
       useEffect(() => { loadData(); }, []);
 
@@ -949,7 +952,7 @@
 
       // ===== AUTO DAILY SNAPSHOT =====
       useEffect(() => {
-        if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
+        if (!dataLoaded || positions.length === 0) return;
 
         // Calculate current portfolio value
         const currentValue = positions.reduce((sum, p) => {
@@ -1032,6 +1035,8 @@
         }
 
         // Auto-save/update snapshot for today (always update to capture trade closures)
+        // Skip when viewing friend portfolio — only recalculate dailyGain above
+        if (viewingFriendEmail || viewingFriendRef.current) return;
         // Skip market closed days (weekends and NYSE holidays)
         if (isMarketClosedToday) {
           console.log('Skipping snapshot - market closed (weekend or holiday)');
@@ -2091,12 +2096,12 @@
                         <div className="bg-gray-50 rounded-2xl p-4 space-y-2">
                           {isPartial && <div className="flex justify-between text-sm"><span className="text-muted">Vente partielle:</span><span className="font-semibold text-lime-hover">{sellQty} / {pos?.quantity} (reste: {remaining})</span></div>}
                           <div className="flex justify-between text-sm"><span className="text-muted">Durée:</span><span className="font-semibold">{calcDays(pos?.entryDate, closeModal.exitDate)} jours</span></div>
-                          <div className="flex justify-between text-sm"><span className="text-muted">P&L brut:</span><span className={`font-semibold ${grossPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(grossPnl)} USD</span></div>
+                          <div className="flex justify-between text-sm"><span className="text-muted">P&L brut:</span><span className={`font-semibold ${grossPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(grossPnl)} {currencyLabel}</span></div>
                           <div className="flex justify-between text-sm text-muted"><span>Frais achat:</span><span>-{fmt(bFees)}</span></div>
                           <div className="flex justify-between text-sm text-muted"><span>Frais vente:</span><span>-{fmt(sFees)}</span></div>
                           <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between">
                             <span className="font-semibold">P&L net:</span>
-                            <span className={`inline-flex items-center px-3 py-1 rounded-full font-bold ${netPnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{fmt(netPnl)} USD ({netPct.toFixed(1)}%)</span>
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full font-bold ${netPnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{fmt(netPnl)} {currencyLabel} ({netPct.toFixed(1)}%)</span>
                           </div>
                         </div>
                       );
@@ -2422,7 +2427,7 @@
                                   const entry = pieData.find(d => d.name === props.payload.name);
                                   const label = entry?.companyName || name;
                                   const pct = ((value / total) * 100).toFixed(1);
-                                  return [`${value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} USD`, label];
+                                  return [`${value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} ${currencyLabel}`, label];
                                 }}
                                 labelFormatter={(name) => {
                                   const entry = pieData.find(d => d.name === name);
@@ -2438,7 +2443,7 @@
                             style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '100px', height: '100px' }}
                           >
                             <span className="text-2xl font-bold text-gray-900">{formatTotal(total)}</span>
-                            <span className="text-xs text-gray-500 uppercase tracking-wide">USD</span>
+                            <span className="text-xs text-gray-500 uppercase tracking-wide">{currencyLabel}</span>
                           </div>
                         </div>
 
@@ -2514,7 +2519,7 @@
                                   <span className="font-semibold text-green-900">{w.ticker}</span>
                                   <span className="text-green-700 ml-2">{w.name}</span>
                                   <span className="text-green-600 ml-3 text-sm">
-                                    {fmt(w.currentPrice, 2)} USD (cible: {fmt(w.targetPrice, 2)})
+                                    {fmt(w.currentPrice, 2)} {currencyLabel} (cible: {fmt(w.targetPrice, 2)})
                                   </span>
                                 </div>
                                 <button
@@ -2714,7 +2719,7 @@
                     </select>
                     <input
                       type="number"
-                      placeholder="Montant USD"
+                      placeholder={`Montant ${currencyLabel}`}
                       value={newTransaction.amount}
                       onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
                       className="bg-gray-50 rounded px-2 py-1.5"
@@ -2899,7 +2904,7 @@
                                   <div className="font-bold text-lime-hover">{d.ticker}</div>
                                   <div>Durée: {d.days}j</div>
                                   <div className={d.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}>P&L: {d.pnlPercent >= 0 ? '+' : ''}{d.pnlPercent.toFixed(1)}%</div>
-                                  <div className={d.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{d.pnl >= 0 ? '+' : ''}{fmt(d.pnl)} USD</div>
+                                  <div className={d.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{d.pnl >= 0 ? '+' : ''}{fmt(d.pnl)} {currencyLabel}</div>
                                 </div>
                               );
                             }} />
@@ -2996,7 +3001,7 @@
                             <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
                             <Tooltip
                               contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
-                              formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' USD', 'P&L']}
+                              formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' ' + currencyLabel, 'P&L']}
                             />
                             <Area
                               type="monotone"
@@ -3041,7 +3046,7 @@
                         <YAxis stroke="#9CA3AF" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} domain={['dataMin - 50000', 'dataMax + 50000']} />
                         <Tooltip
                           contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
-                          formatter={(v) => [fmt(v) + ' USD', 'Capital Investi']}
+                          formatter={(v) => [fmt(v) + ' ' + currencyLabel, 'Capital Investi']}
                           labelFormatter={(label) => `Date: ${label}`}
                         />
                         <Area type="monotone" dataKey="capitalEngaged" stroke="#8B5CF6" fill="url(#colorCapHist)" name="Capital Investi" strokeWidth={2} dot={{ fill: '#8B5CF6', r: 3 }} />
@@ -3152,7 +3157,7 @@
                     <div>
                       <div className="text-muted text-xs">Today's P&L</div>
                       <div className={`text-2xl font-bold ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} USD
+                        {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} {currencyLabel}
                         <span className="text-sm ml-2">({totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%)</span>
                       </div>
                     </div>
@@ -3343,7 +3348,7 @@
                           <h3 className="font-semibold">{monthNames[month]} {year}</h3>
                           {hasData && (
                             <span className={`text-sm font-bold ${monthTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {monthTotal >= 0 ? '+' : ''}{fmt(monthTotal)} USD
+                              {monthTotal >= 0 ? '+' : ''}{fmt(monthTotal)} {currencyLabel}
                             </span>
                           )}
                         </div>
@@ -3410,7 +3415,7 @@
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="font-semibold">P&L Total (Gains/Pertes cumulés)</h3>
                     <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                      {isPositive ? '+' : ''}{fmt(latestPnL)} USD
+                      {isPositive ? '+' : ''}{fmt(latestPnL)} {currencyLabel}
                     </span>
                   </div>
                   {!RECHARTS_LOADED ? (
@@ -3434,7 +3439,7 @@
                           contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
                           formatter={(v, name) => {
                             const label = name === 'totalPnL' ? 'P&L Total' : name === 'unrealizedPnL' ? 'Latent' : 'Réalisé';
-                            return [(v >= 0 ? '+' : '') + fmt(v) + ' USD', label];
+                            return [(v >= 0 ? '+' : '') + fmt(v) + ' ' + currencyLabel, label];
                           }}
                         />
                         <Legend formatter={(value) => value === 'totalPnL' ? 'P&L Total' : value === 'unrealizedPnL' ? 'Latent' : 'Réalisé'} />
@@ -3556,7 +3561,7 @@
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="font-semibold">P&L Total</h3>
                       <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                        {isPositive ? '+' : ''}{fmt(latestPnL)} USD
+                        {isPositive ? '+' : ''}{fmt(latestPnL)} {currencyLabel}
                       </span>
                     </div>
                     {!RECHARTS_LOADED ? (
@@ -3573,7 +3578,7 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(0)}k` : v} />
-                          <Tooltip formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' USD', 'P&L Total']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' ' + currencyLabel, 'P&L Total']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
                           <Area type="monotone" dataKey="totalPnL" stroke={isPositive ? '#10B981' : '#EF4444'} fill="url(#colorEqPnl)" name="P&L Total" strokeWidth={2} />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -3593,7 +3598,7 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="week" stroke="#9CA3AF" tick={{ fontSize: 9 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' USD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip formatter={(v) => [fmt(v) + ' ' + currencyLabel, 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
                           <Bar dataKey="pnl" name="P&L">
                             {weeklyData.map((d, i) => (
                               <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
@@ -3633,7 +3638,7 @@
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
                           <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip formatter={(v) => [fmt(v) + ' USD', 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Tooltip formatter={(v) => [fmt(v) + ' ' + currencyLabel, 'P&L']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
                           <Bar dataKey="pnl" name="P&L">
                             {monthlyData.map((d, i) => (
                               <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
