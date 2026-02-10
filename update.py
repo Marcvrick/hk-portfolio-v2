@@ -64,16 +64,9 @@ def fetch_yahoo_price(ticker: str) -> dict:
         print(f"  FAIL {clean}: no price")
         return {"success": False, "error": "No price"}
 
-    # Extract yesterday's close from time series
-    closes = (result.get("indicators", {}).get("quote", [{}])[0].get("close") or [])
-    previous_close = price
-    if len(closes) >= 2:
-        for i in range(len(closes) - 2, -1, -1):
-            if closes[i] is not None:
-                previous_close = closes[i]
-                break
-    else:
-        previous_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
+    # Use Yahoo's meta.previousClose — the official previous session close
+    # More reliable than timeseries extraction which can have null gaps
+    previous_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
 
     print(f"  OK {clean}: {price} (prevClose: {previous_close})")
     return {

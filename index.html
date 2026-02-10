@@ -235,14 +235,10 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
-    // Get previousClose with fresh cache priority
-    // When priceCache was fetched recently, its timeseries previousClose = actual exchange close
-    // This is more reliable than browser-captured snapshot closingPrices
-    // Uses >= to handle timezone differences (cron uses HKT, browser uses UTC)
+    // Get previousClose: snapshot closingPrices (from cron at market close) are most reliable,
+    // then fall back to Yahoo's meta.previousClose from priceCache
     const getPrevClose = (cached, ticker, yesterdayPrices, todayStr, fallback) => {
       if (cached?.previousCloseOverride) return cached.previousCloseOverride;
-      const cd = cached?.lastUpdated?.split?.('T')?.[0];
-      if (cd && cd >= todayStr && cached?.previousClose) return cached.previousClose;
       if (yesterdayPrices?.[ticker]) return yesterdayPrices[ticker];
       if (cached?.success && cached?.previousClose) return cached.previousClose;
       return fallback ?? null;
@@ -476,37 +472,10 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Calculate previousClose from time series data (more reliable than meta.previousClose)
-      const timestamps = result?.timestamp || [];
-      const closes = result?.indicators?.quote?.[0]?.close || [];
-
-      // Get valid closes with their timestamps
-      const validData = timestamps.map((t, i) => ({ timestamp: t, close: closes[i] }))
-        .filter(d => d.close != null);
-
-      let previousClose;
-      const todayStart = new Date().setHours(0, 0, 0, 0) / 1000; // Unix timestamp for today midnight
-
-      if (validData.length >= 2) {
-        // Check if the last data point is from today
-        const lastTimestamp = validData[validData.length - 1].timestamp;
-        if (lastTimestamp >= todayStart) {
-          // Last point is today, use second-to-last as previousClose
-          previousClose = validData[validData.length - 2].close;
-        } else {
-          // Last point is from yesterday or earlier (market closed), use the last one
-          previousClose = validData[validData.length - 1].close;
-        }
-      } else if (validData.length === 1) {
-        // Only one data point, use meta.previousClose as fallback
-        previousClose = meta.previousClose || meta.chartPreviousClose || validData[0].close;
-      } else {
-        // No time series data, fall back to meta
-        previousClose = meta.previousClose || meta.chartPreviousClose || price;
-      }
-
-      previousClose = previousClose || price; // final fallback
-      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} (from timeseries) ${meta.currency || 'HKD'}`);
+      // Use Yahoo's meta.previousClose — the official previous session close
+      // This is more reliable than extracting from timeseries which can have null gaps
+      const previousClose = meta.previousClose || meta.chartPreviousClose || price;
+      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} ${meta.currency || 'HKD'}`);
 
       return {
         success: true,
@@ -1425,19 +1394,9 @@
           let failCount = 0;
           const failedTickers = [];
 
-          // Merge with existing cache, preserving cron's previousClose when it's fresher
-          const todayDate = new Date().toISOString().split('T')[0];
           const newCache = { ...priceCache };
           Object.entries(results).forEach(([ticker, result]) => {
             if (result.success) {
-              // If existing cache has a previousClose from cron (fetched today or later in HKT),
-              // preserve it — the cron fetches at market close when Yahoo data is settled,
-              // while browser fetches may get null/stale data for the most recent trading day
-              const existing = priceCache[ticker];
-              const existingDate = existing?.lastUpdated?.split?.('T')?.[0];
-              if (existing?.previousClose && existingDate && existingDate >= todayDate && result.previousClose !== existing.previousClose) {
-                result = { ...result, previousClose: existing.previousClose };
-              }
               newCache[ticker] = result;
               successCount++;
             } else {
@@ -3519,19 +3478,14 @@
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
-                // 2. Fresh Yahoo timeseries previousClose (fetched today — actual exchange close)
-                // 3. Yesterday's snapshot closingPrices (fallback when no fresh fetch)
-                // 4. Stale Yahoo previousClose (better than nothing)
-                // 5. Last fallback to current price
-                const cacheDate = cached?.lastUpdated?.split?.('T')?.[0];
-                const isCacheFresh = cacheDate && cacheDate >= todayStr;
+                // 2. Yesterday's snapshot closingPrices (from cron at market close — most accurate)
+                // 3. Yahoo meta.previousClose from priceCache
+                // 4. Last fallback to current price
                 let previousClose;
                 if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
                 } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
-                } else if (isCacheFresh && cached?.previousClose) {
-                  previousClose = cached.previousClose;
                 } else if (yesterdayClosingPrices[cleanTicker]) {
                   previousClose = yesterdayClosingPrices[cleanTicker];
                 } else if (cached?.success && cached.previousClose) {
