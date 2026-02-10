@@ -56,8 +56,9 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index.html` | HK Portfolio - Production app (dark mode default) |
 | `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
-| `update.py` | Cron script for HK Yahoo Finance prices |
+| `update.py` | Cron script for HK Yahoo Finance prices (multi-user) |
 | `update-us.py` | Cron script for US Yahoo Finance prices |
+| `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
 | `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) |
 | `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) |
 
@@ -69,6 +70,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Multi-user cron (iterate all docs) | ✅ | ✅ | 2026-02-10 |
 | `viewingFriendRef` guards (7 locations) | ✅ | ✅ | 2026-02-10 |
 | `returnToOwnPortfolio` async + fallback | ✅ | ✅ | 2026-02-10 |
 | `enableDualPortfolio` toggle | ✅ | ✅ | 2026-02-10 |
@@ -322,6 +324,17 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.12 (Feb 2026)
+- **Fixed HK cron writing to wrong Firestore document** — Root cause of incorrect daily % changes
+  - **Root cause:** `update.py` had `PORTFOLIO_DOC = "portfolios/main"` hardcoded, but the browser reads/writes to `portfolios/{userId}`. This created TWO separate documents — the cron-generated snapshots (with `closingPrices`) never reached Marc's actual document, so the browser fell back to Yahoo's `previousClose` (stale/wrong reference prices).
+  - **Why dcharnal saw correct numbers:** When viewing Marc's portfolio as a friend, the email query (`where('ownerEmail', '==', ...)`) found `portfolios/main` (cron-updated), not `portfolios/{uid}`.
+  - **Fix:** Refactored `update.py` to iterate ALL documents in the `portfolios` collection (same pattern as `update-us.py`). Extracted `update_portfolio()` function, replaced hardcoded path with `COLLECTION = "portfolios"` + `collection_ref.stream()`.
+  - **Migration:** Created `migrate-main-to-uid.py` to merge cron-generated snapshots from `portfolios/main` into `portfolios/{marc_uid}`. Merges by date, preferring cron data (has `closingPrices`, `dailyPnL`, `positionsAtClose`). Run with `--delete-main` to clean up the orphan document.
+- **Auto-redirect between HK/US portfolios at login** — Detects wrong-market tickers and redirects
+- **Daily P&L header prefers cron snapshot** `dailyPnL` over browser recalculation
+- **Ported v2.11 `viewingFriendRef` race condition fixes from US to HK**
+- **Emptied hardcoded `INITIAL_POSITIONS`** for new users (both HK and US)
 
 ### v2.11 (Feb 2026)
 - **Fixed friend portfolio return bug** — Applied to both `index.html` (HK) and `index-us.html` (US)

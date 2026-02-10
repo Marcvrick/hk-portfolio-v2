@@ -16,7 +16,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 HKT = timezone(timedelta(hours=8))
-PORTFOLIO_DOC = "portfolios/main"
+COLLECTION = "portfolios"
 
 
 def init_firebase():
@@ -87,18 +87,14 @@ def fetch_yahoo_price(ticker: str) -> dict:
     }
 
 
-def run():
-    # Initialize Firestore
-    print("Connecting to Firestore...")
-    db = init_firebase()
+def update_portfolio(db, doc_ref, user_id: str, today: str):
+    """Update a single user's portfolio."""
+    print(f"\n--- Updating portfolio for user: {user_id} ---")
 
-    # Load data from Firestore
-    doc_ref = db.document(PORTFOLIO_DOC)
     doc = doc_ref.get()
-
     if not doc.exists:
-        print(f"ERROR: Document {PORTFOLIO_DOC} not found in Firestore")
-        sys.exit(1)
+        print(f"  Document not found, skipping")
+        return False
 
     data = doc.to_dict()
 
@@ -109,15 +105,13 @@ def run():
     transactions = data.get("transactions", [])
 
     if not positions:
-        print("No positions, nothing to do.")
-        return
+        print("  No positions, skipping")
+        return False
 
-    today = datetime.now(HKT).strftime("%Y-%m-%d")
-    print(f"=== Portfolio Update {today} ===")
-    print(f"Positions: {len(positions)}")
+    print(f"  Positions: {len(positions)}")
 
     # 1. Fetch prices
-    print("\nFetching prices...")
+    print("  Fetching prices...")
     for p in positions:
         ticker = p["ticker"]
         clean = ticker.replace("b.HK", ".HK")
@@ -204,11 +198,11 @@ def run():
     existing_idx = next((i for i, s in enumerate(snapshots) if s["date"] == today), None)
     if existing_idx is not None:
         snapshots[existing_idx] = snapshot
-        print(f"\nUpdated existing snapshot for {today}")
+        print(f"  Updated existing snapshot for {today}")
     else:
         snapshots.append(snapshot)
         snapshots.sort(key=lambda s: s["date"])
-        print(f"\nNew snapshot for {today}")
+        print(f"  New snapshot for {today}")
 
     print(f"  Value: {current_value:,.0f} HKD | Capital: {capital_engaged:,.0f} HKD | P&L: {current_value - capital_engaged:,.0f} HKD")
 
@@ -226,7 +220,30 @@ def run():
     }
 
     doc_ref.update(update_data)
-    print(f"\nSaved to Firestore ({len(snapshots)} snapshots)")
+    print(f"  Saved to Firestore ({len(snapshots)} snapshots)")
+    return True
+
+
+def run():
+    # Initialize Firestore
+    print("Connecting to Firestore...")
+    db = init_firebase()
+
+    today = datetime.now(HKT).strftime("%Y-%m-%d")
+    print(f"=== HK Portfolio Update {today} ===")
+
+    # Get all user portfolios in the portfolios collection
+    collection_ref = db.collection(COLLECTION)
+    docs = collection_ref.stream()
+
+    updated_count = 0
+    for doc in docs:
+        user_id = doc.id
+        doc_ref = collection_ref.document(user_id)
+        if update_portfolio(db, doc_ref, user_id, today):
+            updated_count += 1
+
+    print(f"\n=== Done: Updated {updated_count} portfolio(s) ===")
 
 
 if __name__ == "__main__":
