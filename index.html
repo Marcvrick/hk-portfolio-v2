@@ -3746,12 +3746,18 @@
                         }
                         const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
                         pnlMap[snap.date] = calculatedPnL + realizedChange;
+                      } else if (snap.dailyPnL !== undefined) {
+                        // Fallback: stored dailyPnL (for old snapshots without closingPrices)
+                        pnlMap[snap.date] = snap.dailyPnL;
                       } else {
-                        // Fallback: unrealizedPnL + realizedPnL difference between snapshots
+                        // Last resort: unrealizedPnL difference (inaccurate with new purchases)
                         const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
                         const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
                         pnlMap[snap.date] = unrealizedChange + realizedChange;
                       }
+                    } else if (snap.dailyPnL !== undefined) {
+                      // First snapshot with stored dailyPnL
+                      pnlMap[snap.date] = snap.dailyPnL;
                     }
                   }
                   // Use dailyGain state for today's P&L (same source as header card)
