@@ -414,18 +414,28 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Extract yesterday's close using timestamp-based approach
-      // Iterates backwards through raw timeseries, finds most recent non-null close
-      // where timestamp < UTC midnight today. Handles null gaps correctly.
+      // Extract previousClose using timestamp-based approach
       const timestamps = result?.timestamp || [];
       const closes = result?.indicators?.quote?.[0]?.close || [];
       const now = new Date();
       const todayUTCStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
       let previousClose = null;
+      let prevIdx = -1;
       for (let i = timestamps.length - 1; i >= 0; i--) {
         if (closes[i] != null && timestamps[i] < todayUTCStart) {
           previousClose = closes[i];
+          prevIdx = i;
           break;
+        }
+      }
+      // Pre-market fallback: if previousClose ≈ price (market not open yet),
+      // price = yesterday's close, so go one more day back for meaningful comparison
+      if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
+        for (let i = prevIdx - 1; i >= 0; i--) {
+          if (closes[i] != null) {
+            previousClose = closes[i];
+            break;
+          }
         }
       }
       if (!previousClose) {
@@ -1418,8 +1428,12 @@
             const nowT = new Date();
             const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
             let previousClose = null;
+            let prevIdx = -1;
             for (let i = ts.length - 1; i >= 0; i--) {
-              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; break; }
+              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; prevIdx = i; break; }
+            }
+            if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
+              for (let i = prevIdx - 1; i >= 0; i--) { if (closes[i] != null) { previousClose = closes[i]; break; } }
             }
             if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
             if (price) {
@@ -1613,8 +1627,12 @@
             const nowT = new Date();
             const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
             let previousClose = null;
+            let prevIdx = -1;
             for (let i = ts.length - 1; i >= 0; i--) {
-              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; break; }
+              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; prevIdx = i; break; }
+            }
+            if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
+              for (let i = prevIdx - 1; i >= 0; i--) { if (closes[i] != null) { previousClose = closes[i]; break; } }
             }
             if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
             if (price) {
