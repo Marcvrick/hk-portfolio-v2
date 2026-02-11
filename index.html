@@ -3729,9 +3729,12 @@
                   for (let i = 0; i < sortedSnaps.length; i++) {
                     const snap = sortedSnaps[i];
                     if (snap.date === todayDate) continue; // Today is handled below via dailyGain
-                    if (i > 0) {
+                    // Prefer stored dailyPnL (immutable track record) for past days
+                    if (snap.dailyPnL !== undefined) {
+                      pnlMap[snap.date] = snap.dailyPnL;
+                    } else if (i > 0) {
                       const prevSnap = sortedSnaps[i - 1];
-                      // Best: recalculate from closingPrices + positionsAtClose (actual market data)
+                      // Fallback: closingPrices recalculation for snapshots without stored dailyPnL
                       if (snap.closingPrices && prevSnap.closingPrices && snap.positionsAtClose) {
                         let calculatedPnL = 0;
                         for (const pos of snap.positionsAtClose) {
@@ -3746,18 +3749,12 @@
                         }
                         const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
                         pnlMap[snap.date] = calculatedPnL + realizedChange;
-                      } else if (snap.dailyPnL !== undefined) {
-                        // Fallback: stored dailyPnL (for old snapshots without closingPrices)
-                        pnlMap[snap.date] = snap.dailyPnL;
                       } else {
-                        // Last resort: unrealizedPnL difference (inaccurate with new purchases)
+                        // Last resort: unrealizedPnL difference
                         const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
                         const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
                         pnlMap[snap.date] = unrealizedChange + realizedChange;
                       }
-                    } else if (snap.dailyPnL !== undefined) {
-                      // First snapshot with stored dailyPnL
-                      pnlMap[snap.date] = snap.dailyPnL;
                     }
                   }
                   // Use dailyGain state for today's P&L (same source as header card)
