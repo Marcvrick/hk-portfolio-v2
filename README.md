@@ -73,6 +73,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Fix previousClose extraction (timestamp-based) | ✅ | ❌ | — |
 | Live daily P&L for today (no stale snapshot) | ✅ | ❌ | — |
 | Auto-refresh cache threshold 5 min | ✅ | ❌ | — |
+| snapshotChanged includes dailyPnL | ✅ | ❌ | — |
+| Calendar: stored dailyPnL is immutable | ✅ | ✅ (already) | — |
 | Multi-user cron (iterate all docs) | ✅ | ✅ | 2026-02-10 |
 | `viewingFriendRef` guards (7 locations) | ✅ | ✅ | 2026-02-10 |
 | `returnToOwnPortfolio` async + fallback | ✅ | ✅ | 2026-02-10 |
@@ -342,6 +344,13 @@ python -m http.server 8000
 - **Fixed stale daily P&L in header/calendar** — Calendar showed -1600 while Performance tab showed -3895
   - **Root cause:** Header used stored `todaySnapshot.dailyPnL` (calculated earlier with wrong priceCache) instead of live data. Calendar copied the header value.
   - **Fix:** Header now always calculates today's daily P&L live from current priceCache. Past days still use stored snapshot values (immutable). Calendar and header are always consistent.
+- **Fixed snapshotChanged not detecting dailyPnL changes** — Corrected live P&L was never saved back to Firestore
+  - **Root cause:** The `snapshotChanged` check only compared `realizedPnL`, `positionCount`, and `capitalEngaged`. When only `dailyPnL` changed (e.g., from -1600 to -3895 after price fix), the save was skipped because no checked field had changed.
+  - **Fix:** Added `Math.abs((todaySnapshot.dailyPnL || 0) - newDailyPnL) > 1` to the `snapshotChanged` condition.
+- **Calendar: stored dailyPnL is immutable track record** — Past calendar values must NEVER be recalculated
+  - **Lesson learned:** Attempted to "fix" past calendar values by recalculating from `closingPrices` instead of using stored `dailyPnL`. This broke correct historical values (Feb 2: -14.9k became -22k) because the recalculation doesn't account for position additions/removals between snapshots. Stored `dailyPnL` is the source of truth for past days — it captures the exact P&L at the moment it was recorded.
+  - **Rule:** Calendar uses `snap.dailyPnL` for all past days. Only today is calculated live. If a past day's stored value is wrong, it must be patched directly in Firestore (one-time data fix), never recalculated from code.
+  - **Patch applied:** Feb 10 `dailyPnL` was corrupted (-1615) because it was saved by the browser before the previousClose fix. Patched to -3895 via `patch-feb10.py` (one-time Firestore update).
 - **Lowered auto-refresh cache threshold** from 30 min to 5 min — Prevents stale priceCache data from persisting after code fixes
 - **Auto-redirect between HK/US portfolios at login** — Detects wrong-market tickers and redirects
 - **Ported v2.11 `viewingFriendRef` race condition fixes from US to HK**
