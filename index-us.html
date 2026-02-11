@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Portfolio US Tracker v2 - Firebase</title>
+  <title>Portfolio US</title>
+  <meta name="apple-mobile-web-app-title" content="Portfolio US">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23a3e635'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-family='system-ui,sans-serif' font-size='22' font-weight='bold' fill='%231a1a1a'%3EP%3C/text%3E%3C/svg%3E">
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -413,33 +414,26 @@
       }
 
       const price = meta.regularMarketPrice;
-      // Extract yesterday's close from time series (always second-to-last bar)
-      const closes = result?.indicators?.quote?.[0]?.close;
-      const timestamps = result?.timestamp;
-      let previousClose = price; // fallback
-      let marketDay = new Date().toISOString().split('T')[0]; // default to today
-      if (closes && timestamps && closes.length >= 2) {
-        // marketDay = date of the last bar in Yahoo's time series
-        // Before market opens: last bar = previous trading day (e.g. Monday on Tuesday pre-market)
-        // During/after market hours: last bar = today
-        const lastTimestamp = timestamps[timestamps.length - 1];
-        marketDay = new Date(lastTimestamp * 1000).toISOString().split('T')[0];
-        // Always use second-to-last close as previousClose for meaningful % changes:
-        // - Pre-market Tuesday: previousClose=Friday, price=Monday close → shows Monday's perf
-        // - During Tuesday: previousClose=Monday close, price=live → shows today's perf
-        for (let i = closes.length - 2; i >= 0; i--) {
-          if (closes[i] != null) {
-            previousClose = closes[i];
-            break;
-          }
+      // Extract yesterday's close using timestamp-based approach
+      // Iterates backwards through raw timeseries, finds most recent non-null close
+      // where timestamp < UTC midnight today. Handles null gaps correctly.
+      const timestamps = result?.timestamp || [];
+      const closes = result?.indicators?.quote?.[0]?.close || [];
+      const now = new Date();
+      const todayUTCStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
+      let previousClose = null;
+      for (let i = timestamps.length - 1; i >= 0; i--) {
+        if (closes[i] != null && timestamps[i] < todayUTCStart) {
+          previousClose = closes[i];
+          break;
         }
-        // Fallback to meta if no valid close found in time series
-        if (previousClose === price) {
-          previousClose = meta.previousClose || meta.chartPreviousClose || price;
-        }
-      } else {
+      }
+      if (!previousClose) {
         previousClose = meta.previousClose || meta.chartPreviousClose || price;
       }
+      // marketDay = date of the last bar in Yahoo's time series
+      const lastTimestamp = timestamps.length > 0 ? timestamps[timestamps.length - 1] : null;
+      const marketDay = lastTimestamp ? new Date(lastTimestamp * 1000).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
       console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} marketDay: ${marketDay} ${meta.currency || 'USD'}`);
 
       return {
@@ -971,7 +965,7 @@
         const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
           if (!c?.lastUpdated) return false;
           const age = Date.now() - new Date(c.lastUpdated).getTime();
-          return age < 30 * 60 * 1000; // less than 30 min old
+          return age < 5 * 60 * 1000; // less than 5 min old
         });
         if (!hasRecentCache && !isRefreshing) {
           console.log('Auto-refreshing prices on load...');
@@ -1025,12 +1019,9 @@
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
           setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true });
-        } else if (todaySnapshot && todaySnapshot.dailyPnL !== undefined) {
-          // Use cron-calculated daily P&L from snapshot (most accurate source)
-          const prevValue = yesterdaySnapshot?.portfolioValue || capitalEngaged;
-          const percent = prevValue > 0 ? (todaySnapshot.dailyPnL / prevValue) * 100 : 0;
-          setDailyGain({ value: todaySnapshot.dailyPnL, percent, hasYesterday: !!yesterdaySnapshot, isWeekend: false, isPremarket: !marketOpenToday });
         } else {
+          // Always calculate from live price data (no stored snapshot shortcut)
+          // Stored todaySnapshot.dailyPnL can be stale if saved with wrong priceCache
           // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
           const hasPriceData = Object.values(priceCache).some(c => c?.success);
@@ -1043,7 +1034,7 @@
                 const curPrice = cached?.success ? cached.price : p.currentPrice;
                 return sum + (curPrice - p.entryPrice) * p.quantity;
               }
-              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+              const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || null;
               if (cached?.success && prevClose) {
                 return sum + (cached.price - prevClose) * p.quantity;
               }
@@ -1053,13 +1044,13 @@
               const ct = p.ticker;
               const cached = priceCache[ct];
               const isNewToday = p.entryDate === today;
-              const prev = isNewToday ? p.entryPrice : (cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : p.currentPrice));
+              const prev = isNewToday ? p.entryPrice : (cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || p.currentPrice);
               return sum + prev * p.quantity;
             }, 0);
             const closedTodayGain = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
               const ct = t.ticker;
               const cached = priceCache[ct];
-              const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+              const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || t.entryPrice;
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
             const totalGain = gain + closedTodayGain;
@@ -1107,6 +1098,53 @@
           }
         });
 
+        // Calculate today's daily P&L to store permanently in the snapshot
+        const yesterdayClosingPricesForSnapshot = yesterdaySnapshot?.closingPrices || {};
+        const calculatedDailyPnL = positions.reduce((sum, p) => {
+          const ct = p.ticker;
+          const cached = priceCache[ct];
+          const curPrice = cached?.success ? cached.price : p.currentPrice;
+          const isNewToday = p.entryDate === today;
+          const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
+          if (isNewToday) {
+            return sum + (curPrice - p.entryPrice) * p.quantity;
+          }
+          if (hasIntradayAdd) {
+            const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForSnapshot[ct] || null;
+            const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
+            const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
+            return sum + oldQtyGain + newQtyGain;
+          }
+          const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForSnapshot[ct] || null;
+          if (cached?.success && prevClose) {
+            return sum + (curPrice - prevClose) * p.quantity;
+          }
+          return sum;
+        }, 0);
+        const closedTodayPnLForSnapshot = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
+          const ct = t.ticker;
+          const cached = priceCache[ct];
+          const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForSnapshot[ct] || t.entryPrice;
+          return sum + (t.exitPrice - prevClose) * t.quantity;
+        }, 0);
+
+        // Create complete positions snapshot for audit/recovery
+        const positionsAtClose = positions.map(p => {
+          const ct = p.ticker;
+          const closingPrice = snapshotPriceCache[ct] || p.currentPrice;
+          return {
+            ticker: p.ticker,
+            name: p.name,
+            quantity: p.quantity,
+            entryPrice: p.entryPrice,
+            entryDate: p.entryDate,
+            closingPrice: closingPrice,
+            marketValue: closingPrice * p.quantity,
+            pnl: (closingPrice - p.entryPrice) * p.quantity,
+            pnlPercent: ((closingPrice - p.entryPrice) / p.entryPrice) * 100
+          };
+        });
+
         const newSnapshot = {
           date: today,
           capitalEngaged,  // Coût d'achat des positions ouvertes
@@ -1115,14 +1153,18 @@
           realizedPnL,
           totalDividends,
           positionCount: positions.length,
-          closingPrices: snapshotPriceCache  // Store closing prices for next day's % change
+          closingPrices: snapshotPriceCache,  // Store closing prices for next day's % change
+          dailyPnL: calculatedDailyPnL + closedTodayPnLForSnapshot,  // Store daily P&L permanently
+          positionsAtClose: positionsAtClose  // Complete positions snapshot for audit/recovery
         };
 
         // Check if snapshot changed (to avoid unnecessary saves)
+        const newDailyPnL = calculatedDailyPnL + closedTodayPnLForSnapshot;
         const snapshotChanged = !todaySnapshot ||
           todaySnapshot.realizedPnL !== realizedPnL ||
           todaySnapshot.positionCount !== positions.length ||
-          Math.abs(todaySnapshot.capitalEngaged - capitalEngaged) > 1;
+          Math.abs(todaySnapshot.capitalEngaged - capitalEngaged) > 1 ||
+          Math.abs((todaySnapshot.dailyPnL || 0) - newDailyPnL) > 1;
 
         if (snapshotChanged && !viewingFriendRef.current) {
           // Replace existing or add new snapshot
@@ -1372,14 +1414,20 @@
             const meta = result.meta || {};
             const price = meta.regularMarketPrice;
             const closes = result.indicators?.quote?.[0]?.close || [];
-            const validCloses = closes.filter(c => c != null);
-            const previousClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : meta.previousClose || meta.chartPreviousClose || price;
+            const ts = result.timestamp || [];
+            const nowT = new Date();
+            const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
+            let previousClose = null;
+            for (let i = ts.length - 1; i >= 0; i--) {
+              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; break; }
+            }
+            if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
             if (price) {
               const newCache = { ...priceCache, [cleanTicker]: {
                 success: true,
                 price,
-                previousClose: previousClose || price,
-                change: price - (previousClose || price),
+                previousClose: previousClose,
+                change: price - previousClose,
                 changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
                 currency: meta.currency || 'USD',
                 lastUpdated: new Date().toISOString()
@@ -1561,14 +1609,20 @@
             const meta = result.meta || {};
             const price = meta.regularMarketPrice;
             const closes = result.indicators?.quote?.[0]?.close || [];
-            const validCloses = closes.filter(c => c != null);
-            const previousClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : meta.previousClose || meta.chartPreviousClose || price;
+            const ts = result.timestamp || [];
+            const nowT = new Date();
+            const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
+            let previousClose = null;
+            for (let i = ts.length - 1; i >= 0; i--) {
+              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; break; }
+            }
+            if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
             if (price) {
               const newCache = { ...priceCache, [cleanTicker]: {
                 success: true,
                 price,
-                previousClose: previousClose || price,
-                change: price - (previousClose || price),
+                previousClose: previousClose,
+                change: price - previousClose,
                 changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
                 currency: meta.currency || 'USD',
                 lastUpdated: new Date().toISOString()
@@ -3129,18 +3183,18 @@
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
-                // 2. Yesterday's snapshot closingPrices (our stored data - most reliable)
-                // 3. Fallback to Yahoo's previousClose (can be stale/incorrect)
+                // 2. Yahoo priceCache previousClose (timestamp-based, most accurate)
+                // 3. Yesterday's snapshot closingPrices (fallback)
                 // 4. Last fallback to current price
                 let previousClose;
                 if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
                 } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
-                } else if (yesterdayClosingPrices[cleanTicker]) {
-                  previousClose = yesterdayClosingPrices[cleanTicker];
                 } else if (cached?.success && cached.previousClose) {
                   previousClose = cached.previousClose;
+                } else if (yesterdayClosingPrices[cleanTicker]) {
+                  previousClose = yesterdayClosingPrices[cleanTicker];
                 } else {
                   previousClose = p.currentPrice;
                 }
@@ -3173,8 +3227,8 @@
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
                 const ct = t.ticker;
                 const cached = priceCache[ct];
-                // Priority: manual override → stored closing price → Yahoo's previousClose
-                const prevClose = cached?.previousCloseOverride || yesterdayClosingPrices[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+                // Priority: manual override → Yahoo previousClose → stored closing price
+                const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || t.entryPrice;
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
@@ -3336,8 +3390,8 @@
                       const curPrice = cached?.success ? cached.price : p.currentPrice;
                       return sum + (curPrice - p.entryPrice) * p.quantity;
                     }
-                    // Priority: manual override → stored closing price → Yahoo's previousClose
-                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : null);
+                    // Priority: manual override → Yahoo previousClose → stored closing price
+                    const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForCalendar[ct] || null;
                     if (cached?.success && prevClose) {
                       return sum + (cached.price - prevClose) * p.quantity;
                     }
@@ -3347,8 +3401,8 @@
                   const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
                     const ct = t.ticker;
                     const cached = priceCache[ct];
-                    // Priority: manual override → stored closing price → Yahoo's previousClose
-                    const prevClose = cached?.previousCloseOverride || yesterdayClosingPricesForCalendar[ct] || (cached?.success && cached.previousClose ? cached.previousClose : t.entryPrice);
+                    // Priority: manual override → Yahoo previousClose → stored closing price
+                    const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForCalendar[ct] || t.entryPrice;
                     return sum + (t.exitPrice - prevClose) * t.quantity;
                   }, 0);
                   // Only show live P&L override when market has opened today

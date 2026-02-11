@@ -70,11 +70,12 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
-| Fix previousClose extraction (timestamp-based) | ✅ | ❌ | — |
-| Live daily P&L for today (no stale snapshot) | ✅ | ❌ | — |
-| Auto-refresh cache threshold 5 min | ✅ | ❌ | — |
-| snapshotChanged includes dailyPnL | ✅ | ❌ | — |
-| Calendar: stored dailyPnL is immutable | ✅ | ✅ (already) | — |
+| Fix previousClose extraction (timestamp-based) | ✅ | ✅ | 2026-02-11 |
+| Live daily P&L for today (no stale snapshot) | ✅ | ✅ | 2026-02-11 |
+| Auto-refresh cache threshold 5 min | ✅ | ✅ | 2026-02-11 |
+| snapshotChanged includes dailyPnL | ✅ | ✅ | 2026-02-11 |
+| Snapshot stores dailyPnL + positionsAtClose | ✅ | ✅ | 2026-02-11 |
+| Calendar: stored dailyPnL is immutable | ✅ | ✅ | 2026-02-11 |
 | Multi-user cron (iterate all docs) | ✅ | ✅ | 2026-02-10 |
 | `viewingFriendRef` guards (7 locations) | ✅ | ✅ | 2026-02-10 |
 | `returnToOwnPortfolio` async + fallback | ✅ | ✅ | 2026-02-10 |

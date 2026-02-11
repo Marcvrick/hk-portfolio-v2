@@ -65,15 +65,17 @@ def fetch_yahoo_price(ticker: str) -> dict:
         print(f"  FAIL {ticker}: no price")
         return {"success": False, "error": "No price"}
 
-    # Extract yesterday's close from time series
-    closes = (result.get("indicators", {}).get("quote", [{}])[0].get("close") or [])
-    previous_close = price
-    if len(closes) >= 2:
-        for i in range(len(closes) - 2, -1, -1):
-            if closes[i] is not None:
-                previous_close = closes[i]
-                break
-    else:
+    # Find previousClose: most recent non-null close from BEFORE today (UTC midnight)
+    # Uses timestamps to correctly skip today's data, handles null gaps properly
+    timestamps = result.get("timestamp", [])
+    closes_list = (result.get("indicators", {}).get("quote", [{}])[0].get("close") or [])
+    today_utc_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    previous_close = None
+    for i in range(len(timestamps) - 1, -1, -1):
+        if closes_list[i] is not None and timestamps[i] < today_utc_start:
+            previous_close = closes_list[i]
+            break
+    if not previous_close:
         previous_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
 
     print(f"  OK {ticker}: {price} (prevClose: {previous_close})")
