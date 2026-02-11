@@ -3387,48 +3387,69 @@
                     .map(s => s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s)
                     .sort((a, b) => a.date.localeCompare(b.date));
                   const pnlMap = {};
-                  for (let i = 1; i < sortedSnaps.length; i++) {
-                    // Daily P&L = change in unrealizedPnL + change in realizedPnL
-                    // This properly accounts for realized gains from closed positions
-                    const unrealizedChange = (sortedSnaps[i].unrealizedPnL || 0) - (sortedSnaps[i - 1].unrealizedPnL || 0);
-                    const realizedChange = (sortedSnaps[i].realizedPnL || 0) - (sortedSnaps[i - 1].realizedPnL || 0);
-                    pnlMap[sortedSnaps[i].date] = unrealizedChange + realizedChange;
+                  for (let i = 0; i < sortedSnaps.length; i++) {
+                    const snap = sortedSnaps[i];
+                    if (snap.date === todayDate) continue; // Today is handled below via dailyGain
+                    // Prefer stored dailyPnL (immutable track record) for past days
+                    if (snap.dailyPnL !== undefined) {
+                      pnlMap[snap.date] = snap.dailyPnL;
+                    } else if (i > 0) {
+                      const prevSnap = sortedSnaps[i - 1];
+                      // Fallback: closingPrices recalculation for snapshots without stored dailyPnL
+                      if (snap.closingPrices && prevSnap.closingPrices && snap.positionsAtClose) {
+                        let calculatedPnL = 0;
+                        for (const pos of snap.positionsAtClose) {
+                          const ct = pos.ticker;
+                          const todayClose = snap.closingPrices[ct];
+                          const prevClose = prevSnap.closingPrices[ct];
+                          if (todayClose !== undefined && prevClose !== undefined) {
+                            calculatedPnL += (todayClose - prevClose) * pos.quantity;
+                          } else if (todayClose !== undefined && pos.entryDate === snap.date) {
+                            calculatedPnL += (todayClose - pos.entryPrice) * pos.quantity;
+                          }
+                        }
+                        const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+                        pnlMap[snap.date] = calculatedPnL + realizedChange;
+                      } else {
+                        // Last resort: unrealizedPnL difference
+                        const unrealizedChange = (snap.unrealizedPnL || 0) - (prevSnap.unrealizedPnL || 0);
+                        const realizedChange = (snap.realizedPnL || 0) - (prevSnap.realizedPnL || 0);
+                        pnlMap[snap.date] = unrealizedChange + realizedChange;
+                      }
+                    }
                   }
-                  // Always show today's daily gain from live price data (sum of each position's daily P&L)
-                  // Use stored closingPrices from yesterday's snapshot for accurate calculation
-                  const sortedSnapsForCalendar = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
-                  const yesterdaySnapForCalendar = sortedSnapsForCalendar.find(s => s.date < todayDate && isTradingDay(s.date));
-                  const yesterdayClosingPricesForCalendar = yesterdaySnapForCalendar?.closingPrices || {};
+                  // Use dailyGain state for today's P&L (same source as header card)
+                  // This ensures calendar and header always show the same value
+                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend) {
+                    pnlMap[todayDate] = dailyGain.value;
+                  }
 
-                  const todayPnl = positions.reduce((sum, p) => {
-                    const ct = p.ticker;
-                    const cached = priceCache[ct];
-                    const isNewToday = p.entryDate === todayDate;
-                    if (isNewToday) {
-                      const curPrice = cached?.success ? cached.price : p.currentPrice;
-                      return sum + (curPrice - p.entryPrice) * p.quantity;
+                  // Backfill missing trading days: if a trading day has no pnlMap entry but
+                  // we have snapshots before and after it, estimate P&L by distributing
+                  // the total unrealized+realized change evenly across the gap
+                  const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+                  for (let d = 1; d <= daysInCurrentMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    if (pnlMap[dateStr] !== undefined) continue;
+                    if (!isTradingDay(dateStr)) continue;
+                    if (dateStr >= todayDate) continue;
+                    const snapBefore = sortedSnaps.filter(s => s.date < dateStr).pop();
+                    let snapAfter = sortedSnaps.find(s => s.date > dateStr);
+                    if (!snapAfter) snapAfter = snapshots.find(s => s.date === todayDate);
+                    if (snapBefore && snapAfter) {
+                      let tradingDaysBetween = 0;
+                      const start = new Date(snapBefore.date);
+                      const end = new Date(snapAfter.date);
+                      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+                        const ds = dt.toISOString().split('T')[0];
+                        if (ds !== snapBefore.date && isTradingDay(ds)) tradingDaysBetween++;
+                      }
+                      if (tradingDaysBetween > 0) {
+                        const unrealizedChange = (snapAfter.unrealizedPnL || 0) - (snapBefore.unrealizedPnL || 0);
+                        const realizedChange = (snapAfter.realizedPnL || 0) - (snapBefore.realizedPnL || 0);
+                        pnlMap[dateStr] = (unrealizedChange + realizedChange) / tradingDaysBetween;
+                      }
                     }
-                    // Priority: manual override → Yahoo previousClose → stored closing price
-                    const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForCalendar[ct] || null;
-                    if (cached?.success && prevClose) {
-                      return sum + (cached.price - prevClose) * p.quantity;
-                    }
-                    return sum;
-                  }, 0);
-                  // Add P&L from positions closed today (exitPrice - previousClose)
-                  const closedTodayPnl = closedTrades.filter(t => t.exitDate === todayDate).reduce((sum, t) => {
-                    const ct = t.ticker;
-                    const cached = priceCache[ct];
-                    // Priority: manual override → Yahoo previousClose → stored closing price
-                    const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForCalendar[ct] || t.entryPrice;
-                    return sum + (t.exitPrice - prevClose) * t.quantity;
-                  }, 0);
-                  // Only show live P&L override when market has opened today
-                  // Before market opens, snapshot-based data already covers previous trading days
-                  const marketDayFromCache = Object.values(priceCache).find(c => c?.success)?.marketDay;
-                  const marketOpenForCalendar = !marketDayFromCache || marketDayFromCache === todayDate;
-                  if (marketOpenForCalendar && Object.values(priceCache).some(c => c?.success) && isTradingDay(todayDate)) {
-                    pnlMap[todayDate] = todayPnl + closedTodayPnl;
                   }
 
                   // Build calendar grid
