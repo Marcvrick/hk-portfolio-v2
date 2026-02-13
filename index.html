@@ -1167,9 +1167,10 @@
         // Check if we have a snapshot for today
         const todaySnapshot = snapshots.find(s => s.date === today);
 
-        // Find yesterday's snapshot (most recent before today)
+        // Find yesterday's snapshot (most recent TRADING day before today)
+        // Must filter by isTradingDay to match Performance tab logic
         const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
-        const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today);
+        const yesterdaySnapshot = sortedSnapshots.find(s => s.date < today && isTradingDay(s.date));
 
         // Calculate daily gain
         // Always calculate live for today so it reflects current priceCache
@@ -1186,23 +1187,28 @@
             const gain = positions.reduce((sum, p) => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
-              const curPrice = cached?.success ? cached.price : p.currentPrice;
+              const currentPrice = cached?.success ? cached.price : p.currentPrice;
               const isNewToday = p.entryDate === today;
               const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
-              if (isNewToday) {
-                return sum + (curPrice - p.entryPrice) * p.quantity;
+              // Priority chain for previousClose (matches Performance tab logic)
+              let prevClose;
+              if (cached?.previousCloseOverride) {
+                prevClose = cached.previousCloseOverride;
+              } else if (isNewToday && !isMarketClosedToday) {
+                prevClose = p.entryPrice;
+              } else if (cached?.success && cached.previousClose) {
+                prevClose = cached.previousClose;
+              } else if (yesterdayClosingPrices[ct]) {
+                prevClose = yesterdayClosingPrices[ct];
+              } else {
+                prevClose = p.currentPrice;
               }
               if (hasIntradayAdd) {
-                const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
-                const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
-                const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
+                const oldQtyGain = (currentPrice - prevClose) * p.qtyBeforeToday;
+                const newQtyGain = (currentPrice - p.addedTodayPrice) * p.addedTodayQty;
                 return sum + oldQtyGain + newQtyGain;
               }
-              const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
-              if (cached?.success && prevClose) {
-                return sum + (curPrice - prevClose) * p.quantity;
-              }
-              return sum;
+              return sum + (currentPrice - prevClose) * p.quantity;
             }, 0);
             const prevTotal = positions.reduce((sum, p) => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
@@ -1277,23 +1283,28 @@
         const calculatedDailyPnL = positions.reduce((sum, p) => {
           const ct = p.ticker.replace(/b\.HK$/, '.HK');
           const cached = priceCache[ct];
-          const curPrice = cached?.success ? cached.price : p.currentPrice;
+          const currentPrice = cached?.success ? cached.price : p.currentPrice;
           const isNewToday = p.entryDate === today;
           const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
-          if (isNewToday) {
-            return sum + (curPrice - p.entryPrice) * p.quantity;
+          // Priority chain for previousClose (matches Performance tab logic)
+          let prevClose;
+          if (cached?.previousCloseOverride) {
+            prevClose = cached.previousCloseOverride;
+          } else if (isNewToday && !isMarketClosedToday) {
+            prevClose = p.entryPrice;
+          } else if (cached?.success && cached.previousClose) {
+            prevClose = cached.previousClose;
+          } else if (yesterdayClosingPricesForSnapshot[ct]) {
+            prevClose = yesterdayClosingPricesForSnapshot[ct];
+          } else {
+            prevClose = p.currentPrice;
           }
           if (hasIntradayAdd) {
-            const prevClose = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null);
-            const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
-            const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
+            const oldQtyGain = (currentPrice - prevClose) * p.qtyBeforeToday;
+            const newQtyGain = (currentPrice - p.addedTodayPrice) * p.addedTodayQty;
             return sum + oldQtyGain + newQtyGain;
           }
-          const prevClose = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null);
-          if (cached?.success && prevClose) {
-            return sum + (curPrice - prevClose) * p.quantity;
-          }
-          return sum;
+          return sum + (currentPrice - prevClose) * p.quantity;
         }, 0);
         // Add P&L from positions closed today
         const closedTodayPnLForSnapshot = closedTrades.filter(t => t.exitDate === today).reduce((sum, t) => {
@@ -2718,7 +2729,8 @@
                         const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
                         return (
                           <tr>
-                            <td className="px-2 py-1.5" colSpan="6">TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5" colSpan="5">TOTAL ({positions.length} positions)</td>
+                            <td className="hidden md:table-cell"></td>
                             <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
                             <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
                             <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
@@ -3700,7 +3712,8 @@
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       <tr>
-                        <td className="px-2 py-1.5" colSpan="4">TOTAL</td>
+                        <td className="px-2 py-1.5" colSpan="3">TOTAL</td>
+                        <td className="hidden md:table-cell"></td>
                         <td className={`px-2 py-1.5 text-right ${totalDailyPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%
                         </td>
@@ -3758,10 +3771,10 @@
                       }
                     }
                   }
-                  // Use dailyGain state for today's P&L (same source as header card)
-                  // This ensures calendar and header always show the same value
-                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend) {
-                    pnlMap[todayDate] = dailyGain.value;
+                  // Use totalDailyDollar from Performance tab for today's P&L
+                  // This uses the same per-position computation as the Performance tab summary
+                  if (isTradingDay(todayDate) && hasPriceData && !isMarketClosedToday) {
+                    pnlMap[todayDate] = totalDailyDollar;
                   }
 
                   // Backfill missing trading days: if a trading day has no pnlMap entry but

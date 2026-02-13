@@ -70,6 +70,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Fix dailyGain vs Performance tab P&L discrepancy | ✅ | ✅ | 2026-02-12 |
+| Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
 | Fix previousClose extraction (timestamp-based) | ✅ | ✅ | 2026-02-11 |
 | Live daily P&L for today (no stale snapshot) | ✅ | ✅ | 2026-02-11 |
 | Auto-refresh cache threshold 5 min | ✅ | ✅ | 2026-02-11 |
@@ -330,6 +332,23 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### v2.14 (Feb 2026)
+- **Fixed calendar vs Performance tab P&L discrepancy** — Calendar showed -2.9k while Performance summary showed -1288 for the same day
+  - **Root cause 1:** Two separate P&L calculations existed — `dailyGain` (useEffect, used by header card + calendar) and `totalDailyDollar` (Performance tab render). They had different previousClose fallback behavior: the useEffect gated on `cached?.success && prevClose` (skipping positions without Yahoo data, contributing 0), while the Performance tab always computed a value for every position (falling back to `p.currentPrice`). When some tickers had stale cache data, the useEffect excluded them while the Performance tab included them.
+  - **Root cause 2:** The useEffect's `yesterdaySnapshot` lookup did NOT filter by `isTradingDay()`, while the Performance tab's did. This could cause different `closingPrices` sources.
+  - **Fix (calendar):** Calendar now uses `totalDailyDollar` directly (same computation as "Today's P&L" summary), eliminating any possible discrepancy between them.
+  - **Fix (useEffect):** Rewrote dailyGain calculation to use the exact same previousClose priority chain as the Performance tab: override → newToday entryPrice → Yahoo previousClose → snapshot closingPrices → currentPrice. Removed the `cached?.success && prevClose` gate — every position always contributes to the gain.
+  - **Fix (snapshot):** Same previousClose logic applied to `calculatedDailyPnL` stored in snapshots (immutable daily P&L for past days).
+  - **Fix (yesterdaySnapshot):** Added `isTradingDay()` filter to the useEffect's snapshot lookup, matching the Performance tab's behavior.
+  - **Applied to both HK and US portfolios.**
+
+### v2.13 (Feb 2026)
+- **Fixed US snapshot persistence to Firestore** — Browser-created snapshots were lost on page refresh
+  - **Root cause:** The auto daily snapshot `useEffect` saved snapshots to `localStorage` only (via `storage.set()`), never to Firestore. On page reload, Firestore is the source of truth and `localStorage` is cleared (line 882). Any snapshot created by the browser that wasn't also saved by the cron was permanently lost.
+  - **Why HK was unaffected:** Same bug exists in HK code, but HK users (in Asia timezone) rarely keep the app open across midnight, reducing exposure. The cron reliably creates HK snapshots. US portfolio has wider timezone usage and more race conditions with the cron.
+  - **Fix:** Replaced `storage.set()` (localStorage-only) with `saveData()` (Firestore primary, localStorage fallback) in the snapshot auto-save `useEffect`. Now browser-created snapshots survive page refreshes independently of the cron.
+  - **Note:** This fix is US-only per user request (HK portfolio left unchanged since it works correctly).
 
 ### v2.12 (Feb 2026)
 - **Fixed HK cron writing to wrong Firestore document** — Root cause of incorrect daily % changes
