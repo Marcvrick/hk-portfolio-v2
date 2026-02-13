@@ -70,7 +70,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
-| Fix dailyGain vs Performance tab P&L discrepancy | ✅ | ✅ | 2026-02-12 |
+| Fix dailyGain vs Performance tab P&L discrepancy | — | ✅ | 2026-02-12 |
 | Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
 | Fix previousClose extraction (timestamp-based) | ✅ | ✅ | 2026-02-11 |
 | Live daily P&L for today (no stale snapshot) | ✅ | ✅ | 2026-02-11 |
@@ -341,7 +341,7 @@ python -m http.server 8000
   - **Fix (useEffect):** Rewrote dailyGain calculation to use the exact same previousClose priority chain as the Performance tab: override → newToday entryPrice → Yahoo previousClose → snapshot closingPrices → currentPrice. Removed the `cached?.success && prevClose` gate — every position always contributes to the gain.
   - **Fix (snapshot):** Same previousClose logic applied to `calculatedDailyPnL` stored in snapshots (immutable daily P&L for past days).
   - **Fix (yesterdaySnapshot):** Added `isTradingDay()` filter to the useEffect's snapshot lookup, matching the Performance tab's behavior.
-  - **Applied to both HK and US portfolios.**
+  - **Applied to US portfolio only.** HK left unchanged.
 
 ### v2.13 (Feb 2026)
 - **Fixed US snapshot persistence to Firestore** — Browser-created snapshots were lost on page refresh
