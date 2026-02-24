@@ -3914,7 +3914,7 @@
                           const showWeek = isSat && cell.weekTotal !== undefined;
                           let bg = 'bg-gray-50/30';
                           if (showWeek) {
-                            bg = cell.weekTotal >= 0 ? 'bg-pink-100' : 'bg-fuchsia-100';
+                            bg = cell.weekTotal >= 0 ? 'bg-fuchsia-100' : 'bg-pink-100';
                           } else if (marketClosed) {
                             bg = 'bg-gray-100/50';
                           } else if (hasPnl) {
@@ -3930,7 +3930,7 @@
                             >
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
                               {showWeek ? (
-                                <div className={`text-[10px] font-bold ${cell.weekTotal >= 0 ? 'text-pink-600' : 'text-fuchsia-700'}`}>
+                                <div className={`text-[10px] font-bold ${cell.weekTotal >= 0 ? 'text-fuchsia-700' : 'text-pink-600'}`}>
                                   {cell.weekTotal >= 0 ? '+' : ''}{Math.abs(cell.weekTotal) > 999 ? (cell.weekTotal / 1000).toFixed(1) + 'k' : Math.round(cell.weekTotal)}
                                 </div>
                               ) : hasPnl ? (
