@@ -271,6 +271,19 @@
       return isMorningSession || isAfternoonSession;
     };
 
+    // Check if we're in pre-market hours (trading day, before 9:30 HKT)
+    // Returns false on weekends/holidays, false after market has opened today
+    const isPreMarket = () => {
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      if (!isTradingDay(todayStr)) return false;
+      const hktOffset = 8 * 60;
+      const localOffset = now.getTimezoneOffset();
+      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
+      return timeInMinutes < 570; // Before 9:30 HKT
+    };
+
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
       if (ticker.startsWith('HKG:')) {
@@ -1174,9 +1187,16 @@
         // Calculate daily gain
         // Always calculate live for today so it reflects current priceCache
         // (stored snapshot dailyPnL may be stale if priceCache was refreshed since snapshot creation)
+        const preMarket = isPreMarket();
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
-          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false });
+          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false });
+        } else if (preMarket && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // Pre-market: show previous session's P&L from snapshot
+          const prevValue = yesterdaySnapshot.portfolioValue || 1;
+          const prevPnl = yesterdaySnapshot.dailyPnL;
+          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: true });
         } else {
           // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
@@ -1227,15 +1247,15 @@
             }, 0);
             const totalGain = gain + closedTodayGain;
             const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen });
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen, isPreMarket: false });
           } else if (yesterdaySnapshot) {
             const gain = currentValue - yesterdaySnapshot.portfolioValue;
             const percent = yesterdaySnapshot.portfolioValue > 0
               ? (gain / yesterdaySnapshot.portfolioValue) * 100
               : 0;
-            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isLive: false });
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false });
           } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false });
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false, isPreMarket: false });
           }
         }
 
@@ -2392,11 +2412,17 @@
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1 flex items-center gap-1">
-                  {dailyGain.isWeekend ? 'Vendredi' : "Aujourd'hui"}
+                  {dailyGain.isWeekend ? 'Vendredi' : dailyGain.isPreMarket ? 'Dern. séance' : "Aujourd'hui"}
                   {dailyGain.isLive && (
                     <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-orange-500 font-medium normal-case">
                       <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
                       live
+                    </span>
+                  )}
+                  {dailyGain.isPreMarket && (
+                    <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-blue-500 font-medium normal-case">
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
+                      pre
                     </span>
                   )}
                 </div>
@@ -2634,7 +2660,7 @@
                             <td className="px-2 py-1.5 font-mono text-lime-hover">
                               {userEmail === 'marccharnal@gmail.com' ? (
                                 <a
-                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${displayTicker}`}
+                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${displayTicker.replace(/^0+/, '')}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="hover:underline"
@@ -2993,7 +3019,7 @@
                               {w.targetReached && <span className="mr-1">✅</span>}
                               {userEmail === 'marccharnal@gmail.com' ? (
                                 <a
-                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${w.ticker.replace('.HK', '')}`}
+                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${w.ticker.replace('.HK', '').replace(/^0+/, '')}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-lime-hover hover:underline"
@@ -3479,23 +3505,41 @@
               const lastTradingSnapshot = sortedSnapsForPrevClose.find(s => isTradingDay(s.date));
               const lastTradingClosingPrices = lastTradingSnapshot?.closingPrices || {};
 
+              // Pre-market: Yahoo returns stale prices (price == previousClose), so use snapshots
+              // to show previous session's actual daily performance
+              const preMarketActive = isPreMarket();
+              const dayBeforeYesterdaySnapshot = yesterdaySnapshot
+                ? sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date))
+                : null;
+              const dayBeforeClosingPrices = dayBeforeYesterdaySnapshot?.closingPrices || {};
+
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[cleanTicker];
                 // On weekends: use last trading day's closing price instead of stale priceCache
-                const currentPrice = isMarketClosedToday && lastTradingClosingPrices[cleanTicker]
-                  ? lastTradingClosingPrices[cleanTicker]
-                  : (cached?.success ? cached.price : p.currentPrice);
+                // Pre-market: use yesterday's snapshot closing prices (Yahoo returns stale data)
+                let currentPrice;
+                if (preMarketActive && yesterdayClosingPrices[cleanTicker]) {
+                  currentPrice = yesterdayClosingPrices[cleanTicker];
+                } else if (isMarketClosedToday && lastTradingClosingPrices[cleanTicker]) {
+                  currentPrice = lastTradingClosingPrices[cleanTicker];
+                } else {
+                  currentPrice = cached?.success ? cached.price : p.currentPrice;
+                }
                 const isNewToday = p.entryDate === todayStr;
-                const hasIntradayAdd = p.addedTodayDate === todayStr && p.addedTodayQty > 0 && p.qtyBeforeToday > 0 && !isMarketClosedToday;
+                const hasIntradayAdd = p.addedTodayDate === todayStr && p.addedTodayQty > 0 && p.qtyBeforeToday > 0 && !isMarketClosedToday && !preMarketActive;
                 // Priority for previousClose:
+                // Pre-market: use day-before-yesterday snapshot (to show last session's actual change)
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
                 // 2. Yahoo meta.previousClose (official exchange previous session close)
                 // 3. Yesterday's snapshot closingPrices (fallback)
                 // 4. Last fallback to current price
                 let previousClose;
-                if (cached?.previousCloseOverride) {
+                if (preMarketActive) {
+                  // Pre-market: previousClose = day-before-yesterday's close
+                  previousClose = dayBeforeClosingPrices[cleanTicker] || yesterdayClosingPrices[cleanTicker] || p.currentPrice;
+                } else if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
                 } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
@@ -3506,7 +3550,9 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                // On weekends: daily change is 0 (no trading), otherwise calculate normally
+                // On weekends: daily change is 0 (no trading)
+                // Pre-market: show previous session's actual change (from snapshots)
+                // Otherwise: calculate normally from live data
                 let dailyChangePercent = 0;
                 let dailyChangeDollar = 0;
                 if (!isMarketClosedToday) {
@@ -3535,7 +3581,7 @@
                   dailyChangeDollar,
                   marketValue,
                   weight,
-                  isNewToday: isNewToday && !isMarketClosedToday, // Only show NEW badge on trading days
+                  isNewToday: isNewToday && !isMarketClosedToday && !preMarketActive, // Only show NEW badge during active trading
                   totalPnlPercent,
                   isDanger,
                   isWarning
@@ -3575,11 +3621,19 @@
 
               return (
               <div className="space-y-4">
+                {/* Pre-market banner */}
+                {preMarketActive && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                    <span className="text-blue-700 text-xs font-medium">Pre-market — Ouverture à 9h30 HKT · Données de la dernière séance</span>
+                  </div>
+                )}
+
                 {/* Daily Summary Bar */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-muted text-xs">Today's P&L</div>
+                      <div className="text-muted text-xs">{preMarketActive ? "Dernière séance P&L" : "Today's P&L"}</div>
                       <div className={`text-2xl font-bold ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} HKD
                         <span className="text-sm ml-2">({totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%)</span>
@@ -3614,7 +3668,7 @@
 
                 {/* Today's Movers Table */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
-                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">Today's Movers</h3>
+                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">{preMarketActive ? "Dernière séance" : "Today's Movers"}</h3>
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
@@ -3644,7 +3698,7 @@
                           <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
                             {userEmail === 'marccharnal@gmail.com' ? (
                               <a
-                                href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${p.ticker.replace('.HK', '')}`}
+                                href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${p.ticker.replace('.HK', '').replace(/^0+/, '')}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="hover:underline"
@@ -3809,8 +3863,23 @@
                   for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const marketClosed = isMarketClosed(dateStr);
+                    const dow = new Date(year, month, d).getDay(); // 0=Sun, 6=Sat
+                    let weekUp, weekDown;
+                    if (dow === 6 || dow === 0) {
+                      const satDay = dow === 6 ? d : d - 1;
+                      weekUp = 0; weekDown = 0;
+                      for (let off = 5; off >= 1; off--) {
+                        const wd = new Date(year, month, satDay - off);
+                        const wds = wd.toISOString().split('T')[0];
+                        const val = pnlMap[wds];
+                        if (val !== undefined) {
+                          if (val > 0) weekUp += val;
+                          else if (val < 0) weekDown += val;
+                        }
+                      }
+                    }
                     // Don't show P&L for market closed days (weekends/holidays)
-                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed });
+                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed, dow, weekUp, weekDown });
                   }
 
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -3843,9 +3912,17 @@
                           const hasPnl = cell.pnl !== undefined;
                           const isToday = cell.date === todayStr;
                           const marketClosed = cell.isMarketClosed;
+                          const isSat = cell.dow === 6;
+                          const isSun = cell.dow === 0;
+                          const showWeekUp = isSat && cell.weekUp > 0;
+                          const showWeekDown = isSun && cell.weekDown < 0;
                           let bg = 'bg-gray-50/30';
-                          if (marketClosed) {
-                            bg = 'bg-gray-100/50'; // Market closed days greyed out
+                          if (showWeekUp) {
+                            bg = 'bg-pink-100';
+                          } else if (showWeekDown) {
+                            bg = 'bg-fuchsia-100';
+                          } else if (marketClosed) {
+                            bg = 'bg-gray-100/50';
                           } else if (hasPnl) {
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }
@@ -3855,14 +3932,22 @@
                               key={cell.date}
                               className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center ${isToday ? 'ring-1 ring-blue-500' : ''} ${hasSnapshot ? 'cursor-pointer hover:ring-1 hover:ring-lime-accent' : ''}`}
                               onClick={() => hasSnapshot && setSelectedSnapshotDate(cell.date)}
-                              title={hasSnapshot ? 'Cliquez pour voir le détail' : ''}
+                              title={showWeekUp ? `Gains semaine: +${Math.round(cell.weekUp)}` : showWeekDown ? `Pertes semaine: ${Math.round(cell.weekDown)}` : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
                             >
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
-                              {hasPnl && (
+                              {showWeekUp ? (
+                                <div className="text-[10px] font-bold text-pink-600">
+                                  +{cell.weekUp > 999 ? (cell.weekUp / 1000).toFixed(1) + 'k' : Math.round(cell.weekUp)}
+                                </div>
+                              ) : showWeekDown ? (
+                                <div className="text-[10px] font-bold text-fuchsia-700">
+                                  {cell.weekDown < -999 ? (cell.weekDown / 1000).toFixed(1) + 'k' : Math.round(cell.weekDown)}
+                                </div>
+                              ) : hasPnl ? (
                                 <div className={`text-[10px] font-bold ${cell.pnl > 0 ? 'text-green-600' : cell.pnl < 0 ? 'text-red-600' : 'text-muted'}`}>
                                   {cell.pnl >= 0 ? '+' : ''}{cell.pnl > 999 || cell.pnl < -999 ? (cell.pnl / 1000).toFixed(1) + 'k' : Math.round(cell.pnl)}
                                 </div>
-                              )}
+                              ) : null}
                             </div>
                           );
                         })}
