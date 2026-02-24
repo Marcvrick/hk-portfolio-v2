@@ -3864,22 +3864,20 @@
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const marketClosed = isMarketClosed(dateStr);
                     const dow = new Date(year, month, d).getDay(); // 0=Sun, 6=Sat
-                    let weekUp, weekDown;
-                    if (dow === 6 || dow === 0) {
-                      const satDay = dow === 6 ? d : d - 1;
-                      weekUp = 0; weekDown = 0;
+                    let weekTotal;
+                    if (dow === 6) {
+                      weekTotal = 0;
+                      let hasWeekData = false;
                       for (let off = 5; off >= 1; off--) {
-                        const wd = new Date(year, month, satDay - off);
+                        const wd = new Date(year, month, d - off);
                         const wds = wd.toISOString().split('T')[0];
                         const val = pnlMap[wds];
-                        if (val !== undefined) {
-                          if (val > 0) weekUp += val;
-                          else if (val < 0) weekDown += val;
-                        }
+                        if (val !== undefined) { weekTotal += val; hasWeekData = true; }
                       }
+                      if (!hasWeekData) weekTotal = undefined;
                     }
                     // Don't show P&L for market closed days (weekends/holidays)
-                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed, dow, weekUp, weekDown });
+                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed, dow, weekTotal });
                   }
 
                   const todayStr = new Date().toISOString().split('T')[0];
@@ -3913,14 +3911,10 @@
                           const isToday = cell.date === todayStr;
                           const marketClosed = cell.isMarketClosed;
                           const isSat = cell.dow === 6;
-                          const isSun = cell.dow === 0;
-                          const showWeekUp = isSat && cell.weekUp > 0;
-                          const showWeekDown = isSun && cell.weekDown < 0;
+                          const showWeek = isSat && cell.weekTotal !== undefined;
                           let bg = 'bg-gray-50/30';
-                          if (showWeekUp) {
-                            bg = 'bg-pink-100';
-                          } else if (showWeekDown) {
-                            bg = 'bg-fuchsia-100';
+                          if (showWeek) {
+                            bg = cell.weekTotal >= 0 ? 'bg-pink-100' : 'bg-fuchsia-100';
                           } else if (marketClosed) {
                             bg = 'bg-gray-100/50';
                           } else if (hasPnl) {
@@ -3932,16 +3926,12 @@
                               key={cell.date}
                               className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center ${isToday ? 'ring-1 ring-blue-500' : ''} ${hasSnapshot ? 'cursor-pointer hover:ring-1 hover:ring-lime-accent' : ''}`}
                               onClick={() => hasSnapshot && setSelectedSnapshotDate(cell.date)}
-                              title={showWeekUp ? `Gains semaine: +${Math.round(cell.weekUp)}` : showWeekDown ? `Pertes semaine: ${Math.round(cell.weekDown)}` : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
+                              title={showWeek ? `Semaine: ${cell.weekTotal >= 0 ? '+' : ''}${Math.round(cell.weekTotal)} HKD` : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
                             >
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
-                              {showWeekUp ? (
-                                <div className="text-[10px] font-bold text-pink-600">
-                                  +{cell.weekUp > 999 ? (cell.weekUp / 1000).toFixed(1) + 'k' : Math.round(cell.weekUp)}
-                                </div>
-                              ) : showWeekDown ? (
-                                <div className="text-[10px] font-bold text-fuchsia-700">
-                                  {cell.weekDown < -999 ? (cell.weekDown / 1000).toFixed(1) + 'k' : Math.round(cell.weekDown)}
+                              {showWeek ? (
+                                <div className={`text-[10px] font-bold ${cell.weekTotal >= 0 ? 'text-pink-600' : 'text-fuchsia-700'}`}>
+                                  {cell.weekTotal >= 0 ? '+' : ''}{Math.abs(cell.weekTotal) > 999 ? (cell.weekTotal / 1000).toFixed(1) + 'k' : Math.round(cell.weekTotal)}
                                 </div>
                               ) : hasPnl ? (
                                 <div className={`text-[10px] font-bold ${cell.pnl > 0 ? 'text-green-600' : cell.pnl < 0 ? 'text-red-600' : 'text-muted'}`}>
