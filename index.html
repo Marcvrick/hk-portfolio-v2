@@ -2744,7 +2744,8 @@
                         const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
                         return (
                           <tr>
-                            <td className="px-2 py-1.5" colSpan="6">TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5 md:hidden" colSpan="5">TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5 hidden md:table-cell" colSpan="6">TOTAL ({positions.length} positions)</td>
                             <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
                             <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
                             <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
@@ -3754,7 +3755,8 @@
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       <tr>
-                        <td className="px-2 py-1.5" colSpan="4">TOTAL</td>
+                        <td className="px-2 py-1.5 md:hidden" colSpan="3">TOTAL</td>
+                        <td className="px-2 py-1.5 hidden md:table-cell" colSpan="4">TOTAL</td>
                         <td className={`px-2 py-1.5 text-right ${totalDailyPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%
                         </td>
