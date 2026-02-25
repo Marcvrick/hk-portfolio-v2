@@ -70,6 +70,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Fix TOTAL row alignment on mobile (Positions + Performance) | ✅ | ✅ | 2026-02-24 |
 | Fix dailyGain vs Performance tab P&L discrepancy | — | ✅ | 2026-02-12 |
 | Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
 | Fix previousClose extraction (timestamp-based) | ✅ | ✅ | 2026-02-11 |
@@ -332,6 +333,11 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Feb 24, 2026 — v2.15
+- **Fixed TOTAL row alignment on mobile** (Positions + Performance tabs)
+  - **Root cause:** The "Nom" column is hidden on mobile (`hidden md:table-cell`), but the TOTAL footer row used a fixed `colSpan` that counted the Nom column. On mobile, this caused all total values (%, Daily $, Weight) to shift one column to the right.
+  - **Fix:** Replaced single `colSpan` with two responsive cells — `md:hidden` (reduced colSpan for mobile) and `hidden md:table-cell` (full colSpan for desktop). Applied to both Positions and Performance tables in both HK and US files.
 
 ### v2.14 (Feb 2026)
 - **Fixed calendar vs Performance tab P&L discrepancy** — Calendar showed -2.9k while Performance summary showed -1288 for the same day
