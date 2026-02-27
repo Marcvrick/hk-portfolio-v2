@@ -71,6 +71,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
 | Post-close data protection (auto-refresh + snapshot lock) | ✅ | ✅ | 2026-02-27 |
+| Fix HKT timezone bug in isPreMarket/isMarketOpen/isAfterClose | ✅ | — | 2026-02-27 |
 | Fix TOTAL row alignment on mobile (Positions + Performance) | ✅ | ✅ | 2026-02-24 |
 | Fix dailyGain vs Performance tab P&L discrepancy | — | ✅ | 2026-02-12 |
 | Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
@@ -342,6 +343,12 @@ python -m http.server 8000
   - **Gap 2 — Lock snapshot after close:** Today's snapshot is locked once market closes and cron data exists (`closingPrices` present). Only structural changes (position added/removed, trade closed) can update the snapshot — price-only recalculations are blocked.
   - **What still works:** Manual refresh button, cron updates (write directly to Firestore), structural snapshot changes, Firestore listener for cron updates.
   - Applied to both HK and US portfolios.
+- **Fixed HKT timezone bug in `isMarketOpen`, `isPreMarket`, `isAfterClose`** — "pre" indicator was showing on weekends
+  - **Root cause:** All three functions used `now.toISOString()` (UTC date) for the `isTradingDay()` check but converted to HKT for the time check. On the Friday UTC / Saturday HKT boundary (e.g., Saturday 7 AM HKT = Friday 11 PM UTC), the function saw Friday (trading day) + before 9:30 HKT → incorrectly returned "pre-market" on a Saturday.
+  - **Fix:** Use the HKT date (`hktTime.toISOString()`) for the trading day check, matching the timezone used for the time check.
+- **Patched Feb 27 snapshot** — Restored correct closing prices from cron #18 (16:30 HKT) via `patch-feb27.py`
+  - Browser had overwritten cron data before the post-close protection was deployed. One-time Firestore patch restored the authoritative values (portfolio value: 967,745 HKD).
+- **Renamed HK workflow** — "Daily Portfolio Update" → "Daily HK Portfolio Update" for clarity in GitHub Actions.
 
 ### Feb 24, 2026 — v2.15
 - **Fixed TOTAL row alignment on mobile** (Positions + Performance tabs)
