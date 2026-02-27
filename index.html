@@ -259,9 +259,9 @@
       const minutes = hktTime.getMinutes();
       const timeInMinutes = hours * 60 + minutes;
 
-      // Check if it's a trading day
-      const todayStr = now.toISOString().split('T')[0];
-      if (!isTradingDay(todayStr)) return false;
+      // Check if it's a trading day (use HKT date, not UTC — avoids Fri UTC / Sat HKT mismatch)
+      const hktDateStr = hktTime.toISOString().split('T')[0];
+      if (!isTradingDay(hktDateStr)) return false;
 
       // Morning session: 9:30 (570) - 12:00 (720)
       // Afternoon session: 13:00 (780) - 16:00 (960)
@@ -275,11 +275,11 @@
     // Returns false on weekends/holidays, false after market has opened today
     const isPreMarket = () => {
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
-      if (!isTradingDay(todayStr)) return false;
       const hktOffset = 8 * 60;
       const localOffset = now.getTimezoneOffset();
       const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      const hktDateStr = hktTime.toISOString().split('T')[0];
+      if (!isTradingDay(hktDateStr)) return false;
       const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
       return timeInMinutes < 570; // Before 9:30 HKT
     };
@@ -288,11 +288,11 @@
     // Returns false on weekends/holidays, false during market hours or pre-market
     const isAfterClose = () => {
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
-      if (!isTradingDay(todayStr)) return false;
       const hktOffset = 8 * 60;
       const localOffset = now.getTimezoneOffset();
       const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      const hktDateStr = hktTime.toISOString().split('T')[0];
+      if (!isTradingDay(hktDateStr)) return false;
       const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
       return timeInMinutes >= 960; // >= 16:00 HKT
     };
