@@ -242,6 +242,17 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
+    // Check if NYSE has closed for the day (trading day, after 16:00 ET)
+    // Returns false on weekends/holidays, false during market hours or pre-market
+    const isAfterClose = () => {
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      if (!isTradingDay(todayStr)) return false;
+      const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const timeInMinutes = etTime.getHours() * 60 + etTime.getMinutes();
+      return timeInMinutes >= 960; // >= 16:00 ET
+    };
+
     // US version - strip .HK suffix if present (data entry error), trim whitespace, uppercase
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
@@ -970,6 +981,12 @@
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Wait for settings to have the correct proxy (migration may be async)
         if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
+        // Don't auto-refresh after market close — cron captures official closing prices
+        // at 16:00 ET. A later Yahoo fetch can return different post-settlement values.
+        if (isAfterClose() || isMarketClosed(new Date().toISOString().split('T')[0])) {
+          console.log('Skipping auto-refresh — market closed');
+          return;
+        }
         // Auto-refresh prices when page loads (if no recent cache)
         const cacheValues = Object.values(priceCache);
         const hasRecentCache = cacheValues.length > 0 && cacheValues.some(c => {
@@ -1106,6 +1123,18 @@
         if (!marketOpenToday) {
           console.log('Skipping snapshot - market not open yet today (pre-market)');
           return;
+        }
+
+        // Don't overwrite today's snapshot after market close — cron data is authoritative.
+        // Only allow structural changes (position added/removed, trade closed).
+        if (isAfterClose() && todaySnapshot?.closingPrices) {
+          const structuralChange =
+            todaySnapshot.positionCount !== positions.length ||
+            Math.abs(todaySnapshot.realizedPnL - closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0)) > 1;
+          if (!structuralChange) {
+            console.log('Skipping snapshot update — market closed, data locked');
+            return;
+          }
         }
 
         const closedWithCalc = closedTrades.map(t => ({

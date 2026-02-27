@@ -70,6 +70,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Post-close data protection (auto-refresh + snapshot lock) | ✅ | ✅ | 2026-02-27 |
 | Fix TOTAL row alignment on mobile (Positions + Performance) | ✅ | ✅ | 2026-02-24 |
 | Fix dailyGain vs Performance tab P&L discrepancy | — | ✅ | 2026-02-12 |
 | Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
@@ -333,6 +334,14 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Feb 27, 2026 — v2.16
+- **Post-close data protection** — Prevents Yahoo post-settlement values from overwriting cron's authoritative closing data
+  - **Root cause:** When opening the app after market close (e.g., evening), the browser auto-refreshes Yahoo prices if cache is >5 min old. Yahoo can return slightly different post-settlement values, which overwrites the cron's closing prices in `priceCache` and recalculates today's snapshot with wrong data. This caused the daily value and Performance tab % changes to shift after hours.
+  - **Gap 1 — Block auto-refresh after close:** Added `isAfterClose()` helper (HK: >=16:00 HKT, US: >=16:00 ET). The auto-refresh `useEffect` now returns early after market close or on closed days. Manual refresh button still works (explicit user choice).
+  - **Gap 2 — Lock snapshot after close:** Today's snapshot is locked once market closes and cron data exists (`closingPrices` present). Only structural changes (position added/removed, trade closed) can update the snapshot — price-only recalculations are blocked.
+  - **What still works:** Manual refresh button, cron updates (write directly to Firestore), structural snapshot changes, Firestore listener for cron updates.
+  - Applied to both HK and US portfolios.
 
 ### Feb 24, 2026 — v2.15
 - **Fixed TOTAL row alignment on mobile** (Positions + Performance tabs)

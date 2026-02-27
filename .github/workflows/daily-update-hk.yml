@@ -1,4 +1,4 @@
-name: Daily Portfolio Update
+name: Daily HK Portfolio Update
 on:
     schedule:
       - cron: '30 8 * * 1-5'
