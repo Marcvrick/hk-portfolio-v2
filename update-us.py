@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Daily portfolio updater for US stocks in Firebase Firestore.
-Fetches Yahoo Finance prices for all positions, updates priceCache and saves a daily snapshot.
+Fetches TradingView prices for all positions, updates priceCache and saves a daily snapshot.
 Designed to run via GitHub Actions cron at US market close (16:00 ET = 21:00 UTC).
 """
 
 import json
 import os
+import ssl
 import sys
 from datetime import datetime, timezone, timedelta
 import urllib.request
@@ -41,57 +42,89 @@ def init_firebase():
     return firestore.client()
 
 
-def fetch_yahoo_price(ticker: str) -> dict:
-    """Fetch price from Yahoo Finance chart API (no CORS needed server-side)."""
-    # US tickers don't need cleaning like HK tickers
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+def fetch_tradingview_prices():
+    """Fetch all US stock prices in one bulk call via TradingView Scanner API.
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-    except Exception as e:
-        print(f"  FAIL {ticker}: {e}")
-        return {"success": False, "error": str(e)}
-
-    result = data.get("chart", {}).get("result", [None])[0]
-    if not result:
-        print(f"  FAIL {ticker}: no result")
-        return {"success": False, "error": "No data"}
-
-    meta = result.get("meta", {})
-    price = meta.get("regularMarketPrice")
-    if price is None:
-        print(f"  FAIL {ticker}: no price")
-        return {"success": False, "error": "No price"}
-
-    # Find previousClose: most recent non-null close from BEFORE today (UTC midnight)
-    # Uses timestamps to correctly skip today's data, handles null gaps properly
-    timestamps = result.get("timestamp", [])
-    closes_list = (result.get("indicators", {}).get("quote", [{}])[0].get("close") or [])
-    today_utc_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-    previous_close = None
-    for i in range(len(timestamps) - 1, -1, -1):
-        if closes_list[i] is not None and timestamps[i] < today_utc_start:
-            previous_close = closes_list[i]
-            break
-    if not previous_close:
-        previous_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
-
-    print(f"  OK {ticker}: {price} (prevClose: {previous_close})")
-    return {
-        "success": True,
-        "price": price,
-        "previousClose": previous_close,
-        "change": round(price - previous_close, 4),
-        "changePercent": round(((price - previous_close) / previous_close) * 100, 4) if previous_close else 0,
-        "currency": meta.get("currency", "USD"),
-        "lastUpdated": datetime.now(ET).isoformat(),
+    Returns dict: { "AAPL": close_price, "TSLA": close_price, ... }
+    """
+    payload = {
+        "columns": ["name", "open", "high", "low", "close", "volume"],
+        "range": [0, 25000],
+        "sort": {"sortBy": "name", "sortOrder": "asc"},
     }
+    req = urllib.request.Request(
+        "https://scanner.tradingview.com/america/scan",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        print(f"  FAIL TradingView bulk fetch: {e}")
+        return {}
+
+    prices = {}
+    skipped = 0
+    for item in data.get("data", []):
+        parts = item["s"].split(":")
+        code = parts[1]  # e.g. "AAPL"
+        d = item["d"]
+        close = d[4]
+        if close is None:
+            skipped += 1
+            continue
+        prices[code] = close
+
+    total = data.get("totalCount", len(prices))
+    if skipped:
+        print(f"  Skipped {skipped} tickers with no close price")
+    print(f"  TradingView: {total} US tickers fetched")
+    return prices
 
 
-def update_portfolio(db, doc_ref, user_id: str, today: str):
-    """Update a single user's portfolio."""
+# --- Yahoo Finance (disabled, kept as fallback) ---
+# def fetch_yahoo_price(ticker: str) -> dict:
+#     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+#     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+#     try:
+#         with urllib.request.urlopen(req, timeout=15) as resp:
+#             data = json.loads(resp.read().decode())
+#     except Exception as e:
+#         return {"success": False, "error": str(e)}
+#     result = data.get("chart", {}).get("result", [None])[0]
+#     if not result:
+#         return {"success": False, "error": "No data"}
+#     meta = result.get("meta", {})
+#     price = meta.get("regularMarketPrice")
+#     if price is None:
+#         return {"success": False, "error": "No price"}
+#     timestamps = result.get("timestamp", [])
+#     closes_list = (result.get("indicators", {}).get("quote", [{}])[0].get("close") or [])
+#     today_utc_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+#     previous_close = None
+#     for i in range(len(timestamps) - 1, -1, -1):
+#         if closes_list[i] is not None and timestamps[i] < today_utc_start:
+#             previous_close = closes_list[i]
+#             break
+#     if not previous_close:
+#         previous_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
+#     return {
+#         "success": True, "price": price, "previousClose": previous_close,
+#         "change": round(price - previous_close, 4),
+#         "changePercent": round(((price - previous_close) / previous_close) * 100, 4) if previous_close else 0,
+#         "currency": meta.get("currency", "USD"),
+#         "lastUpdated": datetime.now(ET).isoformat(),
+#     }
+
+
+def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
+    """Update a single user's portfolio using TradingView prices."""
     print(f"\n--- Updating portfolio for user: {user_id} ---")
 
     doc = doc_ref.get()
@@ -113,15 +146,37 @@ def update_portfolio(db, doc_ref, user_id: str, today: str):
 
     print(f"  Positions: {len(positions)}")
 
-    # 1. Fetch prices
-    print("  Fetching prices...")
+    # Get yesterday's closingPrices for previousClose calculation
+    yesterday_closing = {}
+    for s in sorted(snapshots, key=lambda x: x["date"], reverse=True):
+        if s["date"] < today:
+            yesterday_closing = s.get("closingPrices", {})
+            break
+
+    # 1. Match TradingView prices to portfolio positions
+    print("  Matching TradingView prices...")
+    matched = 0
     for p in positions:
-        ticker = p["ticker"].strip().replace(".HK", "").upper()  # Strip whitespace and .HK
+        ticker = p["ticker"].strip().replace(".HK", "").upper()
         p["ticker"] = ticker  # Fix in-place for Firestore persistence
-        result = fetch_yahoo_price(ticker)
-        if result["success"]:
-            price_cache[ticker] = result
-            p["currentPrice"] = result["price"]
+        price = tv_prices.get(ticker)
+        if price is None:
+            print(f"  MISS {ticker}: not found in TradingView data")
+            continue
+        prev_close = yesterday_closing.get(ticker, price)
+        price_cache[ticker] = {
+            "success": True,
+            "price": price,
+            "previousClose": prev_close,
+            "change": round(price - prev_close, 4),
+            "changePercent": round(((price - prev_close) / prev_close) * 100, 4) if prev_close else 0,
+            "currency": "USD",
+            "lastUpdated": datetime.now(ET).isoformat(),
+        }
+        p["currentPrice"] = price
+        matched += 1
+        print(f"  OK {ticker}: {price} (prevClose: {prev_close})")
+    print(f"  Matched {matched}/{len(positions)} positions")
 
     # 2. Calculate snapshot
     current_value = sum(p["quantity"] * p.get("currentPrice", p.get("entryPrice", 0)) for p in positions)
@@ -235,6 +290,13 @@ def run():
     today = datetime.now(ET).strftime("%Y-%m-%d")
     print(f"=== US Portfolio Update {today} ===")
 
+    # Fetch all US prices in one bulk call
+    print("Fetching TradingView US prices...")
+    tv_prices = fetch_tradingview_prices()
+    if not tv_prices:
+        print("ERROR: No prices from TradingView — aborting")
+        return
+
     # Get all user portfolios in the us-portfolios collection
     collection_ref = db.collection(COLLECTION)
     docs = collection_ref.stream()
@@ -243,7 +305,7 @@ def run():
     for doc in docs:
         user_id = doc.id
         doc_ref = collection_ref.document(user_id)
-        if update_portfolio(db, doc_ref, user_id, today):
+        if update_portfolio(db, doc_ref, user_id, today, tv_prices):
             updated_count += 1
 
     print(f"\n=== Done: Updated {updated_count} portfolio(s) ===")

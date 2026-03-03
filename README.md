@@ -56,8 +56,10 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index.html` | HK Portfolio - Production app (dark mode default) |
 | `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
-| `update.py` | Cron script for HK Yahoo Finance prices (multi-user) |
+| `update.py` | Cron script for HK Yahoo Finance prices (multi-user, HKEX holiday-aware) |
 | `update-us.py` | Cron script for US Yahoo Finance prices |
+| `patch-data-correction.py` | One-time patch: fix Feb 13/16, Mar 2 closingPrices from Stooq |
+| `verify-weekly.py` | Weekly verification: Firebase snapshots vs FinMC/Stooq parquet data |
 | `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
 | `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) |
 | `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) |
@@ -335,6 +337,26 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Mar 3, 2026 — v2.17: Data Correction + Weekly Verification + Holiday Awareness
+
+**Data correction:** Fixed wrong closing prices caused by Yahoo Finance returning stale/wrong data for HK stocks. Source of truth: Stooq individual stock pages (verified manually).
+
+- **Feb 13 & Feb 16**: Replaced closingPrices with correct Stooq data (15 and 8 tickers affected respectively). Recalculated portfolioValue, dailyPnL, positionsAtClose
+- **Mar 2**: Yahoo prices were wrong; corrected with real Stooq closes (e.g., 2643.HK: 35.08, not 31.60). dailyPnL: -19,516 HKD
+- **Mar 3**: Created correct snapshot from Stooq (was previously a duplicate of Mar 2 data from FinMC mislabeling). dailyPnL: -19,323 HKD
+- **dailyPnL cascade**: Recalculated all successor snapshots whose baselines changed
+- **priceCache**: Updated with Mar 3 closes as `price`, Mar 2 closes as `previousClose`
+
+**New: `verify-weekly.py`** — Compares Firebase snapshot closingPrices against FinMC/Stooq parquet data. Flags mismatches > 0.02 HKD and optionally fixes them with cascading dailyPnL recalculation.
+```bash
+python verify-weekly.py --dry-run     # Preview only
+python verify-weekly.py --days 14     # Check last 14 days, fix mismatches
+```
+
+**New: HKEX holiday awareness in `update.py`** — Cron now skips weekends and HKEX holidays (2025-2026 calendar) instead of creating phantom snapshots with stale Yahoo data. Uses `is_trading_day()` check with early exit in `run()`.
+
+**Root cause analysis:** Yahoo Finance is unreliable for HK stocks — returns stale prices, skips dates, and has timezone labeling issues. FinMC's yfinance gap-fill also missed Mar 2 entirely (jumped from Feb 27 to "Mar 3"). The weekly verification script and holiday awareness prevent these issues going forward.
 
 ### Feb 27, 2026 — v2.16
 - **Post-close data protection** — Prevents Yahoo post-settlement values from overwriting cron's authoritative closing data
