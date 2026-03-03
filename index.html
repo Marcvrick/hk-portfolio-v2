@@ -1146,10 +1146,10 @@
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
-        // Don't auto-refresh after market close — cron captures official closing prices
-        // at 16:30 HKT. A later Yahoo fetch can return different post-settlement values.
-        if (isAfterClose() || isMarketClosed(new Date().toISOString().split('T')[0])) {
-          console.log('Skipping auto-refresh — market closed');
+        // Don't auto-refresh outside market hours — cron captures official closing prices
+        // at 16:30 HKT via TradingView. Yahoo returns stale data pre-market/post-close.
+        if (isAfterClose() || isPreMarket() || isMarketClosed(new Date().toISOString().split('T')[0])) {
+          console.log('Skipping auto-refresh — market not open');
           return;
         }
         // Auto-refresh prices when page loads (if no recent cache)
