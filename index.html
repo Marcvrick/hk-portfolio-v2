@@ -258,20 +258,22 @@
 
     // Check if HK market is currently open (real-time check)
     // HK trading hours: 9:30-12:00 (morning), 13:00-16:00 (afternoon) HKT
-    const isMarketOpen = () => {
+    const getHktNow = () => {
       const now = new Date();
-      // Convert to HKT (UTC+8)
-      const hktOffset = 8 * 60; // minutes
-      const localOffset = now.getTimezoneOffset(); // minutes (negative for UTC+)
-      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      const hktStr = now.toLocaleString('en-GB', { timeZone: 'Asia/Hong_Kong', hour12: false });
+      // en-GB format: "04/03/2026, 22:40:00"
+      const [datePart, timePart] = hktStr.split(', ');
+      const [day, month, year] = datePart.split('/');
+      const [hours, minutes] = timePart.split(':').map(Number);
+      return { date: `${year}-${month}-${day}`, hours, minutes, timeInMinutes: hours * 60 + minutes };
+    };
 
-      const hours = hktTime.getHours();
-      const minutes = hktTime.getMinutes();
-      const timeInMinutes = hours * 60 + minutes;
+    const isMarketOpen = () => {
+      const hkt = getHktNow();
+      const timeInMinutes = hkt.timeInMinutes;
 
       // Check if it's a trading day (use HKT date, not UTC — avoids Fri UTC / Sat HKT mismatch)
-      const hktDateStr = hktTime.toISOString().split('T')[0];
-      if (!isTradingDay(hktDateStr)) return false;
+      if (!isTradingDay(hkt.date)) return false;
 
       // Morning session: 9:30 (570) - 12:00 (720)
       // Afternoon session: 13:00 (780) - 16:00 (960)
@@ -285,39 +287,24 @@
     // Returns false on weekends/holidays, false after market has opened today
     // HK pre-market (opening auction) = 9:15-9:30 HKT only
     const isPreMarket = () => {
-      const now = new Date();
-      const hktOffset = 8 * 60;
-      const localOffset = now.getTimezoneOffset();
-      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
-      const hktDateStr = hktTime.toISOString().split('T')[0];
-      if (!isTradingDay(hktDateStr)) return false;
-      const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
-      return timeInMinutes >= 555 && timeInMinutes < 570; // 9:15-9:30 HKT
+      const hkt = getHktNow();
+      if (!isTradingDay(hkt.date)) return false;
+      return hkt.timeInMinutes >= 555 && hkt.timeInMinutes < 570; // 9:15-9:30 HKT
     };
 
     // Trading day but before market opens (before 9:15 HKT)
     const isBeforeMarketOpen = () => {
-      const now = new Date();
-      const hktOffset = 8 * 60;
-      const localOffset = now.getTimezoneOffset();
-      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
-      const hktDateStr = hktTime.toISOString().split('T')[0];
-      if (!isTradingDay(hktDateStr)) return false;
-      const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
-      return timeInMinutes < 555; // Before 9:15 HKT
+      const hkt = getHktNow();
+      if (!isTradingDay(hkt.date)) return false;
+      return hkt.timeInMinutes < 555; // Before 9:15 HKT
     };
 
     // Check if HK market has closed for the day (trading day, after 16:00 HKT)
     // Returns false on weekends/holidays, false during market hours or pre-market
     const isAfterClose = () => {
-      const now = new Date();
-      const hktOffset = 8 * 60;
-      const localOffset = now.getTimezoneOffset();
-      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
-      const hktDateStr = hktTime.toISOString().split('T')[0];
-      if (!isTradingDay(hktDateStr)) return false;
-      const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
-      return timeInMinutes >= 960; // >= 16:00 HKT
+      const hkt = getHktNow();
+      if (!isTradingDay(hkt.date)) return false;
+      return hkt.timeInMinutes >= 960; // >= 16:00 HKT
     };
 
     const convertOldTicker = (ticker) => {
