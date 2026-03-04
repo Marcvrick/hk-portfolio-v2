@@ -3847,7 +3847,8 @@
                   }
                   // Use dailyGain state for today's P&L (same source as header card)
                   // This ensures calendar and header always show the same value
-                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend) {
+                  // Skip pre-market: dailyGain shows yesterday's P&L as reference, not today's
+                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend && !dailyGain.isPreMarket) {
                     pnlMap[todayDate] = dailyGain.value;
                   }
 
