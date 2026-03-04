@@ -242,10 +242,8 @@
     // could be on a different UTC date than HKT. Using UTC caused the Mar 3 2026 corruption.
     const getMarketToday = () => {
       const now = new Date();
-      const hktOffset = 8 * 60; // HKT = UTC+8
-      const localOffset = now.getTimezoneOffset();
-      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
-      return hktTime.toISOString().split('T')[0];
+      const hktStr = now.toLocaleString('en-CA', { timeZone: 'Asia/Hong_Kong' });
+      return hktStr.split(',')[0];
     };
 
     // Get previousClose: Yahoo's meta.previousClose (via priceCache) is the official exchange
