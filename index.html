@@ -273,6 +273,7 @@
 
     // Check if we're in pre-market hours (trading day, before 9:30 HKT)
     // Returns false on weekends/holidays, false after market has opened today
+    // HK pre-market (opening auction) = 9:15-9:30 HKT only
     const isPreMarket = () => {
       const now = new Date();
       const hktOffset = 8 * 60;
@@ -281,7 +282,19 @@
       const hktDateStr = hktTime.toISOString().split('T')[0];
       if (!isTradingDay(hktDateStr)) return false;
       const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
-      return timeInMinutes < 570; // Before 9:30 HKT
+      return timeInMinutes >= 555 && timeInMinutes < 570; // 9:15-9:30 HKT
+    };
+
+    // Trading day but before market opens (before 9:15 HKT)
+    const isBeforeMarketOpen = () => {
+      const now = new Date();
+      const hktOffset = 8 * 60;
+      const localOffset = now.getTimezoneOffset();
+      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      const hktDateStr = hktTime.toISOString().split('T')[0];
+      if (!isTradingDay(hktDateStr)) return false;
+      const timeInMinutes = hktTime.getHours() * 60 + hktTime.getMinutes();
+      return timeInMinutes < 555; // Before 9:15 HKT
     };
 
     // Check if HK market has closed for the day (trading day, after 16:00 HKT)
@@ -1148,7 +1161,7 @@
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Don't auto-refresh outside market hours — cron captures official closing prices
         // at 16:30 HKT via TradingView. Yahoo returns stale data pre-market/post-close.
-        if (isAfterClose() || isPreMarket() || isMarketClosed(new Date().toISOString().split('T')[0])) {
+        if (isAfterClose() || isPreMarket() || isBeforeMarketOpen() || isMarketClosed(new Date().toISOString().split('T')[0])) {
           console.log('Skipping auto-refresh — market not open');
           return;
         }
@@ -1207,15 +1220,22 @@
         // Always calculate live for today so it reflects current priceCache
         // (stored snapshot dailyPnL may be stale if priceCache was refreshed since snapshot creation)
         const preMarket = isPreMarket();
+        const beforeOpen = isBeforeMarketOpen();
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
-          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false });
-        } else if (preMarket && yesterdaySnapshot?.dailyPnL !== undefined) {
-          // Pre-market: show previous session's P&L from snapshot
+          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false, isBeforeOpen: false });
+        } else if (beforeOpen && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // Before market open: show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
           const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
-          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: true });
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: true });
+        } else if (preMarket && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // Pre-market auction (9:15-9:30): show previous session's P&L as reference
+          const prevValue = yesterdaySnapshot.portfolioValue || 1;
+          const prevPnl = yesterdaySnapshot.dailyPnL;
+          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: true, isBeforeOpen: false });
         } else {
           // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
@@ -2443,17 +2463,16 @@
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1 flex items-center gap-1">
-                  {dailyGain.isWeekend ? 'Vendredi' : dailyGain.isPreMarket ? 'Dern. séance' : "Aujourd'hui"}
+                  {dailyGain.isWeekend ? 'Vendredi' : dailyGain.isBeforeOpen ? 'Dern. séance' : dailyGain.isPreMarket ? 'Pré-ouverture' : "Aujourd'hui"}
                   {dailyGain.isLive && (
                     <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-orange-500 font-medium normal-case">
                       <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
                       live
                     </span>
                   )}
-                  {dailyGain.isPreMarket && (
-                    <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-blue-500 font-medium normal-case">
-                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
-                      pre
+                  {(dailyGain.isPreMarket || dailyGain.isBeforeOpen) && (
+                    <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-gray-400 font-medium normal-case">
+                      {dailyGain.isPreMarket ? 'pré-ouv.' : 'fermé'}
                     </span>
                   )}
                 </div>
@@ -3539,7 +3558,7 @@
 
               // Pre-market: Yahoo returns stale prices (price == previousClose), so use snapshots
               // to show previous session's actual daily performance
-              const preMarketActive = isPreMarket();
+              const preMarketActive = isPreMarket() || isBeforeMarketOpen();
               const dayBeforeYesterdaySnapshot = yesterdaySnapshot
                 ? sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date))
                 : null;
@@ -3847,8 +3866,8 @@
                   }
                   // Use dailyGain state for today's P&L (same source as header card)
                   // This ensures calendar and header always show the same value
-                  // Skip pre-market: dailyGain shows yesterday's P&L as reference, not today's
-                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend && !dailyGain.isPreMarket) {
+                  // Skip before market open / pre-market: dailyGain shows yesterday's P&L as reference, not today's
+                  if (isTradingDay(todayDate) && dailyGain.hasYesterday && !dailyGain.isWeekend && !dailyGain.isPreMarket && !dailyGain.isBeforeOpen) {
                     pnlMap[todayDate] = dailyGain.value;
                   }
 
