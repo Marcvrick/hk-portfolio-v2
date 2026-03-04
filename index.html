@@ -861,9 +861,16 @@
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
       // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
-      // 1. Must be a plain const, NOT useState (useState freezes at mount — stale overnight)
-      // 2. Must use HKT, NOT UTC (user may be in a different timezone than the market)
-      const today = getMarketToday();
+      // today: market-timezone date string (HKT). Stored in state + auto-updated every 60s.
+      // Must use HKT, NOT UTC (user may be in a different timezone than the market)
+      const [today, setToday] = useState(getMarketToday);
+      React.useEffect(() => {
+        const interval = setInterval(() => {
+          const now = getMarketToday();
+          setToday(prev => prev !== now ? now : prev);
+        }, 60000);
+        return () => clearInterval(interval);
+      }, []);
       const [editingEntryDate, setEditingEntryDate] = useState(null);
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
@@ -1310,8 +1317,9 @@
         // GUARD: Never overwrite a past snapshot that already has closingPrices.
         // Past snapshots are immutable track records. If today's date doesn't match
         // the snapshot date (e.g., stale tab), refuse to overwrite.
-        if (todaySnapshot?.closingPrices && todaySnapshot.date !== getMarketToday()) {
-          console.log('BLOCKED: Refusing to overwrite past snapshot', todaySnapshot.date, '(current HKT date:', getMarketToday(), ')');
+        const currentMarketDate = getMarketToday();
+        if (todaySnapshot?.closingPrices && todaySnapshot.date !== currentMarketDate) {
+          console.log('BLOCKED: Refusing to overwrite past snapshot', todaySnapshot.date, '(current HKT date:', currentMarketDate, ')');
           return;
         }
 
