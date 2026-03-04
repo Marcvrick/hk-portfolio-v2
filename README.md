@@ -72,7 +72,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
-| Market-timezone `today` (HKT for HK, ET for US) | ✅ | ✅ | 2026-03-04 |
+| Midnight auto-update `today` (60s interval detects date change) | ✅ | ✅ | 2026-03-04 |
+| Market-timezone `today` + all HKT/ET helpers via Intl API | ✅ | ✅ | 2026-03-04 |
 | Fix stale `today` + past snapshot immutability guard | ✅ | ✅ | 2026-03-04 |
 | Post-close data protection (auto-refresh + snapshot lock) | ✅ | ✅ | 2026-02-27 |
 | Fix HKT timezone bug in isPreMarket/isMarketOpen/isAfterClose | ✅ | — | 2026-02-27 |
@@ -346,7 +347,7 @@ python -m http.server 8000
 
 - **Root cause:** `const [today] = useState(...)` froze the UTC date at component mount time. If the user left the tab open from Mar 3 and sold positions on Mar 4 morning, `today` was still `"2026-03-03"`. The snapshot useEffect then overwrote the Mar 3 snapshot with Mar 4 data (wrong prices, wrong positions, wrong realizedPnL).
 - **Incident (2026-03-04):** Mar 3 snapshot was overwritten when 0564.HK and 2510.HK were sold on Mar 4. The corrupt snapshot had 15 tickers (instead of 17), Mar 4 intraday prices, and post-sale realizedPnL. Displayed dailyPnL shifted from -19,323 to wrong value. Fixed via `patch-fix-mar3.py` — rebuilt with correct yfinance closing prices.
-- **Fix 1 — Reactive `today`:** Changed `const [today] = useState(...)` to `const today = getMarketToday()`. Now recalculated on every render — no stale date possible.
+- **Fix 1 — Reactive `today` with midnight auto-update:** Changed `const [today] = useState(...)` to `useState(getMarketToday)` with a 60-second interval that detects date changes and triggers a re-render. Prevents stale date even if the tab is left open overnight without any user interaction.
 - **Fix 2 — Past snapshot immutability guard:** Added a hard block: if a snapshot already has `closingPrices` and its date doesn't match the current market date, the useEffect refuses to overwrite it. Defense-in-depth layer that prevents any future code path from corrupting historical snapshots.
 - **Fix 3 — Market-timezone `today`:** Replaced all UTC-based date calculations with market-timezone-aware `getMarketToday()`. HK uses `toLocaleString('en-CA', { timeZone: 'Asia/Hong_Kong' })`, US uses ET via `Intl.DateTimeFormat`. This ensures the portfolio date follows the market, not the user's local timezone — critical when traveling (e.g., Latin America while tracking HK market).
 - **Fix 4 — All HKT helpers via Intl:** `isMarketOpen()`, `isPreMarket()`, `isAfterClose()`, `isBeforeMarketOpen()` all used the same broken manual offset (`hktOffset + localOffset` on `getTime()`). Since `getTime()` already returns UTC ms, adding `localOffset` double-converted — producing Mar 5 dates from Latin America when HKT was still Mar 4. Replaced all with shared `getHktNow()` helper using `toLocaleString('en-GB', { timeZone: 'Asia/Hong_Kong' })`. Zero manual offset calculations remain.
