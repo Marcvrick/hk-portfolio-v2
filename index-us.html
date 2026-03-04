@@ -242,11 +242,21 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
+    // Get today's date in US market timezone (Eastern Time).
+    // CRITICAL: Snapshots, trading day checks, and calendar must use the market's date,
+    // not the user's local date or UTC. ET handles DST automatically via Intl.
+    const getMarketToday = () => {
+      const now = new Date();
+      // Use Intl to get the correct ET date (handles DST automatically)
+      const etStr = now.toLocaleString('en-CA', { timeZone: 'America/New_York' }); // en-CA = YYYY-MM-DD format
+      return etStr.split(',')[0]; // "2026-03-04, 10:30:00 AM" → "2026-03-04"
+    };
+
     // Check if NYSE has closed for the day (trading day, after 16:00 ET)
     // Returns false on weekends/holidays, false during market hours or pre-market
     const isAfterClose = () => {
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = getMarketToday();
       if (!isTradingDay(todayStr)) return false;
       const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
       const timeInMinutes = etTime.getHours() * 60 + etTime.getMinutes();
@@ -454,7 +464,7 @@
       }
       // marketDay = date of the last bar in Yahoo's time series
       const lastTimestamp = timestamps.length > 0 ? timestamps[timestamps.length - 1] : null;
-      const marketDay = lastTimestamp ? new Date(lastTimestamp * 1000).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const marketDay = lastTimestamp ? new Date(lastTimestamp * 1000).toISOString().split('T')[0] : getMarketToday();
       console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} marketDay: ${marketDay} ${meta.currency || 'USD'}`);
 
       return {
@@ -776,18 +786,21 @@
       const friendDropdownRef = useRef(null);
       const viewingFriendRef = useRef(null);
       const [activeTab, setActiveTab] = useState('portfolio');
-      const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+      const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
       const [editingWishlistId, setEditingWishlistId] = useState(null);
       const [showLoginAlertPopup, setShowLoginAlertPopup] = useState(false);
       const [loginAlertShown, setLoginAlertShown] = useState(false);
-      const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+      const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: getMarketToday(), notes: '', linkedTicker: '' });
       const [dataLoaded, setDataLoaded] = useState(false);
       const [pendingInvites, setPendingInvites] = useState([]); // invites from friends who authorized viewing
       const [showInvitePopup, setShowInvitePopup] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
-      const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: new Date().toISOString().split('T')[0], sellQuantity: '' });
-      const [today] = useState(new Date().toISOString().split('T')[0]);
+      const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
+      // IMPORTANT: today must use getMarketToday() (ET), NOT UTC.
+      // 1. Must be a plain const, NOT useState (useState freezes at mount — stale overnight)
+      // 2. Must use ET, NOT UTC (user may be in a different timezone than the market)
+      const today = getMarketToday();
       const [editingEntryDate, setEditingEntryDate] = useState(null);
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
@@ -983,7 +996,7 @@
         if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
         // Don't auto-refresh after market close — cron captures official closing prices
         // at 16:00 ET. A later Yahoo fetch can return different post-settlement values.
-        if (isAfterClose() || isMarketClosed(new Date().toISOString().split('T')[0])) {
+        if (isAfterClose() || isMarketClosed(getMarketToday())) {
           console.log('Skipping auto-refresh — market closed');
           return;
         }
@@ -1122,6 +1135,14 @@
         }
         if (!marketOpenToday) {
           console.log('Skipping snapshot - market not open yet today (pre-market)');
+          return;
+        }
+
+        // GUARD: Never overwrite a past snapshot that already has closingPrices.
+        // Past snapshots are immutable track records. If today's date doesn't match
+        // the snapshot date (e.g., stale tab), refuse to overwrite.
+        if (todaySnapshot?.closingPrices && todaySnapshot.date !== getMarketToday()) {
+          console.log('BLOCKED: Refusing to overwrite past snapshot', todaySnapshot.date, '(current ET date:', getMarketToday(), ')');
           return;
         }
 
@@ -1459,7 +1480,7 @@
 
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
-        setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+        setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
 
         // Auto-fetch price for new position
         try {
@@ -1606,7 +1627,7 @@
         const newTx = [tx, ...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
         setTransactions(newTx);
         saveData(positions, closedTrades, newTx, priceCache, snapshots, settings);
-        setNewTransaction({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+        setNewTransaction({ type: 'deposit', amount: '', date: getMarketToday(), notes: '', linkedTicker: '' });
       };
 
       const deleteTransaction = (id) => {
@@ -1651,7 +1672,7 @@
           name: newWishlistItem.name || ticker,
           targetPrice: parseFloat(newWishlistItem.targetPrice),
           notes: newWishlistItem.notes || '',
-          dateAdded: new Date().toISOString().split('T')[0]
+          dateAdded: getMarketToday()
         };
         const newWl = [...wishlist, item];
         setWishlist(newWl);
@@ -3212,7 +3233,7 @@
 
                 {/* Invested Capital Chart */}
                 {(() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   // Update today's snapshot with live capitalEngaged value
                   const liveSnapshots = snapshots.map(s =>
                     s.date === todayStr ? { ...s, capitalEngaged: m.capitalEngaged } : s
@@ -3260,7 +3281,7 @@
             {activeTab === 'performance' && (() => {
               // Calculate daily movers data
               const totalPortfolioValue = m.totalValue;
-              const todayStr = new Date().toISOString().split('T')[0];
+              const todayStr = getMarketToday();
               // Check if today is a market closed day (weekend or NYSE holiday)
               const isMarketClosedToday = isMarketClosed(todayStr);
 
@@ -3468,7 +3489,7 @@
                   // Build daily P&L map from consecutive snapshots
                   // Override today's snapshot value with live portfolio value
                   // EXCLUDE market closed days (weekends + NYSE holidays) from calculation
-                  const todayDate = new Date().toISOString().split('T')[0];
+                  const todayDate = getMarketToday();
                   const sortedSnaps = [...snapshots]
                     .filter(s => isTradingDay(s.date)) // Exclude market closed days
                     .map(s => s.date === todayDate ? { ...s, portfolioValue: m.totalValue } : s)
@@ -3555,7 +3576,7 @@
                     cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed });
                   }
 
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   const monthTotal = cells.filter(c => c && c.pnl !== undefined).reduce((s, c) => s + c.pnl, 0);
                   const hasData = cells.some(c => c && c.pnl !== undefined);
 
@@ -3610,7 +3631,7 @@
 
                 {/* Equity Curve - Total P&L over time */}
                 {(() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   // Calculate total P&L for each snapshot and update today with live values
                   const pnlData = snapshots.map(s => {
                     if (s.date === todayStr) {
@@ -3722,7 +3743,7 @@
 
             {/* History Tab */}
             {activeTab === 'history_tab' && (() => {
-              const todayDate = new Date().toISOString().split('T')[0];
+              const todayDate = getMarketToday();
               // Calculate total P&L for a snapshot (unrealized + realized)
               const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
               const sortedSnaps = [...snapshots].map(s =>

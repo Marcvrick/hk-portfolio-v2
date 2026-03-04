@@ -72,6 +72,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Market-timezone `today` (HKT for HK, ET for US) | ✅ | ✅ | 2026-03-04 |
+| Fix stale `today` + past snapshot immutability guard | ✅ | ✅ | 2026-03-04 |
 | Post-close data protection (auto-refresh + snapshot lock) | ✅ | ✅ | 2026-02-27 |
 | Fix HKT timezone bug in isPreMarket/isMarketOpen/isAfterClose | ✅ | — | 2026-02-27 |
 | Fix TOTAL row alignment on mobile (Positions + Performance) | ✅ | ✅ | 2026-02-24 |
@@ -337,6 +339,17 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Mar 4, 2026 — v2.18: Fix stale `today` snapshot corruption
+
+**Critical bug fix:** Selling a position could corrupt a PAST day's snapshot if the browser tab was left open overnight.
+
+- **Root cause:** `const [today] = useState(...)` froze the UTC date at component mount time. If the user left the tab open from Mar 3 and sold positions on Mar 4 morning, `today` was still `"2026-03-03"`. The snapshot useEffect then overwrote the Mar 3 snapshot with Mar 4 data (wrong prices, wrong positions, wrong realizedPnL).
+- **Incident (2026-03-04):** Mar 3 snapshot was overwritten when 0564.HK and 2510.HK were sold on Mar 4. The corrupt snapshot had 15 tickers (instead of 17), Mar 4 intraday prices, and post-sale realizedPnL. Displayed dailyPnL shifted from -19,323 to wrong value. Fixed via `patch-fix-mar3.py` — rebuilt with correct yfinance closing prices.
+- **Fix 1 — Reactive `today`:** Changed `const [today] = useState(...)` to `const today = getMarketToday()`. Now recalculated on every render — no stale date possible.
+- **Fix 2 — Past snapshot immutability guard:** Added a hard block: if a snapshot already has `closingPrices` and its date doesn't match the current market date, the useEffect refuses to overwrite it. Defense-in-depth layer that prevents any future code path from corrupting historical snapshots.
+- **Fix 3 — Market-timezone `today`:** Replaced all UTC-based date calculations with market-timezone-aware `getMarketToday()`. HK uses HKT (UTC+8), US uses ET via `Intl.DateTimeFormat`. This ensures the portfolio date follows the market, not the user's local timezone — critical when traveling (e.g., Latin America while tracking HK market). All 17+ occurrences of `new Date().toISOString().split('T')[0]` replaced in HK, same pattern in US.
+- Applied to both HK and US portfolios.
 
 ### Mar 3, 2026 — v2.17: Data Correction + Weekly Verification + Holiday Awareness
 

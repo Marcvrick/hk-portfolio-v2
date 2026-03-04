@@ -236,6 +236,18 @@
     // Check if a date is a trading day (market open)
     const isTradingDay = (dateStr) => !isMarketClosed(dateStr);
 
+    // Get today's date in HK market timezone (HKT = UTC+8, no DST).
+    // CRITICAL: Snapshots, trading day checks, and calendar must use the market's date,
+    // not the user's local date or UTC. A user in Latin America at 20:00 local time
+    // could be on a different UTC date than HKT. Using UTC caused the Mar 3 2026 corruption.
+    const getMarketToday = () => {
+      const now = new Date();
+      const hktOffset = 8 * 60; // HKT = UTC+8
+      const localOffset = now.getTimezoneOffset();
+      const hktTime = new Date(now.getTime() + (hktOffset + localOffset) * 60000);
+      return hktTime.toISOString().split('T')[0];
+    };
+
     // Get previousClose: Yahoo's meta.previousClose (via priceCache) is the official exchange
     // previous session close and most reliable. Snapshot closingPrices are fallback only
     // (browser-captured snapshots can have wrong values due to null data in Yahoo timeseries).
@@ -851,19 +863,22 @@
       const friendDropdownRef = useRef(null);
       const viewingFriendRef = useRef(null);
       const [activeTab, setActiveTab] = useState('portfolio');
-      const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+      const [newPosition, setNewPosition] = useState({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
       const [editingWishlistId, setEditingWishlistId] = useState(null);
       const [showLoginAlertPopup, setShowLoginAlertPopup] = useState(false);
       const [loginAlertShown, setLoginAlertShown] = useState(false);
-      const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+      const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: getMarketToday(), notes: '', linkedTicker: '' });
       const [dataLoaded, setDataLoaded] = useState(false);
       const [pendingInvites, setPendingInvites] = useState([]); // invites from friends who authorized viewing
       const [showInvitePopup, setShowInvitePopup] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
-      const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: new Date().toISOString().split('T')[0], sellQuantity: '' });
-      const [today] = useState(new Date().toISOString().split('T')[0]);
+      const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
+      // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
+      // 1. Must be a plain const, NOT useState (useState freezes at mount — stale overnight)
+      // 2. Must use HKT, NOT UTC (user may be in a different timezone than the market)
+      const today = getMarketToday();
       const [editingEntryDate, setEditingEntryDate] = useState(null);
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
@@ -1031,7 +1046,7 @@
         let needsSave = false;
         let correctedPositions = [...positions];
         let correctedSnapshots = [...snapshots];
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getMarketToday();
 
         // Clean up stale intraday tracking fields (from previous days)
         // These should be cleaned up after the daily snapshot, but if cron didn't run, clean them here
@@ -1161,7 +1176,7 @@
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Don't auto-refresh outside market hours — cron captures official closing prices
         // at 16:30 HKT via TradingView. Yahoo returns stale data pre-market/post-close.
-        if (isAfterClose() || isPreMarket() || isBeforeMarketOpen() || isMarketClosed(new Date().toISOString().split('T')[0])) {
+        if (isAfterClose() || isPreMarket() || isBeforeMarketOpen() || isMarketClosed(getMarketToday())) {
           console.log('Skipping auto-refresh — market not open');
           return;
         }
@@ -1221,17 +1236,19 @@
         // (stored snapshot dailyPnL may be stale if priceCache was refreshed since snapshot creation)
         const preMarket = isPreMarket();
         const beforeOpen = isBeforeMarketOpen();
+        // If trades were closed today (e.g. sold during pre-market), show actual P&L instead of yesterday's reference
+        const hasClosedTradesToday = closedTrades.some(t => t.exitDate === today);
         if (isMarketClosedToday) {
           // On weekends/holidays: show 0 (no trading happened today)
           setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false, isBeforeOpen: false });
-        } else if (beforeOpen && yesterdaySnapshot?.dailyPnL !== undefined) {
-          // Before market open: show previous session's P&L as reference
+        } else if (beforeOpen && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // Before market open (no trades today): show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
           const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: true });
-        } else if (preMarket && yesterdaySnapshot?.dailyPnL !== undefined) {
-          // Pre-market auction (9:15-9:30): show previous session's P&L as reference
+        } else if (preMarket && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // Pre-market auction (9:15-9:30, no trades today): show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
           const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
@@ -1286,15 +1303,15 @@
             }, 0);
             const totalGain = gain + closedTodayGain;
             const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
-            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen, isPreMarket: false });
+            setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen, isPreMarket: false, isBeforeOpen: false });
           } else if (yesterdaySnapshot) {
             const gain = currentValue - yesterdaySnapshot.portfolioValue;
             const percent = yesterdaySnapshot.portfolioValue > 0
               ? (gain / yesterdaySnapshot.portfolioValue) * 100
               : 0;
-            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false });
+            setDailyGain({ value: gain, percent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: false });
           } else {
-            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false, isPreMarket: false });
+            setDailyGain({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: false });
           }
         }
 
@@ -1302,6 +1319,14 @@
         // Skip market closed days (weekends and HKEX holidays)
         if (isMarketClosedToday) {
           console.log('Skipping snapshot - market closed (weekend or holiday)');
+          return;
+        }
+
+        // GUARD: Never overwrite a past snapshot that already has closingPrices.
+        // Past snapshots are immutable track records. If today's date doesn't match
+        // the snapshot date (e.g., stale tab), refuse to overwrite.
+        if (todaySnapshot?.closingPrices && todaySnapshot.date !== getMarketToday()) {
+          console.log('BLOCKED: Refusing to overwrite past snapshot', todaySnapshot.date, '(current HKT date:', getMarketToday(), ')');
           return;
         }
 
@@ -1628,7 +1653,7 @@
           const existing = positions[existingIndex];
           const totalQty = existing.quantity + newQty;
           const avgPrice = (existing.quantity * existing.entryPrice + newQty * newPrice) / totalQty;
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = getMarketToday();
 
           // Track intraday addition for accurate daily P&L calculation
           // If already added today, accumulate the additions
@@ -1666,13 +1691,13 @@
         // IMPORTANT: await to ensure tracking fields (addedTodayDate, addedTodayQty, etc.)
         // are saved to Firestore before cron runs - fixes intraday P&L calculation bug
         await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
-        setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: new Date().toISOString().split('T')[0] });
+        setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
 
         // Auto-fetch price for new position
         try {
           const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
           const entryDateStr = newPosition.entryDate;
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = getMarketToday();
           const daysDiff = Math.ceil((new Date(todayStr) - new Date(entryDateStr)) / (1000 * 60 * 60 * 24));
           const range = Math.max(daysDiff + 10, 15) + 'd'; // Get enough history + buffer for weekends
 
@@ -1877,7 +1902,7 @@
         const newTx = [tx, ...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
         setTransactions(newTx);
         saveData(positions, closedTrades, newTx, priceCache, snapshots, settings);
-        setNewTransaction({ type: 'deposit', amount: '', date: new Date().toISOString().split('T')[0], notes: '', linkedTicker: '' });
+        setNewTransaction({ type: 'deposit', amount: '', date: getMarketToday(), notes: '', linkedTicker: '' });
       };
 
       const deleteTransaction = (id) => {
@@ -1922,7 +1947,7 @@
           name: newWishlistItem.name || ticker,
           targetPrice: parseFloat(newWishlistItem.targetPrice),
           notes: newWishlistItem.notes || '',
-          dateAdded: new Date().toISOString().split('T')[0]
+          dateAdded: getMarketToday()
         };
         const newWl = [...wishlist, item];
         setWishlist(newWl);
@@ -2012,7 +2037,7 @@
       // Get wishlist items with current prices and gap calculation
       const getWishlistWithPrices = () => {
         // Get yesterday's snapshot closingPrices (same logic as Performance tab)
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getMarketToday();
         const sortedSnaps = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
         const yesterdaySnapshot = sortedSnaps.find(s => s.date < todayStr && isTradingDay(s.date));
         const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
@@ -3493,7 +3518,7 @@
 
                 {/* Invested Capital Chart */}
                 {(() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   // Update today's snapshot with live capitalEngaged value
                   const liveSnapshots = snapshots.map(s =>
                     s.date === todayStr ? { ...s, capitalEngaged: m.capitalEngaged } : s
@@ -3541,7 +3566,7 @@
             {activeTab === 'performance' && (() => {
               // Calculate daily movers data
               const totalPortfolioValue = m.totalValue;
-              const todayStr = new Date().toISOString().split('T')[0];
+              const todayStr = getMarketToday();
               // Check if today is a market closed day (weekend or HKEX holiday)
               const isMarketClosedToday = isMarketClosed(todayStr);
 
@@ -3828,7 +3853,7 @@
 
                   // Build daily P&L map from snapshots
                   // Use stored dailyPnL when available (immutable), fallback to calculated for old snapshots
-                  const todayDate = new Date().toISOString().split('T')[0];
+                  const todayDate = getMarketToday();
                   const sortedSnaps = [...snapshots]
                     .filter(s => isTradingDay(s.date)) // Exclude market closed days
                     .sort((a, b) => a.date.localeCompare(b.date));
@@ -3933,7 +3958,7 @@
                     cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed, dow, weekTotal });
                   }
 
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   const monthTotal = cells.filter(c => c && c.pnl !== undefined).reduce((s, c) => s + c.pnl, 0);
                   const hasData = cells.some(c => c && c.pnl !== undefined);
 
@@ -4206,7 +4231,7 @@
 
                 {/* Equity Curve - Total P&L over time */}
                 {(() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
+                  const todayStr = getMarketToday();
                   // Calculate total P&L for each snapshot and update today with live values
                   const pnlData = snapshots.map(s => {
                     if (s.date === todayStr) {
@@ -4318,7 +4343,7 @@
 
             {/* History Tab */}
             {activeTab === 'history_tab' && (() => {
-              const todayDate = new Date().toISOString().split('T')[0];
+              const todayDate = getMarketToday();
               // Use stored dailyPnL from snapshots (calculated correctly at snapshot time)
               const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
               const sortedSnaps = [...snapshots]
