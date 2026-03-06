@@ -225,6 +225,25 @@ git push
 
 GitHub Pages auto-deploys from `main` branch.
 
+### ⚠️ CRITICAL DEPLOYMENT RULE ⚠️
+
+**Every code change MUST be committed AND pushed to GitHub in the same session. No exceptions.**
+
+This app has THREE execution environments that ALL read from the GitHub `main` branch:
+1. **GitHub Pages** — serves `index.html` / `index-us.html` to the browser
+2. **GitHub Actions cron** — runs `update.py` / `update-us.py` at market close
+3. **Local browser** — for testing only (via `python -m http.server`)
+
+If you edit code locally but forget to push:
+- The **local browser** sees the new code (works correctly during testing)
+- **GitHub Pages** still serves the OLD code (users see old bugs)
+- The **cron** still runs the OLD `update.py` (writes wrong data to Firestore)
+- The cron's wrong Firestore data then **overwrites** whatever the local browser fixed
+
+**This is exactly what caused the Mar 5 2026 incident** — code was fixed locally, tested, confirmed working, but never pushed. The cron ran the old code at 16:30 HKT, wrote wrong `closingPrices` and `changePercent` to Firestore, and the "fixed" data reverted to wrong values. The fix had to be applied THREE times before this was identified as the root cause.
+
+**Rule: `git add + git commit + git push` is ONE atomic operation. Never do one without the others.**
+
 ---
 
 ## Roadmap / TODO
@@ -321,7 +340,7 @@ python -m http.server 8000
    - Bug fixé (ajouter dans "Known Issues / Recent Fixes")
    - Nouvelle feature (ajouter dans "Features by Tab")
 2. Mettre à jour le Changelog ci-dessous
-3. Commit et push
+3. **Commit AND push immediately** — see Deployment Rule below
 
 ### Key Business Rules (Quick Reference)
 | Rule | HK | US |
@@ -344,6 +363,39 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Mar 5, 2026 — Incident: Unpushed code caused wrong closingPrices + cascading dailyPnL corruption
+
+**Incident summary:** Mar 5 calendar showed +3.8k instead of the correct +6.6k. Mar 4 closingPrices in Firestore did not match TradingView's official exchange closes, causing Mar 5 dailyPnL to be calculated from wrong baselines.
+
+**Timeline:**
+1. v2.19 + v2.20 code changes were made locally (browser TradingView migration + official % usage)
+2. Changes were tested locally via `python -m http.server` — everything looked correct
+3. **Code was NOT pushed to GitHub** (the critical mistake)
+4. The HK cron ran at 16:30 HKT (08:30 UTC) using the OLD `update.py` from GitHub
+5. Old cron stored `closingPrices` derived from yesterday's snapshot (not TradingView official closes)
+6. Old cron stored `changePercent` recomputed from stale `previousClose` (not TradingView's official %)
+7. Browser reloaded from GitHub Pages (old code) → Firestore listener pushed cron's wrong data → percentages reverted to wrong values
+8. Fix was applied 3 times locally before root cause (unpushed code) was identified
+
+**Data corruption details (Mar 4 closingPrices: snapshot vs TradingView official):**
+- 1913.HK: 42.90 vs 42.38 (diff -0.52)
+- 2643.HK: 31.30 vs 30.50 (diff -0.80)
+- 1316.HK: 6.80 vs 6.66 (diff -0.14)
+- 0434.HK: 2.71 vs 2.73 (diff +0.02)
+- Plus 7 other tickers with smaller discrepancies
+
+**Data fix applied:**
+- Mar 4 `closingPrices` corrected to TradingView official values
+- Mar 4 `dailyPnL` recalculated: -6.8k → -9.6k (using correct Mar 3→4 price changes + sold positions)
+- Mar 5 `dailyPnL` recalculated: +3.8k → +6.6k (using correct Mar 4→5 price changes)
+- Mar 4 `positionsAtClose` updated with corrected closing prices
+
+**CORS fix:** Browser `fetchTradingViewPrices` sent `Content-Type: application/json` which triggers a CORS preflight. TradingView's preflight response does not include `content-type` in `access-control-allow-headers`, blocking the request. Fixed by removing the header (browser sends `text/plain` = simple request, no preflight needed, TradingView accepts JSON body regardless).
+
+**Root cause:** Code changes were not pushed to GitHub. See **CRITICAL DEPLOYMENT RULE** section above.
+
+**Prevention:** All three environments (GitHub Pages, GitHub Actions cron, local browser) must run the same code. The only way to guarantee this is to push every change immediately. The deployment rule has been added to this README.
 
 ### Mar 5, 2026 — v2.20: Use TradingView's official % directly (never recompute)
 
