@@ -407,7 +407,8 @@
 
       const response = await fetch('https://scanner.tradingview.com/america/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // No Content-Type header: 'application/json' triggers CORS preflight that TradingView blocks.
+        // TradingView accepts the JSON body without the header (sent as text/plain = simple request, no preflight).
         body: JSON.stringify(payload),
       });
 
