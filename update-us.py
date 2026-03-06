@@ -48,7 +48,7 @@ def fetch_tradingview_prices():
     Returns dict: { "AAPL": close_price, "TSLA": close_price, ... }
     """
     payload = {
-        "columns": ["name", "open", "high", "low", "close", "volume"],
+        "columns": ["name", "open", "high", "low", "close", "change", "change_abs", "volume"],
         "range": [0, 25000],
         "sort": {"sortBy": "name", "sortOrder": "asc"},
     }
@@ -75,11 +75,18 @@ def fetch_tradingview_prices():
         parts = item["s"].split(":")
         code = parts[1]  # e.g. "AAPL"
         d = item["d"]
+        # columns: name, open, high, low, close, change, change_abs, volume
         close = d[4]
         if close is None:
             skipped += 1
             continue
-        prices[code] = close
+        change_pct = d[5]   # % change from previous close
+        change_abs = d[6]   # absolute change from previous close
+        prices[code] = {
+            "close": close,
+            "changePercent": change_pct,
+            "changeAbs": change_abs,
+        }
 
     total = data.get("totalCount", len(prices))
     if skipped:
@@ -159,23 +166,34 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     for p in positions:
         ticker = p["ticker"].strip().replace(".HK", "").upper()
         p["ticker"] = ticker  # Fix in-place for Firestore persistence
-        price = tv_prices.get(ticker)
-        if price is None:
+        tv_entry = tv_prices.get(ticker)
+        if tv_entry is None:
             print(f"  MISS {ticker}: not found in TradingView data")
             continue
-        prev_close = yesterday_closing.get(ticker, price)
+        price = tv_entry["close"]
+        tv_change_pct = tv_entry.get("changePercent")
+        tv_change_abs = tv_entry.get("changeAbs")
+        # Use TradingView's official change values (most reliable source)
+        if tv_change_abs is not None:
+            prev_close = round(price - tv_change_abs, 4)
+            change_abs = round(tv_change_abs, 4)
+            change_pct = round(tv_change_pct, 4) if tv_change_pct is not None else (round((tv_change_abs / prev_close) * 100, 4) if prev_close else 0)
+        else:
+            prev_close = yesterday_closing.get(ticker, price)
+            change_abs = round(price - prev_close, 4)
+            change_pct = round((change_abs / prev_close) * 100, 4) if prev_close else 0
         price_cache[ticker] = {
             "success": True,
             "price": price,
             "previousClose": prev_close,
-            "change": round(price - prev_close, 4),
-            "changePercent": round(((price - prev_close) / prev_close) * 100, 4) if prev_close else 0,
+            "change": change_abs,
+            "changePercent": change_pct,
             "currency": "USD",
             "lastUpdated": datetime.now(ET).isoformat(),
         }
         p["currentPrice"] = price
         matched += 1
-        print(f"  OK {ticker}: {price} (prevClose: {prev_close})")
+        print(f"  OK {ticker}: {price} (prevClose: {prev_close}, chg: {change_pct}%)")
     print(f"  Matched {matched}/{len(positions)} positions")
 
     # 2. Calculate snapshot

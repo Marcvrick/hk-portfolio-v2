@@ -41,11 +41,12 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 - Firebase JS SDK 10.x
 - Recharts (charts)
 - Tailwind CSS (styling)
+- TradingView Scanner API (live prices, no proxy needed)
 
 **Backend:**
 - Firebase Firestore (database)
 - GitHub Actions (daily cron)
-- Python + firebase-admin (price updates)
+- Python + firebase-admin + TradingView Scanner API (price updates)
 
 ---
 
@@ -56,8 +57,8 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index.html` | HK Portfolio - Production app (dark mode default) |
 | `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
-| `update.py` | Cron script for HK Yahoo Finance prices (multi-user, HKEX holiday-aware) |
-| `update-us.py` | Cron script for US Yahoo Finance prices |
+| `update.py` | Cron script for HK TradingView prices (multi-user, HKEX holiday-aware) |
+| `update-us.py` | Cron script for US TradingView prices |
 | `patch-data-correction.py` | One-time patch: fix Feb 13/16, Mar 2 closingPrices from Stooq |
 | `verify-weekly.py` | Weekly verification: Firebase snapshots vs FinMC/Stooq parquet data |
 | `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
@@ -72,6 +73,9 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Use TradingView's official % directly (never recompute) | ✅ | ✅ | 2026-03-05 |
+| TradingView Scanner API replaces Yahoo Finance (browser) | ✅ | ✅ | 2026-03-05 |
+| TradingView links open in edit mode (saved layout) | ✅ | ✅ | 2026-03-05 |
 | Midnight auto-update `today` (60s interval detects date change) | ✅ | ✅ | 2026-03-04 |
 | Market-timezone `today` + all HKT/ET helpers via Intl API | ✅ | ✅ | 2026-03-04 |
 | Fix stale `today` + past snapshot immutability guard | ✅ | ✅ | 2026-03-04 |
@@ -334,12 +338,39 @@ python -m http.server 8000
 ### Common Maintenance Tasks
 - **Add new fee component**: Update `calcTradingFees()` in index.html + PRD.md
 - **Change alert thresholds**: Search `isWarning` and `isDanger` in index.html
-- **Fix Yahoo API issues**: Check CORS proxy list in Settings section
+- **Price data source**: TradingView Scanner API (browser + cron), no CORS proxy needed
 - **Debug snapshots**: Check browser console for snapshot logs
 
 ---
 
 ## Changelog
+
+### Mar 5, 2026 — v2.20: Use TradingView's official % directly (never recompute)
+
+**Root cause:** Daily % change was recomputed as `(currentPrice - previousClose) / previousClose * 100` everywhere. But `previousClose` came from different sources (browser TradingView fetch vs cron's snapshot closingPrices vs manual override) that could disagree. The cron stored `previousClose` from yesterday's snapshot — which may differ from TradingView's official previous session close (settlement differences, rounding). After market close, auto-refresh is blocked, so the browser showed the cron's stale % which didn't match TradingView.
+
+**Fix — Use TradingView's `changePercent` and `change` directly:**
+- **Cron (`update.py`, `update-us.py`):** Now fetches `change` and `change_abs` columns from TradingView Scanner API (previously only fetched OHLCV). Stores TradingView's official `changePercent` and `change` in priceCache. No more recomputation from snapshot-based previousClose.
+- **Performance tab:** Uses `cached.changePercent` directly for the % column and `cached.change * quantity` for the $ column. Falls back to previousClose-based recomputation only for special cases (manual override, new-today positions, pre-market snapshot display).
+- **Daily gain (header card + calendar):** Uses `cached.change * quantity` for dollar P&L instead of `(currentPrice - previousClose) * quantity`.
+- **Snapshot dailyPnL:** Same change — uses `cached.change` from TradingView.
+- **Wishlist:** Uses `cached.changePercent` and `cached.change` directly.
+- **Fallback preserved:** Manual previousClose overrides, new-today entry price logic, intraday addition split, and pre-market snapshot display all still work via the recomputation path.
+- Applied to both HK and US portfolios + both crons.
+
+### Mar 5, 2026 — v2.19: TradingView Scanner API replaces Yahoo Finance
+
+**Browser now uses TradingView Scanner API for all live price fetching**, matching the cron scripts which already used TradingView. Yahoo Finance is fully removed from the frontend.
+
+- **Root cause:** Daily % change in the portfolio (e.g., 434.HK = +11.72%) didn't match TradingView's % (+12.45%) because the browser used Yahoo Finance's `previousClose`, which differed from TradingView's official exchange close.
+- **Fix — TradingView Scanner bulk fetch:** Replaced `fetchYahooPrice` (sequential, one-by-one via CORS proxy) with `fetchTradingViewPrices` (single bulk POST to `scanner.tradingview.com/{market}/scan`). No CORS proxy needed — TradingView allows cross-origin from GitHub Pages. `previousClose` derived from TradingView's `change_abs` field: `prevClose = close - change_abs`.
+- **Fix — All callers migrated:** `refreshPrices` (bulk), `refreshSinglePrice` (per-row), `addPosition` (auto-fetch), `addWishlistItem` (auto-fetch) — all now use TradingView.
+- **Removed:** CORS proxy dropdown from Settings tab (no longer needed). Proxy migration code left as harmless dead code.
+- **Simplified `addPosition`:** Removed Yahoo historical timeseries backfill for past entry dates. TradingView Scanner only returns current data.
+- **TradingView links:** US portfolio links now include saved chart layout ID (`b8EBWJ7k`), opening in edit mode instead of view-only.
+- **Performance:** Bulk refresh is now a single API call (~200ms) instead of N sequential requests with 500ms delays.
+- **No impact on historical data:** Past snapshots' `closingPrices` and `dailyPnL` were already sourced from TradingView via the cron. Only live intraday display is affected.
+- Applied to both HK and US portfolios.
 
 ### Mar 4, 2026 — v2.18: Fix stale `today` snapshot corruption
 

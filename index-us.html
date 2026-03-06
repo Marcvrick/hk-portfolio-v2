@@ -393,136 +393,60 @@
       }
     };
 
-    // ===== PRICE FETCHING =====
-    const PROXY_LIST = [
-      { name: 'cloudflare', build: (url) => `https://yahoo-proxy.marccharnal.workers.dev/?url=${encodeURIComponent(url)}` },
-      { name: 'allorigins', build: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
-      { name: 'corsproxy.io', build: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
-      { name: 'cors.sh', build: (url) => `https://cors.sh/${url}` },
-    ];
+    // ===== PRICE FETCHING (TradingView Scanner API) =====
+    // Bulk fetch all US prices in one call — no CORS proxy needed
+    const fetchTradingViewPrices = async (tickers) => {
+      const uniqueTickers = [...new Set(tickers.map(t => t.replace(/\.HK$/, '')))];
 
-    const buildProxyUrl = (yahooUrl, corsProxy) => {
-      if (corsProxy.includes('workers.dev')) return PROXY_LIST[0].build(yahooUrl);
-      if (corsProxy.includes('allorigins')) return PROXY_LIST[1].build(yahooUrl);
-      if (corsProxy.includes('corsproxy.io')) return PROXY_LIST[2].build(yahooUrl);
-      if (corsProxy.includes('cors.sh')) return PROXY_LIST[3].build(yahooUrl);
-      return `${corsProxy}${encodeURIComponent(yahooUrl)}`;
-    };
-
-    const fetchWithProxy = async (cleanTicker, yahooUrl, proxyUrl) => {
-      const response = await fetch(proxyUrl);
-      console.log(`Response for ${cleanTicker}:`, response.status);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error(`JSON parse error for ${cleanTicker}:`, text.substring(0, 200));
-        throw new Error('Invalid JSON response');
-      }
-
-      if (data.chart?.error) {
-        throw new Error(data.chart.error.description || 'Yahoo API error');
-      }
-
-      const result = data.chart?.result?.[0];
-      const meta = result?.meta;
-      if (!meta) {
-        console.error(`No meta for ${cleanTicker}:`, data);
-        throw new Error('No data returned');
-      }
-
-      const price = meta.regularMarketPrice;
-      // Extract previousClose using timestamp-based approach
-      const timestamps = result?.timestamp || [];
-      const closes = result?.indicators?.quote?.[0]?.close || [];
-      const now = new Date();
-      const todayUTCStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
-      let previousClose = null;
-      let prevIdx = -1;
-      for (let i = timestamps.length - 1; i >= 0; i--) {
-        if (closes[i] != null && timestamps[i] < todayUTCStart) {
-          previousClose = closes[i];
-          prevIdx = i;
-          break;
-        }
-      }
-      // Pre-market fallback: if previousClose ≈ price (market not open yet),
-      // price = yesterday's close, so go one more day back for meaningful comparison
-      if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
-        for (let i = prevIdx - 1; i >= 0; i--) {
-          if (closes[i] != null) {
-            previousClose = closes[i];
-            break;
-          }
-        }
-      }
-      if (!previousClose) {
-        previousClose = meta.previousClose || meta.chartPreviousClose || price;
-      }
-      // marketDay = date of the last bar in Yahoo's time series
-      const lastTimestamp = timestamps.length > 0 ? timestamps[timestamps.length - 1] : null;
-      const marketDay = lastTimestamp ? new Date(lastTimestamp * 1000).toISOString().split('T')[0] : getMarketToday();
-      console.log(`${cleanTicker}: ${price} prevClose: ${previousClose} marketDay: ${marketDay} ${meta.currency || 'USD'}`);
-
-      return {
-        success: true,
-        price: price,
-        previousClose: previousClose,
-        change: price - previousClose,
-        changePercent: ((price - previousClose) / previousClose) * 100,
-        currency: meta.currency || 'USD',
-        marketDay: marketDay,
-        lastUpdated: new Date().toISOString()
+      const payload = {
+        columns: ['name', 'close', 'change', 'change_abs', 'volume'],
+        filter: [{ left: 'name', operation: 'in_range', right: uniqueTickers }],
+        range: [0, uniqueTickers.length + 10],
+        sort: { sortBy: 'name', sortOrder: 'asc' },
       };
-    };
 
-    const fetchYahooPrice = async (ticker, corsProxy) => {
-      const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
+      const response = await fetch('https://scanner.tradingview.com/america/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-      // Try selected proxy first
-      const primaryUrl = buildProxyUrl(yahooUrl, corsProxy);
-      console.log(`Fetching ${cleanTicker}...`);
+      if (!response.ok) throw new Error(`TradingView HTTP ${response.status}`);
+      const data = await response.json();
 
-      try {
-        return await fetchWithProxy(cleanTicker, yahooUrl, primaryUrl);
-      } catch (primaryError) {
-        console.warn(`Primary proxy failed for ${cleanTicker}: ${primaryError.message}, trying fallbacks...`);
-
-        // Try remaining proxies
-        for (const proxy of PROXY_LIST) {
-          const fallbackUrl = proxy.build(yahooUrl);
-          if (fallbackUrl === primaryUrl) continue;
-          try {
-            console.log(`Retrying ${cleanTicker} via ${proxy.name}...`);
-            return await fetchWithProxy(cleanTicker, yahooUrl, fallbackUrl);
-          } catch (e) {
-            console.warn(`Fallback ${proxy.name} also failed for ${cleanTicker}: ${e.message}`);
-          }
-        }
-
-        console.error(`All proxies failed for ${cleanTicker}`);
-        return { success: false, error: `All proxies failed: ${primaryError.message}` };
-      }
-    };
-
-    const fetchAllPrices = async (tickers, corsProxy, onProgress) => {
       const results = {};
-      const uniqueTickers = [...new Set(tickers.map(t => t.replace(/b\.HK$/, '.HK')))];
+      for (const item of (data.data || [])) {
+        const code = item.s.split(':')[1]; // e.g. "AAPL"
+        const [, close, changePct, changeAbs] = item.d;
+        if (close == null) continue;
+        const previousClose = close - (changeAbs || 0);
+        results[code] = {
+          success: true,
+          price: close,
+          previousClose: previousClose,
+          change: changeAbs || 0,
+          changePercent: changePct || 0,
+          currency: 'USD',
+          lastUpdated: new Date().toISOString()
+        };
+      }
 
-      for (let i = 0; i < uniqueTickers.length; i++) {
-        const ticker = uniqueTickers[i];
-        onProgress && onProgress(i + 1, uniqueTickers.length, ticker);
-        results[ticker] = await fetchYahooPrice(ticker, corsProxy);
-        // Rate limiting - 500ms between requests
-        if (i < uniqueTickers.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+      // Mark missing tickers as failed
+      for (const ticker of uniqueTickers) {
+        if (!results[ticker]) {
+          results[ticker] = { success: false, error: 'Not found in TradingView' };
         }
       }
+
+      console.log(`TradingView: ${Object.keys(results).filter(k => results[k].success).length} US tickers fetched`);
       return results;
+    };
+
+    // Fetch a single ticker via TradingView Scanner
+    const fetchSinglePrice = async (ticker) => {
+      const cleanTicker = ticker.replace(/\.HK$/, '');
+      const results = await fetchTradingViewPrices([cleanTicker]);
+      return results[cleanTicker] || { success: false, error: 'Not found' };
     };
 
     const getPriceFreshness = (lastUpdated) => {
@@ -999,10 +923,8 @@
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
-        // Wait for settings to have the correct proxy (migration may be async)
-        if (!settings.corsProxy?.includes('workers.dev') && !settings.corsProxy?.includes('corsproxy') && !settings.corsProxy?.includes('cors.sh')) return;
         // Don't auto-refresh after market close — cron captures official closing prices
-        // at 16:00 ET. A later Yahoo fetch can return different post-settlement values.
+        // at 16:00 ET. A later fetch can return different post-settlement values.
         if (isAfterClose() || isMarketClosed(getMarketToday())) {
           console.log('Skipping auto-refresh — market closed');
           return;
@@ -1018,7 +940,7 @@
           console.log('Auto-refreshing prices on load...');
           refreshPrices();
         }
-      }, [dataLoaded, settings.corsProxy]);
+      }, [dataLoaded]);
 
       // ===== SHOW WISHLIST ALERT POPUP ON LOGIN =====
       useEffect(() => {
@@ -1050,7 +972,7 @@
 
         // Check if market is closed today (weekend or NYSE holiday)
         const isMarketClosedToday = isMarketClosed(today);
-        // Detect if market has opened today (Yahoo's last bar date matches today)
+        // Detect if market has opened today (last data date matches today)
         // Before market opens, all tickers have marketDay = previous trading day
         const marketOpenToday = Object.values(priceCache).some(c => c?.success && c.marketDay === today);
 
@@ -1080,11 +1002,17 @@
               const cached = priceCache[ct];
               const currentPrice = cached?.success ? cached.price : p.currentPrice;
               const isNewToday = p.entryDate === today;
+              // Use TradingView's change_abs directly when available (most accurate)
+              const useTvChange = !isNewToday && cached?.success && cached.change != null && !cached.previousCloseOverride;
+              if (isNewToday) {
+                return sum + (currentPrice - p.entryPrice) * p.quantity;
+              }
+              if (useTvChange) {
+                return sum + cached.change * p.quantity;
+              }
               let prevClose;
               if (cached?.previousCloseOverride) {
                 prevClose = cached.previousCloseOverride;
-              } else if (isNewToday && !isMarketClosedToday) {
-                prevClose = p.entryPrice;
               } else if (cached?.success && cached.previousClose) {
                 prevClose = cached.previousClose;
               } else if (yesterdayClosingPrices[ct]) {
@@ -1193,25 +1121,30 @@
           const curPrice = cached?.success ? cached.price : p.currentPrice;
           const isNewToday = p.entryDate === today;
           const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
+          if (isNewToday) {
+            return sum + (curPrice - p.entryPrice) * p.quantity;
+          }
+          // Use TradingView's change_abs directly when available
+          const useTvChange = cached?.success && cached.change != null && !cached.previousCloseOverride;
+          if (hasIntradayAdd) {
+            const oldQtyGain = useTvChange
+              ? cached.change * p.qtyBeforeToday
+              : (() => { const pc = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPricesForSnapshot[ct] || curPrice; return (curPrice - pc) * p.qtyBeforeToday; })();
+            const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
+            return sum + oldQtyGain + newQtyGain;
+          }
+          if (useTvChange) {
+            return sum + cached.change * p.quantity;
+          }
           let prevClose;
           if (cached?.previousCloseOverride) {
             prevClose = cached.previousCloseOverride;
-          } else if (isNewToday && !isMarketClosedToday) {
-            prevClose = p.entryPrice;
           } else if (cached?.success && cached.previousClose) {
             prevClose = cached.previousClose;
           } else if (yesterdayClosingPricesForSnapshot[ct]) {
             prevClose = yesterdayClosingPricesForSnapshot[ct];
           } else {
             prevClose = p.currentPrice;
-          }
-          if (isNewToday) {
-            return sum + (curPrice - p.entryPrice) * p.quantity;
-          }
-          if (hasIntradayAdd) {
-            const oldQtyGain = prevClose ? (curPrice - prevClose) * p.qtyBeforeToday : 0;
-            const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
-            return sum + oldQtyGain + newQtyGain;
           }
           return sum + (curPrice - prevClose) * p.quantity;
         }, 0);
@@ -1277,7 +1210,7 @@
       const refreshSinglePrice = async (ticker) => {
         const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
         try {
-          const result = await fetchYahooPrice(cleanTicker, settings.corsProxy);
+          const result = await fetchSinglePrice(cleanTicker);
           if (result.success) {
             const newCache = { ...priceCache, [cleanTicker]: result };
             const newPositions = positions.map(p => {
@@ -1306,9 +1239,9 @@
           setRefreshProgress({ current: 0, total: allTickers.length, ticker: '' });
 
           const tickers = allTickers;
-          const results = await fetchAllPrices(tickers, settings.corsProxy, (current, total, ticker) => {
-            setRefreshProgress({ current, total, ticker });
-          });
+          setRefreshProgress({ current: 0, total: tickers.length, ticker: 'TradingView...' });
+          const results = await fetchTradingViewPrices(tickers);
+          setRefreshProgress({ current: tickers.length, total: tickers.length, ticker: '' });
 
           // Count successes and failures
           let successCount = 0;
@@ -1490,42 +1423,14 @@
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
 
-        // Auto-fetch price for new position
+        // Auto-fetch price for new position via TradingView
         try {
-          const cleanTicker = ticker; // US tickers don't need cleaning
-          const resp = await fetch(`${settings.corsProxy}https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`);
-          const json = await resp.json();
-          const result = json?.chart?.result?.[0];
-          if (result) {
-            const meta = result.meta || {};
-            const price = meta.regularMarketPrice;
-            const closes = result.indicators?.quote?.[0]?.close || [];
-            const ts = result.timestamp || [];
-            const nowT = new Date();
-            const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
-            let previousClose = null;
-            let prevIdx = -1;
-            for (let i = ts.length - 1; i >= 0; i--) {
-              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; prevIdx = i; break; }
-            }
-            if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
-              for (let i = prevIdx - 1; i >= 0; i--) { if (closes[i] != null) { previousClose = closes[i]; break; } }
-            }
-            if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
-            if (price) {
-              const newCache = { ...priceCache, [cleanTicker]: {
-                success: true,
-                price,
-                previousClose: previousClose,
-                change: price - previousClose,
-                changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
-                currency: meta.currency || 'USD',
-                lastUpdated: new Date().toISOString()
-              }};
-              setPriceCache(newCache);
-              saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
-              console.log(`Auto-fetched price for ${ticker}: ${price}`);
-            }
+          const result = await fetchSinglePrice(ticker);
+          if (result.success) {
+            const newCache = { ...priceCache, [ticker]: result };
+            setPriceCache(newCache);
+            saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
+            console.log(`Auto-fetched price for ${ticker}: ${result.price}`);
           }
         } catch (e) {
           console.warn(`Failed to auto-fetch price for ${ticker}:`, e);
@@ -1687,44 +1592,14 @@
         saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, newWl, wishlistAlertsDismissed);
         setNewWishlistItem({ ticker: '', name: '', targetPrice: '', notes: '' });
 
-        // Auto-fetch price for new wishlist item
+        // Auto-fetch price for new wishlist item via TradingView
         try {
-          const cleanTicker = ticker; // US tickers don't need cleaning
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cleanTicker}?interval=1d&range=5d`;
-          const proxyUrl = buildProxyUrl(yahooUrl, settings.corsProxy);
-          const resp = await fetch(proxyUrl);
-          const json = await resp.json();
-          const result = json?.chart?.result?.[0];
-          if (result) {
-            const meta = result.meta || {};
-            const price = meta.regularMarketPrice;
-            const closes = result.indicators?.quote?.[0]?.close || [];
-            const ts = result.timestamp || [];
-            const nowT = new Date();
-            const todayUTC = Date.UTC(nowT.getUTCFullYear(), nowT.getUTCMonth(), nowT.getUTCDate()) / 1000;
-            let previousClose = null;
-            let prevIdx = -1;
-            for (let i = ts.length - 1; i >= 0; i--) {
-              if (closes[i] != null && ts[i] < todayUTC) { previousClose = closes[i]; prevIdx = i; break; }
-            }
-            if (previousClose != null && Math.abs(previousClose - price) < 0.01 && prevIdx > 0) {
-              for (let i = prevIdx - 1; i >= 0; i--) { if (closes[i] != null) { previousClose = closes[i]; break; } }
-            }
-            if (!previousClose) previousClose = meta.previousClose || meta.chartPreviousClose || price;
-            if (price) {
-              const newCache = { ...priceCache, [cleanTicker]: {
-                success: true,
-                price,
-                previousClose: previousClose,
-                change: price - previousClose,
-                changePercent: previousClose ? ((price - previousClose) / previousClose) * 100 : 0,
-                currency: meta.currency || 'USD',
-                lastUpdated: new Date().toISOString()
-              }};
-              setPriceCache(newCache);
-              saveData(positions, closedTrades, transactions, newCache, snapshots, settings, newWl, wishlistAlertsDismissed);
-              console.log(`Auto-fetched price for wishlist ${ticker}: ${price}`);
-            }
+          const result = await fetchSinglePrice(ticker);
+          if (result.success) {
+            const newCache = { ...priceCache, [ticker]: result };
+            setPriceCache(newCache);
+            saveData(positions, closedTrades, transactions, newCache, snapshots, settings, newWl, wishlistAlertsDismissed);
+            console.log(`Auto-fetched price for wishlist ${ticker}: ${result.price}`);
           }
         } catch (e) {
           console.warn(`Failed to auto-fetch price for wishlist ${ticker}:`, e);
@@ -1770,8 +1645,10 @@
           const cached = priceCache[cleanTicker];
           const currentPrice = cached?.price || null;
           const previousClose = cached?.previousClose || currentPrice;
-          const dailyChange = currentPrice && previousClose ? currentPrice - previousClose : 0;
-          const dailyChangePercent = previousClose ? (dailyChange / previousClose) * 100 : 0;
+          // Use TradingView's official values directly when available
+          const useTvDirect = cached?.success && cached.changePercent != null && cached.change != null;
+          const dailyChange = useTvDirect ? cached.change : (currentPrice && previousClose ? currentPrice - previousClose : 0);
+          const dailyChangePercent = useTvDirect ? cached.changePercent : (previousClose ? (dailyChange / previousClose) * 100 : 0);
           const gap = currentPrice ? ((currentPrice - w.targetPrice) / w.targetPrice) * 100 : null;
           const targetReached = currentPrice !== null && currentPrice <= w.targetPrice;
           return {
@@ -2449,7 +2326,7 @@
                             <td className="px-2 py-1.5 font-mono text-lime-hover">
                               {userEmail === 'marccharnal@gmail.com' ? (
                                 <a
-                                  href={`https://www.tradingview.com/chart/?symbol=${displayTicker}`}
+                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=${displayTicker}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="hover:underline"
@@ -2809,7 +2686,7 @@
                               {w.targetReached && <span className="mr-1">✅</span>}
                               {userEmail === 'marccharnal@gmail.com' ? (
                                 <a
-                                  href={`https://www.tradingview.com/chart/?symbol=${w.ticker}`}
+                                  href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=${w.ticker}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-lime-hover hover:underline"
@@ -3042,7 +2919,7 @@
                           <td className="px-2 py-1.5 font-mono text-lime-hover">
                             {userEmail === 'marccharnal@gmail.com' ? (
                               <a
-                                href={`https://www.tradingview.com/chart/?symbol=${t.ticker.replace('.HK', '')}`}
+                                href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=${t.ticker.replace('.HK', '')}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="hover:underline"
@@ -3294,7 +3171,7 @@
               const isMarketClosedToday = isMarketClosed(todayStr);
 
               // Find yesterday's snapshot (most recent TRADING day before today) for accurate previousClose
-              // This uses our own stored closing prices instead of Yahoo's unreliable previousClose
+              // This uses our own stored closing prices for accurate previousClose
               const sortedSnapsForPrevClose = [...snapshots].sort((a, b) => new Date(b.date) - new Date(a.date));
               const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr && isTradingDay(s.date));
               const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
@@ -3307,7 +3184,7 @@
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
                 // 1. New position today (not market closed) → use entry price
-                // 2. Yahoo priceCache previousClose (timestamp-based, most accurate)
+                // 2. TradingView priceCache previousClose (official exchange close)
                 // 3. Yesterday's snapshot closingPrices (fallback)
                 // 4. Last fallback to current price
                 let previousClose;
@@ -3322,8 +3199,13 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                const dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-                const dailyChangeDollar = (currentPrice - previousClose) * p.quantity;
+                // Use TradingView's official % directly when available (never recompute %)
+                const useTvDirect = !isNewToday && !cached?.previousCloseOverride
+                  && cached?.success && cached.changePercent != null && cached.change != null;
+                const dailyChangePercent = useTvDirect ? cached.changePercent
+                  : (previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0);
+                const dailyChangeDollar = useTvDirect ? cached.change * p.quantity
+                  : (currentPrice - previousClose) * p.quantity;
                 const marketValue = currentPrice * p.quantity;
                 const weight = totalPortfolioValue > 0 ? (marketValue / totalPortfolioValue) * 100 : 0;
                 // Calculate total P&L from entry for danger/warning status
@@ -3351,7 +3233,7 @@
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
                 const ct = t.ticker;
                 const cached = priceCache[ct];
-                // Priority: manual override → Yahoo previousClose → stored closing price
+                // Priority: manual override → TradingView previousClose → stored closing price
                 const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || t.entryPrice;
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
@@ -3429,7 +3311,7 @@
                           <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
                             {userEmail === 'marccharnal@gmail.com' ? (
                               <a
-                                href={`https://www.tradingview.com/chart/?symbol=${p.ticker.replace('.HK', '')}`}
+                                href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=${p.ticker.replace('.HK', '')}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="hover:underline"
@@ -4072,18 +3954,7 @@
                       </div>
                     </div>
                     <div>
-                      <label className="text-muted text-xs block mb-1">CORS Proxy</label>
-                      <select
-                        value={settings.corsProxy}
-                        onChange={(e) => updateSettings({ ...settings, corsProxy: e.target.value })}
-                        className="bg-gray-50 rounded px-3 py-2 w-full text-sm"
-                      >
-                        <option value="https://yahoo-proxy.marccharnal.workers.dev/?url=">Cloudflare Worker (recommandé)</option>
-                        <option value="https://api.allorigins.win/raw?url=">allorigins.win</option>
-                        <option value="https://corsproxy.io/?">corsproxy.io</option>
-                        <option value="https://cors.sh/?">cors.sh</option>
-                      </select>
-                      <p className="text-muted text-xs mt-1">Proxy utilisé pour contourner les restrictions CORS de Yahoo Finance</p>
+                      <p className="text-muted text-xs">Source de données: TradingView Scanner API (direct, sans proxy)</p>
                     </div>
                     <div>
                       <label className="flex items-center gap-3 cursor-pointer">
