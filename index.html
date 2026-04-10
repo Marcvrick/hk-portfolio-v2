@@ -246,6 +246,14 @@
       return hktStr.split(',')[0];
     };
 
+    // Convert any Date object to YYYY-MM-DD using HKT (Asia/Hong_Kong, UTC+8, no DST).
+    // ALWAYS use this instead of toISOString().split('T')[0] — toISOString() returns UTC
+    // which is wrong for HK market dates (Mar 3 2026 corruption root cause).
+    const hktDateStr = (date) => {
+      const s = date.toLocaleString('en-CA', { timeZone: 'Asia/Hong_Kong' });
+      return s.split(',')[0];
+    };
+
     // Get previousClose: TradingView's previousClose (via priceCache) is the official exchange
     // previous session close and most reliable. Snapshot closingPrices are fallback only
     // (browser-captured snapshots can have wrong values if data source returns stale data).
@@ -3305,7 +3313,7 @@
 
                   const thisMonthSnaps = sortedSnaps.filter(s => s.date >= monthStart);
                   // Override today with live values
-                  const todayStr = now.toISOString().split('T')[0];
+                  const todayStr = hktDateStr(now);
                   const chartData = thisMonthSnaps.map(s => ({
                     date: s.date.substring(5),
                     pnl: s.date === todayStr
@@ -3770,7 +3778,7 @@
                       const start = new Date(snapBefore.date);
                       const end = new Date(snapAfter.date);
                       for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
-                        const ds = dt.toISOString().split('T')[0];
+                        const ds = hktDateStr(dt);
                         if (ds !== snapBefore.date && isTradingDay(ds)) tradingDaysBetween++;
                       }
                       if (tradingDaysBetween > 0) {
@@ -3800,7 +3808,8 @@
                       let hasWeekData = false;
                       for (let off = 5; off >= 1; off--) {
                         const wd = new Date(year, month, d - off);
-                        const wds = wd.toISOString().split('T')[0];
+                        if (wd.getMonth() !== month || wd.getFullYear() !== year) continue;
+                        const wds = hktDateStr(wd);
                         const val = pnlMap[wds];
                         if (val !== undefined) { weekTotal += val; hasWeekData = true; }
                       }
