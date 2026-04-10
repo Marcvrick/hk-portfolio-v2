@@ -73,6 +73,10 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ | — | 2026-04-10 |
+| Fix weekTotal week 1: exclude previous-month days from sum | ✅ | — | 2026-04-10 |
+| Fix HKEX_HOLIDAYS 2026: remove incorrect `2026-04-07` (Easter Monday = Apr 6) | ✅ | — | 2026-04-10 |
+| Fix `update.py` HKEX_HOLIDAYS: same `2026-04-07` removal | ✅ | — | 2026-04-10 |
 | Use TradingView's official % directly (never recompute) | ✅ | ✅ | 2026-03-05 |
 | TradingView Scanner API replaces Yahoo Finance (browser) | ✅ | ✅ | 2026-03-05 |
 | TradingView links open in edit mode (saved layout) | ✅ | ✅ | 2026-03-05 |
