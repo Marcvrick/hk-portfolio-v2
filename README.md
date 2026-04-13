@@ -73,6 +73,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Add position: green checkmark feedback (1.5s) on successful add | ✅ | — | 2026-04-14 |
+| Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | — | 2026-04-14 |
 | Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ | — | 2026-04-10 |
 | Fix weekTotal week 1: exclude previous-month days from sum | ✅ | — | 2026-04-10 |
 | Fix HKEX_HOLIDAYS 2026: remove incorrect `2026-04-07` (Easter Monday = Apr 6) | ✅ | — | 2026-04-10 |
@@ -367,6 +369,35 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Apr 14, 2026 — v2.21: Pre-market P&L fix for new-today positions + add position feedback
+
+**Pre-market fix:** Positions bought today (entryDate = todayStr) were showing 0% and $0 in the Performance tab during pre-market hours. Root cause: the pre-market branch looked up `dayBeforeClosingPrices[ticker]` / `yesterdayClosingPrices[ticker]` first — but a position just bought has no entry in any previous snapshot, so the fallback was `p.currentPrice` vs `p.currentPrice` = 0%.
+
+**Fix:** Added an `isNewToday` guard before the pre-market branch. When `preMarketActive && isNewToday`, use `cached.previousClose || p.entryPrice` as previousClose (same as open-market behaviour). This makes pre-market consistent: a new position always shows its change from the official previous close, regardless of whether the market is open or not.
+
+**Add position feedback:** Button now turns green with a checkmark ("Ajouté !") for 1.5s after a position is successfully saved to Firestore.
+
+**Data patches applied (Apr 13 snapshot):**
+- `priceCache` backfilled for 113.HK (`price=6.17, previousClose=6.10`) and 3680.HK (`price=2.10, previousClose=2.20`) — both positions were missing from priceCache entirely, causing Performance tab to show 0% / $0
+- `closingPrices` backfilled for 113.HK (6.17) and 3680.HK (2.10) in Apr 13 snapshot; 113.HK (6.10) and 3680.HK (2.20) in Apr 10 snapshot (for correct pre-market previousClose recalculation)
+- 113.HK and 3680.HK added to Apr 13 `positionsAtClose` (both were added to the portfolio after the 16:30 HKT cron ran, so they were absent from the snapshot detail view)
+- 1913.HK data corruption fixed: position had been added multiple times, accumulating to qty=6200. Correct state: qty=2300 (1000 pre-existing + 1300 added Apr 13), entry=43.597 HKD avg. `positionsAtClose` updated accordingly.
+- `dailyPnL` corrected: -14,421 → **-17,329** (final correct value). Breakdown: base -14,821 + 113.HK +1,400 + 3680.HK -2,400 + 1913.HK extra 1300 shares -1,508 = -17,329
+
+**Lessons learned (Apr 13-14 debugging session):**
+
+1. **HKT midnight bug** — JavaScript's `new Date().toISOString()` returns UTC, which is 8 hours behind HKT. A position added at 11:30 PM on April 13 HKT has `entryDate = "2026-04-14"` in the app. Always verify the HKT date when a position's date looks one day off. If an `entryDate` is wrong by exactly +1 day, this is the cause.
+
+2. **Positions added after 16:30 HKT cron are invisible to the snapshot** — The cron runs at 16:30 HKT, freezing `positionsAtClose` and `closingPrices`. Any position added after that time won't appear in the snapshot detail modal and won't contribute to `dailyPnL` in the stored snapshot. Fix: patch `positionsAtClose`, `closingPrices`, and `dailyPnL` manually via a Python script.
+
+3. **Three P&L values can diverge on the same day** — The stored tile value (`snap.dailyPnL`), the recalculated value via `closingPrices`, and the movers table total can all differ if positions were patched after the cron. When they diverge, the movers table (live calculation) is most likely to be correct because it uses the current `positionsAtClose` data. The stored `dailyPnL` must be patched to match.
+
+4. **priceCache ticker format** — The app stores priceCache under `"113.HK"` (without leading zero), but HKEX tickers officially have leading zeros (e.g., `"0113.HK"`). When patching priceCache manually, add BOTH `"113.HK"` and `"0113.HK"` to cover all lookup paths.
+
+5. **Position averaging + multiple-add bug** — If a user taps "Ajouter" multiple times for the same position, the quantities accumulate in Firestore. The result is a qty and entryPrice that are both wrong. There is no UI guard. Fix: locate the position in Firestore via a patch script and set `quantity`, `entryPrice`, `addedTodayQty`, `qtyBeforeToday`, `addedTodayDate` to the correct values directly.
+
+6. **macOS uses `python3`, not `python`** — All patch scripts must be invoked as `python3 patch-xxx.py`. The directory path also has a trailing space (`"App portfolio /"`) which requires escaping in shell: `cd ~/Library/Mobile\ Documents/.../App\ portfolio\ /`.
 
 ### Mar 5, 2026 — Incident: Unpushed code caused wrong closingPrices + cascading dailyPnL corruption
 
