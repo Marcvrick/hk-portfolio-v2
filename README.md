@@ -73,6 +73,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Fix HKT midnight bug: correct `entryDate` for positions added after midnight UTC (shows as next-day, breaking `isNewToday` logic) | ✅ | — | 2026-04-14 |
 | Add position: green checkmark feedback (1.5s) on successful add | ✅ | — | 2026-04-14 |
 | Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | — | 2026-04-14 |
 | Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ | — | 2026-04-10 |
@@ -385,6 +386,8 @@ python -m http.server 8000
 - 1913.HK data corruption fixed: position had been added multiple times, accumulating to qty=6200. Correct state: qty=2300 (1000 pre-existing + 1300 added Apr 13), entry=43.597 HKD avg. `positionsAtClose` updated accordingly.
 - `dailyPnL` corrected: -14,421 → **-17,329** (final correct value). Breakdown: base -14,821 + 113.HK +1,400 + 3680.HK -2,400 + 1913.HK extra 1300 shares -1,508 = -17,329
 
+**HKT midnight entryDate bug (data patch):** 3680.HK was added to the portfolio after midnight UTC on April 13, so JavaScript stored `entryDate = "2026-04-14"`. On April 14, this made the app treat the position as `isNewToday = true`, blocking TradingView's direct `changePercent` and using `entryPrice` as `previousClose` instead — the Performance tab showed the same -4.55% as the day before rather than the live move. Fixed by patching `entryDate` to `"2026-04-13"` directly in Firestore (`patch-3680-entrydate.py`).
+
 **Lessons learned (Apr 13-14 debugging session):**
 
 1. **HKT midnight bug** — JavaScript's `new Date().toISOString()` returns UTC, which is 8 hours behind HKT. A position added at 11:30 PM on April 13 HKT has `entryDate = "2026-04-14"` in the app. Always verify the HKT date when a position's date looks one day off. If an `entryDate` is wrong by exactly +1 day, this is the cause.
@@ -398,6 +401,8 @@ python -m http.server 8000
 5. **Position averaging + multiple-add bug** — If a user taps "Ajouter" multiple times for the same position, the quantities accumulate in Firestore. The result is a qty and entryPrice that are both wrong. There is no UI guard. Fix: locate the position in Firestore via a patch script and set `quantity`, `entryPrice`, `addedTodayQty`, `qtyBeforeToday`, `addedTodayDate` to the correct values directly.
 
 6. **macOS uses `python3`, not `python`** — All patch scripts must be invoked as `python3 patch-xxx.py`. The directory path also has a trailing space (`"App portfolio /"`) which requires escaping in shell: `cd ~/Library/Mobile\ Documents/.../App\ portfolio\ /`.
+
+7. **HKT midnight bug persists the next day** — A position added after midnight UTC (= after ~8 AM HKT) gets `entryDate` of the next UTC calendar day. On that next day, `isNewToday = true`, which blocks TradingView's official `changePercent` and replaces `previousClose` with `entryPrice`. Symptom: the position shows the same % as the prior day's closing move rather than today's live move. Fix: patch `entryDate` to the correct HKT date in Firestore.
 
 ### Mar 5, 2026 — Incident: Unpushed code caused wrong closingPrices + cascading dailyPnL corruption
 
