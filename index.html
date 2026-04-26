@@ -3502,8 +3502,13 @@
                 let dailyChangePercent = 0;
                 let dailyChangeDollar = 0;
                 if (!isMarketClosedToday) {
-                  // Use TradingView's official % directly when available (no recomputation)
-                  const useTvDirect = !preMarketActive && !isNewToday && !cached?.previousCloseOverride
+                  // Use TradingView's official % directly when available (no recomputation).
+                  // Pre-market is included: cached.change holds the previous session's TV
+                  // change_abs (auto-refresh is blocked pre-market so it stays stable).
+                  // Recomputing from snapshot deltas was historically lossy because the
+                  // 16:30 HKT cron captures the CAS print rather than settlement, leaving
+                  // snapshot.closingPrices a few cents off. TV change_abs is settlement-grade.
+                  const useTvDirect = !isNewToday && !cached?.previousCloseOverride
                     && cached?.success && cached.changePercent != null && cached.change != null;
                   if (useTvDirect) {
                     dailyChangePercent = cached.changePercent;
