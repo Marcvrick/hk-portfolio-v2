@@ -73,9 +73,9 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
-| Fix HKT midnight bug: correct `entryDate` for positions added after midnight UTC (shows as next-day, breaking `isNewToday` logic) | ✅ | — | 2026-04-14 |
-| Add position: green checkmark feedback (1.5s) on successful add | ✅ | — | 2026-04-14 |
-| Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | — | 2026-04-14 |
+| Fix HKT midnight bug: correct `entryDate` for positions added after midnight UTC (shows as next-day, breaking `isNewToday` logic) | ✅ | ✅ | 2026-04-14 |
+| Add position: green checkmark feedback (1.5s) on successful add | ✅ | ✅ | 2026-04-14 |
+| Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | ✅ | 2026-04-14 |
 | Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ | — | 2026-04-10 |
 | Fix weekTotal week 1: exclude previous-month days from sum | ✅ | — | 2026-04-10 |
 | Fix HKEX_HOLIDAYS 2026: remove incorrect `2026-04-07` (Easter Monday = Apr 6) | ✅ | — | 2026-04-10 |
@@ -175,6 +175,7 @@ service cloud.firestore {
                          && request.auth.uid == userId;
       // Allowed viewers can read (for friend portfolio feature)
       allow read: if request.auth != null
+                  && request.auth.token.email_verified == true
                   && request.auth.token.email in resource.data.allowedViewers;
     }
     // US Portfolio
@@ -184,12 +185,14 @@ service cloud.firestore {
                          && request.auth.uid == userId;
       // Allowed viewers can read (for friend portfolio feature)
       allow read: if request.auth != null
+                  && request.auth.token.email_verified == true
                   && request.auth.token.email in resource.data.allowedViewers;
     }
     // Viewer Invites (notifications when someone shares their portfolio)
     match /viewerInvites/{inviteId} {
-      // Anyone authenticated can create invites
-      allow create: if request.auth != null;
+      // Only owner can create invites (ownerUid must match auth uid)
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid;
       // Invitees can read and update (mark as seen) their invites
       allow read, update: if request.auth != null
                           && request.auth.token.email == resource.data.inviteeEmail;
@@ -225,7 +228,7 @@ Both share the same `FIREBASE_CREDENTIALS_JSON` secret. To trigger manually: Git
 
 ```bash
 # Push changes to deploy via GitHub Pages
-git add .
+git add index.html index-us.html update.py update-us.py .github/
 git commit -m "Update"
 git push
 ```
@@ -336,12 +339,12 @@ python -m http.server 8000
   - Future roadmap ideas
 
 ### Before Making Changes
-1. Lire `PRD.md` pour comprendre l'architecture et les règles métier
+1. Lire [PRD.md](PRD.md) pour comprendre l'architecture et les règles métier
 2. Tester en local avec `python -m http.server 8000`
 3. Vérifier que les calculs de fees et seuils respectent les règles documentées
 
 ### After Making Changes
-1. Mettre à jour `PRD.md` si:
+1. Mettre à jour [PRD.md](PRD.md) si:
    - Nouveau data model ou champ ajouté
    - Nouvelle règle métier
    - Bug fixé (ajouter dans "Known Issues / Recent Fixes")
@@ -403,6 +406,22 @@ python -m http.server 8000
 6. **macOS uses `python3`, not `python`** — All patch scripts must be invoked as `python3 patch-xxx.py`. The directory path also has a trailing space (`"App portfolio /"`) which requires escaping in shell: `cd ~/Library/Mobile\ Documents/.../App\ portfolio\ /`.
 
 7. **HKT midnight bug persists the next day** — A position added after midnight UTC (= after ~8 AM HKT) gets `entryDate` of the next UTC calendar day. On that next day, `isNewToday = true`, which blocks TradingView's official `changePercent` and replaces `previousClose` with `entryPrice`. Symptom: the position shows the same % as the prior day's closing move rather than today's live move. Fix: patch `entryDate` to the correct HKT date in Firestore.
+
+### Apr 14, 2026 — US Portfolio sync: 3 parity fixes + security hardening
+
+**US: Double-add guard** — `addPosition` button now disabled during async save and shows green checkmark for 1.5s on success. Prevents position qty accumulation from impatient double-taps (same pattern as HK v2.21).
+
+**US: ET midnight bug fix (Performance tab chart)** — `todayStr` in the monthly P&L chart was computed with `now.toISOString().split('T')[0]` (UTC). Replaced with `getMarketToday()` (ET via `America/New_York`). Prevents the chart from mapping today's live P&L to the wrong date after midnight UTC (8 PM ET).
+
+**US: Pre-market P&L for new-today positions** — Added `preMarketActive` check (before 9:30 AM ET on a trading day) in Performance tab. When `preMarketActive && isNewToday`, previousClose uses `cached.previousClose || p.entryPrice` instead of just `p.entryPrice`. Prevents 0% display when TradingView's official previousClose is available before the open.
+
+**Security — Firestore rules updated:**
+- Viewer `allow read` now requires `email_verified == true` (prevents unverified-email ACL bypass)
+- `viewerInvites` create now requires `ownerUid == request.auth.uid` (prevents invite flooding by authenticated users)
+- `git add .` replaced with explicit file list in deployment docs (prevents accidental commit of `firebase-credentials.json`)
+- `.gitignore` created: `firebase-credentials.json`, `*.pyc`, `.env`
+
+---
 
 ### Mar 5, 2026 — Incident: Unpushed code caused wrong closingPrices + cascading dailyPnL corruption
 

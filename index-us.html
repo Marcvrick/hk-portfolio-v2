@@ -708,6 +708,7 @@
       const [viewingFriendPortfolioType, setViewingFriendPortfolioType] = useState(null); // 'HK' or 'US'
       const [ownDataBackup, setOwnDataBackup] = useState(null); // backup of own data when viewing friend
       const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+      const [positionAdded, setPositionAdded] = useState(false);
       const friendDropdownRef = useRef(null);
       const viewingFriendRef = useRef(null);
       const [activeTab, setActiveTab] = useState('portfolio');
@@ -1421,8 +1422,15 @@
         }
 
         setPositions(newPos);
-        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
+        setPositionAdded(true);
+        setTimeout(() => setPositionAdded(false), 1500);
+        // IMPORTANT: await to ensure position is saved before auto-fetch overwrites priceCache
+        try {
+          await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        } catch (e) {
+          console.error('Failed to save position to Firestore:', e);
+        }
 
         // Auto-fetch price for new position via TradingView
         try {
@@ -2285,7 +2293,9 @@
                     <input type="number" step="0.01" placeholder="Prix entrée" value={newPosition.entryPrice} onChange={(e) => setNewPosition({ ...newPosition, entryPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <input type="number" step="0.01" placeholder="Prix actuel" value={newPosition.currentPrice} onChange={(e) => setNewPosition({ ...newPosition, currentPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <input type="date" value={newPosition.entryDate} onChange={(e) => setNewPosition({ ...newPosition, entryDate: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
-                    <button onClick={addPosition} className="bg-lime-accent text-dark-text rounded px-2 py-1.5 flex items-center justify-center gap-1"><Plus size={14} /> Ajouter</button>
+                    <button onClick={addPosition} disabled={positionAdded} className={`rounded px-2 py-1.5 flex items-center justify-center gap-1 transition-all duration-300 ${positionAdded ? 'bg-green-500 text-white' : 'bg-lime-accent text-dark-text'}`}>
+                      {positionAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <Plus size={14} />}
+                      {positionAdded ? 'Ajouté !' : 'Ajouter'}</button>
                   </div>
                 </div>
                 )}
@@ -3067,8 +3077,8 @@
                   const baselineTotalPnL = getTotalPnL(baselineSnap);
 
                   const thisMonthSnaps = sortedSnaps.filter(s => s.date >= monthStart);
-                  // Override today with live values
-                  const todayStr = now.toISOString().split('T')[0];
+                  // Override today with live values — use ET timezone, NOT toISOString() (UTC)
+                  const todayStr = getMarketToday();
                   const chartData = thisMonthSnaps.map(s => ({
                     date: s.date.substring(5),
                     pnl: s.date === todayStr
@@ -3177,6 +3187,13 @@
               const yesterdaySnapshot = sortedSnapsForPrevClose.find(s => s.date < todayStr && isTradingDay(s.date));
               const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
 
+              // Check if NYSE is in pre-market (trading day, before 9:30 AM ET)
+              const preMarketActive = (() => {
+                if (!isTradingDay(todayStr)) return false;
+                const etTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+                return (etTime.getHours() * 60 + etTime.getMinutes()) < 570; // before 9:30 AM ET
+              })();
+
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker;
                 const cached = priceCache[cleanTicker];
@@ -3184,13 +3201,18 @@
                 const isNewToday = p.entryDate === todayStr;
                 // Priority for previousClose:
                 // 0. Manual override (if user set it manually)
-                // 1. New position today (not market closed) → use entry price
-                // 2. TradingView priceCache previousClose (official exchange close)
-                // 3. Yesterday's snapshot closingPrices (fallback)
-                // 4. Last fallback to current price
+                // 1. Pre-market + new-today: use TradingView previousClose (official session close)
+                // 2. New position today (not market closed) → use entry price
+                // 3. TradingView priceCache previousClose (official exchange close)
+                // 4. Yesterday's snapshot closingPrices (fallback)
+                // 5. Last fallback to current price
                 let previousClose;
                 if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
+                } else if (preMarketActive && isNewToday) {
+                  // Pre-market + position bought today: use TradingView previousClose so P&L shows
+                  // the move vs official previous session close, not 0% vs itself
+                  previousClose = cached?.previousClose || p.entryPrice;
                 } else if (isNewToday && !isMarketClosedToday) {
                   previousClose = p.entryPrice;
                 } else if (cached?.success && cached.previousClose) {

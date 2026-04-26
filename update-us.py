@@ -228,33 +228,41 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
             yesterday_snap = s
             break
 
+    # dailyPnL uses TradingView's change_abs * quantity (authoritative source).
+    # Yesterday's stored closingPrices can be slightly off if the cron captured
+    # an intraday/auction price rather than settlement, which historically caused
+    # divergence between calendar and Performance tab. Mirrors HK update.py fix.
     daily_pnl = 0
-    if yesterday_snap:
-        yesterday_closing = yesterday_snap.get("closingPrices", {})
-        for p in positions:
-            ticker = p["ticker"]
-            cur_price = p.get("currentPrice", p.get("entryPrice", 0))
-            if p.get("entryDate") == today:
-                # Entirely new position added today
-                daily_pnl += (cur_price - p.get("entryPrice", 0)) * p["quantity"]
-            elif p.get("addedTodayDate") == today and p.get("addedTodayQty", 0) > 0 and p.get("qtyBeforeToday", 0) > 0:
-                # Existing position with intraday addition: split calculation
+    yesterday_closing = yesterday_snap.get("closingPrices", {}) if yesterday_snap else {}
+    for p in positions:
+        ticker = p["ticker"]
+        cur_price = p.get("currentPrice", p.get("entryPrice", 0))
+        tv_entry = tv_prices.get(ticker) or {}
+        tv_change_abs = tv_entry.get("changeAbs")
+        if p.get("entryDate") == today:
+            daily_pnl += (cur_price - p.get("entryPrice", 0)) * p["quantity"]
+        elif p.get("addedTodayDate") == today and p.get("addedTodayQty", 0) > 0 and p.get("qtyBeforeToday", 0) > 0:
+            old_qty = p["qtyBeforeToday"]
+            added_qty = p["addedTodayQty"]
+            added_price = p.get("addedTodayPrice", 0)
+            if tv_change_abs is not None:
+                daily_pnl += tv_change_abs * old_qty
+            else:
                 prev_close = yesterday_closing.get(ticker)
-                old_qty = p["qtyBeforeToday"]
-                added_qty = p["addedTodayQty"]
-                added_price = p.get("addedTodayPrice", 0)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * old_qty
-                daily_pnl += (cur_price - added_price) * added_qty
+            daily_pnl += (cur_price - added_price) * added_qty
+        else:
+            if tv_change_abs is not None:
+                daily_pnl += tv_change_abs * p["quantity"]
             else:
                 prev_close = yesterday_closing.get(ticker)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * p["quantity"]
-        # Add realized P&L change
+    if yesterday_snap:
         yesterday_realized = yesterday_snap.get("realizedPnL", 0)
         daily_pnl += (realized_pnl - yesterday_realized)
     else:
-        # No yesterday snapshot: use unrealized P&L as approximation
         daily_pnl = round(current_value - capital_engaged, 2)
 
     snapshot = {

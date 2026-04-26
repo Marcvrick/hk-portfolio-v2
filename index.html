@@ -1274,6 +1274,17 @@
           return;
         }
 
+        // GUARD: Don't mint a NEW snapshot before the market has opened today.
+        // Without this, opening the app from a westward timezone where HKT has just
+        // rolled past midnight (e.g. Sun PT = early-Mon HKT) writes a Monday snapshot
+        // populated with the prior session's priceCache — a phantom future snapshot.
+        // We still ALLOW updates to an existing today snapshot (so structural edits
+        // during pre-market still persist).
+        if (!todaySnapshot && (isBeforeMarketOpen() || isPreMarket())) {
+          console.log('Skipping snapshot - market has not opened yet for', today);
+          return;
+        }
+
         // GUARD: Never overwrite a past snapshot that already has closingPrices.
         // Past snapshots are immutable track records. If today's date doesn't match
         // the snapshot date (e.g., stale tab), refuse to overwrite.
@@ -1647,12 +1658,16 @@
         }
 
         setPositions(newPos);
-        // IMPORTANT: await to ensure tracking fields (addedTodayDate, addedTodayQty, etc.)
-        // are saved to Firestore before cron runs - fixes intraday P&L calculation bug
-        await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
         setPositionAdded(true);
         setTimeout(() => setPositionAdded(false), 1500);
+        // IMPORTANT: await to ensure tracking fields (addedTodayDate, addedTodayQty, etc.)
+        // are saved to Firestore before cron runs - fixes intraday P&L calculation bug
+        try {
+          await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        } catch (e) {
+          console.error('Failed to save position to Firestore:', e);
+        }
 
         // Auto-fetch price for new position via TradingView
         try {
