@@ -59,11 +59,16 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index-dev.html` | Development version |
 | `update.py` | Cron script for HK TradingView prices (multi-user, HKEX holiday-aware) |
 | `update-us.py` | Cron script for US TradingView prices |
+| `verify-daily.py` | Post-cron self-check: per-ticker close/changePct + dailyPnL drift vs TradingView (`hk` / `us` arg). Fails the GitHub Actions run on >0.02 close, >0.05pp changePct, or >50 in dailyPnL drift |
 | `patch-data-correction.py` | One-time patch: fix Feb 13/16, Mar 2 closingPrices from Stooq |
 | `verify-weekly.py` | Weekly verification: Firebase snapshots vs FinMC/Stooq parquet data |
 | `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
-| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) |
-| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) |
+| `patch-apr24.py` | One-time fix: Apr 24 dailyPnL 9,720→6,134, 2175.HK 3.43→3.41, phantom Apr 27 deletion |
+| `patch-apr23-closes.py` | One-time fix: Apr 23 closingPrices realigned to TradingView settlement (CAS-vs-settlement drift) |
+| `patch-april-dailypnl.py` | One-time fix: align April dailyPnL fields with current totalPnL deltas |
+| `patch-all-months-dailypnl.py` | Generalization of the above across all months — reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) — runs `update.py` then `verify-daily.py hk` |
+| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) — runs `update-us.py` then `verify-daily.py us` |
 
 ---
 
@@ -73,6 +78,10 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
+| Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
+| Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
+| Post-cron self-check (`verify-daily.py`) wired into GitHub Actions for both markets | ✅ | ✅ | 2026-04-26 |
 | Fix HKT midnight bug: correct `entryDate` for positions added after midnight UTC (shows as next-day, breaking `isNewToday` logic) | ✅ | ✅ | 2026-04-14 |
 | Add position: green checkmark feedback (1.5s) on successful add | ✅ | ✅ | 2026-04-14 |
 | Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | ✅ | 2026-04-14 |
@@ -373,6 +382,38 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### Apr 26, 2026 — v2.22: cron uses TV change_abs, post-cron verifier, phantom-snapshot guard, dailyPnL/calendar reconciled
+
+**Symptom (Sun Apr 26 evening, Paris time):** calendar tile for Friday Apr 24 showed +9,720 HKD while the Performance tab "Daily $" total summed to +6,314 HKD. The 3,586 HKD divergence was the visible end of three independent bugs.
+
+**Bug 1 — cron `dailyPnL` baseline.** `update.py` computed `dailyPnL = (today_close − yesterday_snapshot.closingPrices[t]) × qty`. But yesterday's stored closingPrices were captured at 16:30 HKT during the Closing Auction Session and were 1–12 cents off settlement on most tickers. The browser, by contrast, sums TV's official `change_abs × qty`, so the two views drifted whenever the cron's CAS print and TV's settled close disagreed. **Fix:** `update.py` and `update-us.py` now use `tv_change_abs × qty` as the primary dailyPnL source; yesterday's closingPrices is fallback-only for tickers TV omits.
+
+**Bug 2 — phantom Apr 27 (Monday) snapshot.** Opening the app from a westward timezone (Paris/Asunción) on Sunday meant HKT had already rolled past midnight into Monday but the market hadn't opened. HK's snapshot useEffect had no "before market open" guard (the US file had one — they'd drifted), so it minted a Monday snapshot using Friday's stale priceCache. **Fix:** `index.html` line ~1283 now refuses to create a NEW today-snapshot when `isBeforeMarketOpen() || isPreMarket()`. Existing snapshots can still be updated for structural changes; only the *minting* path is gated.
+
+**Bug 3 — Performance tab pre-market math.** The pre-market path gated `useTvDirect` on `!preMarketActive`, forcing it to recompute Friday's daily change as `(yesterday_snap.closingPrices − day_before_yesterday_snap.closingPrices) × qty`. Same CAS-vs-settlement drift propagated through. **Fix:** `index.html` line 3506 — removed `!preMarketActive` from the gate. The Performance tab now uses TV-direct math at all times of day, matching the US file's existing logic.
+
+**Data patches applied to Firestore:**
+- `patch-apr24.py` — Apr 24 dailyPnL 9,720 → +6,134, 2175.HK closingPrice 3.43 → 3.41 (TV settlement), phantom Apr 27 snapshot deleted, priceCache 2175.HK corrected to −1.73%.
+- `patch-apr23-closes.py` — Apr 23 closingPrices for 14/15 tickers realigned to TV settlement values (= Apr 24 priceCache previousClose). Fixes pre-market Performance tab math which reads Apr 23 closes as the "day before yesterday" baseline. portfolioValue updated; dailyPnL preserved at the original −12,941 (the v2.12 immutability rule was *don't auto-recompute*, not *never patch*).
+- `patch-april-dailypnl.py` / `patch-all-months-dailypnl.py` — 10 stored dailyPnL fields realigned across Jan/Feb/Mar/Apr so calendar `monthTotal` equals the P&L chart endpoint. Same root cause: closingPrices got patched retroactively over the year (Apr 13 incident series, the Apr 23 settlement patch tonight) and dailyPnL was never reconciled. After patch:
+  - January (Jan 26-30 only, app launched mid-month): +14,745 HKD calendar / chart legitimately differs because there's no December baseline
+  - February: +22,995 HKD ✓ both views agree
+  - March: −99,006 HKD ✓
+  - April: +37,607 HKD ✓
+
+**Defense for the future — `verify-daily.py`.** New script runs as the final step of both GitHub Actions workflows. After `update.py` (or `update-us.py`) writes the day's snapshot, the verifier re-pulls TradingView and asserts:
+  - per-ticker `closingPrice` within 0.02 in market currency of TV settlement
+  - per-ticker `priceCache.changePercent` within 0.05 percentage points of TV
+  - `dailyPnL` within 50 in market currency of `sum(TV change_abs × qty) + realized delta`
+
+Any violation exits 1 — the Actions run goes red and the failure email lists the offending tickers. Catches the regression class behind Mar 5, Apr 24, and the 2175.HK CAS-vs-settlement gap without needing a separate scheduled agent or external credentials.
+
+**Lessons:**
+1. **The cron and the browser must compute `dailyPnL` the same way.** They had drifted: cron used yesterday-closingPrices delta; browser used `cached.change × qty`. Whenever those inputs disagree (CAS vs settlement, intraday vs close, manual patch propagation), the two views diverge and one side becomes "wrong."
+2. **Stored `dailyPnL` is immutable for *display*, not *forever*.** When upstream inputs (positionsAtClose, closingPrices, realizedPnL) get retroactively patched, `dailyPnL` must be patched in the same operation — otherwise the calendar's monthly sum drifts away from the P&L chart endpoint silently.
+3. **Browser-side timezone math is always wrong somewhere.** Every "phantom snapshot" / "stale today" / "HKT midnight" bug we've shipped traces back to using `Date()` arithmetic instead of `toLocaleString('Asia/Hong_Kong')`. The pre-market guard added today closes one more such hole; index-us.html had this guard already because the US side hit the same class of bug Feb 12 (v2.13).
+4. **Self-checks belong inline with the operation that can break them.** A weekly external verifier wouldn't have caught this — the divergence persisted for weeks before manual eyeballing surfaced it. Wiring `verify-daily.py` into the workflow that *creates* the snapshot means any regression fails the same run that introduced it.
 
 ### Apr 14, 2026 — v2.21: Pre-market P&L fix for new-today positions + add position feedback
 
