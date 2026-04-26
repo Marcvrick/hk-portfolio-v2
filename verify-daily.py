@@ -2,25 +2,22 @@
 """
 Post-cron self-check.
 
-Runs immediately after update.py finishes its daily HK snapshot. For every
-portfolio it just touched, it re-pulls TradingView's settlement values and
-verifies that today's snapshot agrees with TV.
+Runs immediately after update.py / update-us.py finishes its daily snapshot.
+For every portfolio it just touched, it re-pulls TradingView's settlement
+values and verifies that today's snapshot agrees with TV.
+
+Usage:
+    python verify-daily.py hk    # checks the `portfolios` collection
+    python verify-daily.py us    # checks the `us-portfolios` collection
 
 Three checks, with their thresholds:
 
-  1. Per-ticker closingPrice drift  > 0.02 HKD
+  1. Per-ticker closingPrice drift  > 0.02 in market currency
   2. Per-ticker changePercent drift > 0.05 percentage points
-  3. dailyPnL drift                 > 50 HKD vs sum(TV change_abs * qty)
+  3. dailyPnL drift                 > 50 in market currency vs sum(TV change_abs * qty)
 
-If anything trips, the script prints a structured FAIL block and exits 1
-so the GitHub Actions run is marked red and surfaces in the email/PR feed.
-A clean run prints a one-line PASS and exits 0.
-
-This catches the regressions we've been hand-patching all year:
-- The Mar 5 incident (cron wrote stale closingPrices/changePercent)
-- The Apr 24 incident (dailyPnL diverged from sum(change_abs * qty))
-- The 2175.HK-style CAS-vs-settlement drift
-- Any future code change that quietly breaks the cron's math
+If anything trips, prints a structured FAIL block and exits 1 so the GitHub
+Actions run is marked red. Clean run prints a one-line PASS and exits 0.
 """
 
 import json
@@ -33,10 +30,30 @@ from datetime import datetime, timezone, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-HKT = timezone(timedelta(hours=8))
-CLOSE_DRIFT = 0.02      # HKD
-PCT_DRIFT = 0.05        # percentage points
-PNL_DRIFT = 50.0        # HKD
+CLOSE_DRIFT = 0.02
+PCT_DRIFT = 0.05
+PNL_DRIFT = 50.0
+
+MARKETS = {
+    "hk": {
+        "scanner_url": "https://scanner.tradingview.com/hongkong/scan",
+        "collection": "portfolios",
+        "tz": timezone(timedelta(hours=8)),
+        "currency": "HKD",
+        # HK tickers come back from TV without zero-padding ("1913", "285").
+        # Positions can be stored either way, so mirror under both keys.
+        "pad": True,
+        "ticker_suffix": ".HK",
+    },
+    "us": {
+        "scanner_url": "https://scanner.tradingview.com/america/scan",
+        "collection": "us-portfolios",
+        "tz": timezone(timedelta(hours=-5)),  # ET (DST handled approximately; weekday check is what matters)
+        "currency": "USD",
+        "pad": False,
+        "ticker_suffix": "",
+    },
+}
 
 
 def init_firebase():
@@ -52,15 +69,14 @@ def init_firebase():
     return firestore.client()
 
 
-def fetch_tv():
-    """Same Scanner call the cron uses. Returns {ticker: {close, changeAbs, changePct}}."""
+def fetch_tv(market_cfg):
     payload = {
         "columns": ["name", "close", "change", "change_abs"],
         "range": [0, 25000],
         "sort": {"sortBy": "name", "sortOrder": "asc"},
     }
     req = urllib.request.Request(
-        "https://scanner.tradingview.com/hongkong/scan",
+        market_cfg["scanner_url"],
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -73,6 +89,7 @@ def fetch_tv():
         data = json.loads(r.read())
 
     out = {}
+    suffix = market_cfg["ticker_suffix"]
     for item in data.get("data", []):
         code = item["s"].split(":")[1]
         d = item["d"]
@@ -80,8 +97,9 @@ def fetch_tv():
         if close is None or chg_abs is None:
             continue
         entry = {"close": close, "changeAbs": chg_abs, "changePct": chg_pct}
-        out[f"{code}.HK"] = entry
-        out[f"{code.zfill(4)}.HK"] = entry
+        out[f"{code}{suffix}"] = entry
+        if market_cfg["pad"]:
+            out[f"{code.zfill(4)}{suffix}"] = entry
     return out
 
 
@@ -96,10 +114,10 @@ def verify_portfolio(user_id, data, tv, today):
         return []
 
     issues = []
-
-    # Check 1 + 2: per-ticker closingPrice and changePercent drift
     closing_prices = snap.get("closingPrices", {})
     price_cache = data.get("priceCache", {})
+
+    # Check 1 + 2: per-ticker closingPrice and changePercent drift
     for p in positions:
         ticker = p["ticker"].replace("b.HK", ".HK")
         tv_e = tv.get(ticker)
@@ -130,7 +148,6 @@ def verify_portfolio(user_id, data, tv, today):
             expected_pnl += (p.get("currentPrice", 0) - p.get("entryPrice", 0)) * p["quantity"]
         else:
             expected_pnl += tv_e["changeAbs"] * p["quantity"]
-    # Realized delta vs yesterday
     yesterday_snap = next(
         (s for s in sorted(snapshots, key=lambda x: x["date"], reverse=True) if s["date"] < today),
         None,
@@ -149,31 +166,37 @@ def verify_portfolio(user_id, data, tv, today):
 
 
 def main():
-    today = datetime.now(HKT).strftime("%Y-%m-%d")
-    weekday = datetime.now(HKT).weekday()
+    if len(sys.argv) < 2 or sys.argv[1] not in MARKETS:
+        print("Usage: verify-daily.py [hk|us]")
+        sys.exit(2)
+    market = sys.argv[1]
+    cfg = MARKETS[market]
+
+    today = datetime.now(cfg["tz"]).strftime("%Y-%m-%d")
+    weekday = datetime.now(cfg["tz"]).weekday()
     if weekday >= 5:
-        print(f"verify-daily: {today} is a weekend — skip")
+        print(f"verify-daily {market}: {today} is a weekend — skip")
         return
 
     db = init_firebase()
-    tv = fetch_tv()
+    tv = fetch_tv(cfg)
     if not tv:
-        print("ERROR: TV scanner returned no data — cannot verify")
+        print(f"ERROR: TV scanner ({market}) returned no data — cannot verify")
         sys.exit(2)
 
     all_issues = []
-    for doc in db.collection("portfolios").stream():
+    for doc in db.collection(cfg["collection"]).stream():
         data = doc.to_dict()
         if not data.get("positions"):
             continue
         all_issues.extend(verify_portfolio(doc.id, data, tv, today))
 
     if all_issues:
-        print(f"=== verify-daily FAIL — {len(all_issues)} issue(s) on {today} ===")
+        print(f"=== verify-daily {market.upper()} FAIL — {len(all_issues)} issue(s) on {today} ===")
         for i in all_issues:
             print(" - " + i)
         sys.exit(1)
-    print(f"verify-daily PASS — {today}")
+    print(f"verify-daily {market.upper()} PASS — {today}")
 
 
 if __name__ == "__main__":
