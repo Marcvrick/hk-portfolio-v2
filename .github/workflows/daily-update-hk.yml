@@ -17,3 +17,7 @@ jobs:
           env:
             FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
           run: python update.py
+        - name: Verify snapshot vs TradingView (fails the run on drift)
+          env:
+            FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+          run: python verify-daily.py
