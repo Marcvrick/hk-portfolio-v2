@@ -78,6 +78,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
+| Performance tab pre-market: restore `!preMarketActive` in `useTvDirect` gate — use snapshot delta, not poisonable priceCache | ✅ | ✅ | 2026-05-05 |
 | Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
 | Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
 | Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
@@ -382,6 +384,19 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### May 5, 2026 — v2.23: block manual refresh outside market hours; pre-market Performance tab uses snapshot delta not priceCache
+
+**Symptom:** Header "DERN. SÉANCE fermé" showed +7,507 while Performance tab "Dernière séance P&L" showed +2,267 — a 5,240 HKD gap.
+
+**Bug 1 — Manual Refresh button had no pre-market guard.** Auto-refresh was correctly blocked in pre-market (line 1125 guard), but the Sync button called `refreshPrices()` unconditionally. Pressing Sync in pre-market fetched today's pre-market TV data (tiny intraday `change_abs`) and overwrote the cron's settled May-4 `change_abs` in `priceCache`. The Performance tab then computed `sum(cached.change × qty)` from the corrupted cache = ~+2,267 instead of the true +7,507. **Fix:** Button now `disabled` when `isPreMarket() || isBeforeMarketOpen() || isAfterClose()` (HK) or `isPreMarketUS() || isAfterClose()` (US), with a tooltip explaining why. Mirrors the existing auto-refresh guard.
+
+**Bug 2 — Apr 26 fix (removing `!preMarketActive` from `useTvDirect`) made pre-market calculation fragile.** The Apr 26 fix was correct to prefer TV `change_abs` over the CAS-drifted snapshot delta — but its safety assumption ("auto-refresh is blocked pre-market so cache stays stable") was violated by the unguarded manual Refresh. **Fix:** Restored `!preMarketActive` in the `useTvDirect` gate. In pre-market the Performance tab now uses `(yesterdayClose − dayBeforeClose) × qty` from immutable snapshot data. The total will differ from the cron's stored `dailyPnL` only by CAS drift (typically a few HKD total), which is far better than the thousands of HKD error from a stale-cache bug.
+
+**Lessons:**
+1. **Every path that can mutate priceCache must be blocked outside market hours**, not just auto-refresh. A manual button is just as destructive.
+2. **"Cache stays stable" is not a safety invariant** unless ALL write paths are guarded. If there's a manual escape hatch, the invariant doesn't hold.
+3. **Snapshot delta is more robust than TV-direct in pre-market** because snapshots are immutable; the priceCache is not.
 
 ### Apr 26, 2026 — v2.22: cron uses TV change_abs, post-cron verifier, phantom-snapshot guard, dailyPnL/calendar reconciled
 

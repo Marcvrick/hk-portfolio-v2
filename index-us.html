@@ -263,6 +263,13 @@
       return timeInMinutes >= 960; // >= 16:00 ET
     };
 
+    const isPreMarketUS = () => {
+      const todayStr = getMarketToday();
+      if (!isTradingDay(todayStr)) return false;
+      const etTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      return (etTime.getHours() * 60 + etTime.getMinutes()) < 570; // before 9:30 AM ET
+    };
+
     // US version - strip .HK suffix if present (data entry error), trim whitespace, uppercase
     const convertOldTicker = (ticker) => {
       if (!ticker) return ticker;
@@ -2016,8 +2023,9 @@
               <div className="flex gap-3">
                 <button
                   onClick={refreshPrices}
-                  disabled={isRefreshing}
-                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${isRefreshing ? 'bg-gray-100 text-muted' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
+                  disabled={isRefreshing || isPreMarketUS() || isAfterClose()}
+                  title={(isPreMarketUS() || isAfterClose()) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
+                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarketUS() || isAfterClose()) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
                 >
                   <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/>
                   {isRefreshing ? `${refreshProgress.current}/${refreshProgress.total}` : 'Sync'}
@@ -3188,11 +3196,7 @@
               const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
 
               // Check if NYSE is in pre-market (trading day, before 9:30 AM ET)
-              const preMarketActive = (() => {
-                if (!isTradingDay(todayStr)) return false;
-                const etTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-                return (etTime.getHours() * 60 + etTime.getMinutes()) < 570; // before 9:30 AM ET
-              })();
+              const preMarketActive = isPreMarketUS();
 
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker;
@@ -3222,8 +3226,10 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                // Use TradingView's official % directly when available (never recompute %)
-                const useTvDirect = !isNewToday && !cached?.previousCloseOverride
+                // Use TradingView's official % directly when available (never recompute %).
+                // Exclude pre-market: cache may hold today's pre-market change_abs instead of
+                // yesterday's settlement if user triggered a manual refresh.
+                const useTvDirect = !preMarketActive && !isNewToday && !cached?.previousCloseOverride
                   && cached?.success && cached.changePercent != null && cached.change != null;
                 const dailyChangePercent = useTvDirect ? cached.changePercent
                   : (previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0);
