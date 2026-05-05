@@ -259,10 +259,19 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
                 prev_close = yesterday_closing.get(ticker)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * p["quantity"]
-    if yesterday_snap:
-        yesterday_realized = yesterday_snap.get("realizedPnL", 0)
-        daily_pnl += (realized_pnl - yesterday_realized)
-    else:
+    # Add today's closed-position contribution: (exitPrice − yesterday_close) × qty.
+    # Using (realized_pnl - yesterday_realized) overcounts prior sessions' unrealized gains.
+    for t in closed_trades:
+        if t.get("exitDate") != today:
+            continue
+        ticker_clean = t["ticker"].strip().replace(".HK", "").upper() if ".HK" in t.get("ticker","") else t.get("ticker","").strip().upper()
+        prev_close = yesterday_closing.get(ticker_clean)
+        if prev_close is not None:
+            daily_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
+        elif t.get("entryDate") == today:
+            daily_pnl += (t.get("exitPrice", 0) - t.get("entryPrice", 0)) * t.get("quantity", 0)
+
+    if not yesterday_snap:
         daily_pnl = round(current_value - capital_engaged, 2)
 
     snapshot = {

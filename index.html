@@ -3575,15 +3575,22 @@
                 return perfSortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
               });
 
-              // In pre-market: the cron's dailyPnL = unrealized change (open positions) + realized delta
-              // (positions closed that session). The movers table only has open positions, so
-              // totalDailyDollar misses the realized component. Add it back to match the header/calendar.
-              const prevSessionRealizedDelta = (() => {
+              // In pre-market: add positions closed during the last session (exitDate = yesterday).
+              // Use (exitPrice − dayBeforeClose) × qty — today's session move only, same formula
+              // as the browser's live closedTodayGain. Do NOT use realized_pnl delta (overcounts
+              // all prior sessions' unrealized gains that were already in previous dailyPnL tiles).
+              const closedLastSessionDollar = (() => {
                 if (!preMarketActive || !yesterdaySnapshot) return 0;
-                const dayBeforeSnap = sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date));
-                return (yesterdaySnapshot.realizedPnL || 0) - (dayBeforeSnap?.realizedPnL || 0);
+                return closedTrades
+                  .filter(t => t.exitDate === yesterdaySnapshot.date)
+                  .reduce((sum, t) => {
+                    const ct = t.ticker.replace(/b\.HK$/, '.HK');
+                    const prevClose = dayBeforeClosingPrices[ct] || yesterdayClosingPrices[ct];
+                    if (prevClose == null) return sum + (t.entryDate === yesterdaySnapshot.date ? (t.exitPrice - t.entryPrice) * t.quantity : 0);
+                    return sum + (t.exitPrice - prevClose) * t.quantity;
+                  }, 0);
               })();
-              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0) + prevSessionRealizedDelta;
+              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0) + closedLastSessionDollar;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
               const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;

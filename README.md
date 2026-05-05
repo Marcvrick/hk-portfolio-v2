@@ -79,7 +79,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
-| Pre-market Performance tab `totalDailyDollar` adds `prevSessionRealizedDelta` (positions closed last session) to match cron `dailyPnL` | ✅ | ✅ | 2026-05-06 |
+| Fix cron `dailyPnL` overcount: replace `realized_pnl−yesterday_realized` with `(exitPrice−prevClose)×qty` for positions closed today | ✅ | ✅ | 2026-05-06 |
+| Pre-market Performance tab: add `closedLastSessionDollar` (session-move-only for positions closed last session) | ✅ | ✅ | 2026-05-06 |
 | Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
 | Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
 | Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
@@ -389,14 +390,17 @@ python -m http.server 8000
 
 **Symptom:** Header "DERN. SÉANCE fermé" showed +7,507 while Performance tab "Dernière séance P&L" showed +2,267 — a 5,240 HKD gap.
 
-**Root cause — the cron's `dailyPnL` formula includes a realized delta term the Performance tab never had:**
-```
-cron dailyPnL = sum(tv_change_abs × qty for open positions)
-              + (realizedPnL_at_close - previousDay_snapshot.realizedPnL)
-```
-The second term captures realized gains/losses from positions closed during that session. The Performance tab's `totalDailyDollar` only summed movers (open positions + positions closed TODAY). Positions closed the PREVIOUS session (exitDate = "2026-05-04") were in `closedTrades` but filtered out by `exitDate === todayStr`. The ~5,240 HKD gap was exactly the realized P&L from positions closed on Monday.
+**Root cause — the cron's `dailyPnL` formula had a double-counting bug for sessions where positions were closed:**
 
-**Fix — `prevSessionRealizedDelta`:** In pre-market, compute `yesterdaySnapshot.realizedPnL - dayBeforeSnap.realizedPnL` and add it to `totalDailyDollar`. This mirrors the cron's formula and makes the Performance tab total match the header/calendar exactly.
+The cron used `daily_pnl += (realized_pnl - yesterday_realized)` to account for positions closed during the session. `realized_pnl` is the FULL entry-to-exit profit (e.g. bought at 10, sold at 15 = +5 × qty). But the prior sessions' daily tiles had already captured the intermediate gains (+1, +1, +1, +1 per day). The closing day then added +5 again instead of just +1 (today's session move). Result: the closing day's tile in the calendar is inflated by all the prior unrealized gains.
+
+The browser's live calculation was always correct: `(exitPrice − prevClose) × qty` — only today's session move.
+
+**Fix — cron (`update.py`, `update-us.py`):** Loop over `closedTrades` with `exitDate == today` and add `(exitPrice − yesterday_closing[ticker]) × qty` for each. Same formula the browser uses. Removed the `realized_pnl - yesterday_realized` line.
+
+**Fix — browser pre-market `closedLastSessionDollar`:** In pre-market, the movers table only shows open positions. Added `closedLastSessionDollar` = sum of `(exitPrice − dayBeforeClose) × qty` for positions closed on the last session (exitDate = yesterdaySnapshot.date). This correctly includes the session-move contribution of closed positions without the prior-gains overcount.
+
+**Fix — `patch-may4-dailypnl.py`:** Corrects the already-stored May 4 snapshot `dailyPnL` to the proper value using `positionsAtClose` closingPrices + session-move formula for closedTrades.
 
 **Also fixed — Sync button now disabled outside market hours:** Auto-refresh was correctly blocked (line 1125) but the manual Sync button had no guard. Added `disabled` state matching the auto-refresh condition. Added `isPreMarketUS()` helper function to US file. This is a safeguard against potential priceCache corruption during the HK pre-opening auction window (9:00–9:30 HKT) when TV may return indicative prices.
 

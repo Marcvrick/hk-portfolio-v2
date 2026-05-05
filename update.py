@@ -298,11 +298,22 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
                 prev_close = yesterday_closing.get(clean)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * p["quantity"]
-    # Add realized P&L delta vs yesterday
-    if yesterday_snap:
-        yesterday_realized = yesterday_snap.get("realizedPnL", 0)
-        daily_pnl += (realized_pnl - yesterday_realized)
-    else:
+    # Add today's closed-position contribution: (exitPrice − yesterday_close) × qty.
+    # Do NOT use (realized_pnl - yesterday_realized): that adds the full entry-to-exit profit,
+    # which overcounts all prior sessions' unrealized gains already captured in previous dailyPnL tiles.
+    for t in closed_trades:
+        if t.get("exitDate") != today:
+            continue
+        clean = t["ticker"].replace("b.HK", ".HK")
+        prev_close = yesterday_closing.get(clean)
+        if prev_close is not None:
+            daily_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
+        elif t.get("entryDate") == today:
+            # Opened and closed same session: gain is exit − entry
+            daily_pnl += (t.get("exitPrice", 0) - t.get("entryPrice", 0)) * t.get("quantity", 0)
+        # else: no prev_close, not same-day — skip; can't compute session contribution
+
+    if not yesterday_snap:
         # No yesterday snapshot — fall back to total unrealized
         daily_pnl = round(current_value - capital_engaged, 2)
 
