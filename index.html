@@ -3509,10 +3509,7 @@
                   // Recomputing from snapshot deltas was historically lossy because the
                   // 16:30 HKT cron captures the CAS print rather than settlement, leaving
                   // snapshot.closingPrices a few cents off. TV change_abs is settlement-grade.
-                  // Pre-market: don't trust priceCache — it may have been poisoned by a manual
-                  // refresh that fetched today's pre-market change_abs instead of yesterday's settlement.
-                  // Use snapshot delta instead (yesterdayClose − dayBeforeClose), which is stable.
-                  const useTvDirect = !preMarketActive && !isNewToday && !cached?.previousCloseOverride
+                  const useTvDirect = !isNewToday && !cached?.previousCloseOverride
                     && cached?.success && cached.changePercent != null && cached.change != null;
                   if (useTvDirect) {
                     dailyChangePercent = cached.changePercent;
@@ -3578,7 +3575,15 @@
                 return perfSortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
               });
 
-              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
+              // In pre-market: the cron's dailyPnL = unrealized change (open positions) + realized delta
+              // (positions closed that session). The movers table only has open positions, so
+              // totalDailyDollar misses the realized component. Add it back to match the header/calendar.
+              const prevSessionRealizedDelta = (() => {
+                if (!preMarketActive || !yesterdaySnapshot) return 0;
+                const dayBeforeSnap = sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date));
+                return (yesterdaySnapshot.realizedPnL || 0) - (dayBeforeSnap?.realizedPnL || 0);
+              })();
+              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0) + prevSessionRealizedDelta;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
               const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;

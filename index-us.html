@@ -3226,10 +3226,8 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                // Use TradingView's official % directly when available (never recompute %).
-                // Exclude pre-market: cache may hold today's pre-market change_abs instead of
-                // yesterday's settlement if user triggered a manual refresh.
-                const useTvDirect = !preMarketActive && !isNewToday && !cached?.previousCloseOverride
+                // Use TradingView's official % directly when available (never recompute %)
+                const useTvDirect = !isNewToday && !cached?.previousCloseOverride
                   && cached?.success && cached.changePercent != null && cached.change != null;
                 const dailyChangePercent = useTvDirect ? cached.changePercent
                   : (previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0);
@@ -3270,7 +3268,12 @@
               });
               const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
 
-              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
+              const prevSessionRealizedDelta = (() => {
+                if (!preMarketActive || !yesterdaySnapshot) return 0;
+                const dayBeforeSnap = sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date));
+                return (yesterdaySnapshot.realizedPnL || 0) - (dayBeforeSnap?.realizedPnL || 0);
+              })();
+              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0) + prevSessionRealizedDelta;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
               const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;

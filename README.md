@@ -79,7 +79,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
-| Performance tab pre-market: restore `!preMarketActive` in `useTvDirect` gate — use snapshot delta, not poisonable priceCache | ✅ | ✅ | 2026-05-05 |
+| Pre-market Performance tab `totalDailyDollar` adds `prevSessionRealizedDelta` (positions closed last session) to match cron `dailyPnL` | ✅ | ✅ | 2026-05-06 |
 | Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
 | Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
 | Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
@@ -385,18 +385,24 @@ python -m http.server 8000
 
 ## Changelog
 
-### May 5, 2026 — v2.23: block manual refresh outside market hours; pre-market Performance tab uses snapshot delta not priceCache
+### May 5-6, 2026 — v2.23: pre-market Performance tab includes realized delta from last session
 
 **Symptom:** Header "DERN. SÉANCE fermé" showed +7,507 while Performance tab "Dernière séance P&L" showed +2,267 — a 5,240 HKD gap.
 
-**Bug 1 — Manual Refresh button had no pre-market guard.** Auto-refresh was correctly blocked in pre-market (line 1125 guard), but the Sync button called `refreshPrices()` unconditionally. Pressing Sync in pre-market fetched today's pre-market TV data (tiny intraday `change_abs`) and overwrote the cron's settled May-4 `change_abs` in `priceCache`. The Performance tab then computed `sum(cached.change × qty)` from the corrupted cache = ~+2,267 instead of the true +7,507. **Fix:** Button now `disabled` when `isPreMarket() || isBeforeMarketOpen() || isAfterClose()` (HK) or `isPreMarketUS() || isAfterClose()` (US), with a tooltip explaining why. Mirrors the existing auto-refresh guard.
+**Root cause — the cron's `dailyPnL` formula includes a realized delta term the Performance tab never had:**
+```
+cron dailyPnL = sum(tv_change_abs × qty for open positions)
+              + (realizedPnL_at_close - previousDay_snapshot.realizedPnL)
+```
+The second term captures realized gains/losses from positions closed during that session. The Performance tab's `totalDailyDollar` only summed movers (open positions + positions closed TODAY). Positions closed the PREVIOUS session (exitDate = "2026-05-04") were in `closedTrades` but filtered out by `exitDate === todayStr`. The ~5,240 HKD gap was exactly the realized P&L from positions closed on Monday.
 
-**Bug 2 — Apr 26 fix (removing `!preMarketActive` from `useTvDirect`) made pre-market calculation fragile.** The Apr 26 fix was correct to prefer TV `change_abs` over the CAS-drifted snapshot delta — but its safety assumption ("auto-refresh is blocked pre-market so cache stays stable") was violated by the unguarded manual Refresh. **Fix:** Restored `!preMarketActive` in the `useTvDirect` gate. In pre-market the Performance tab now uses `(yesterdayClose − dayBeforeClose) × qty` from immutable snapshot data. The total will differ from the cron's stored `dailyPnL` only by CAS drift (typically a few HKD total), which is far better than the thousands of HKD error from a stale-cache bug.
+**Fix — `prevSessionRealizedDelta`:** In pre-market, compute `yesterdaySnapshot.realizedPnL - dayBeforeSnap.realizedPnL` and add it to `totalDailyDollar`. This mirrors the cron's formula and makes the Performance tab total match the header/calendar exactly.
+
+**Also fixed — Sync button now disabled outside market hours:** Auto-refresh was correctly blocked (line 1125) but the manual Sync button had no guard. Added `disabled` state matching the auto-refresh condition. Added `isPreMarketUS()` helper function to US file. This is a safeguard against potential priceCache corruption during the HK pre-opening auction window (9:00–9:30 HKT) when TV may return indicative prices.
 
 **Lessons:**
-1. **Every path that can mutate priceCache must be blocked outside market hours**, not just auto-refresh. A manual button is just as destructive.
-2. **"Cache stays stable" is not a safety invariant** unless ALL write paths are guarded. If there's a manual escape hatch, the invariant doesn't hold.
-3. **Snapshot delta is more robust than TV-direct in pre-market** because snapshots are immutable; the priceCache is not.
+1. **The cron's `dailyPnL` is not just unrealized change** — it always includes the realized delta. Any browser-side replication of "today's session P&L" must include the same term or it will silently diverge whenever a trade is closed.
+2. **Every path that mutates priceCache must be blocked outside market hours** — a manual button is as destructive as an auto-refresh.
 
 ### Apr 26, 2026 — v2.22: cron uses TV change_abs, post-cron verifier, phantom-snapshot guard, dailyPnL/calendar reconciled
 
