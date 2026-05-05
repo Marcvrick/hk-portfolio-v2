@@ -3268,19 +3268,10 @@
               });
               const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
 
-              const closedLastSessionDollar = (() => {
-                if (!preMarketActive || !yesterdaySnapshot) return 0;
-                const dayBeforeSnap = sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date));
-                const dayBeforeCloses = dayBeforeSnap?.closingPrices || {};
-                return closedTrades
-                  .filter(t => t.exitDate === yesterdaySnapshot.date)
-                  .reduce((sum, t) => {
-                    const prevClose = dayBeforeCloses[t.ticker] || yesterdayClosingPrices[t.ticker];
-                    if (prevClose == null) return sum + (t.entryDate === yesterdaySnapshot.date ? (t.exitPrice - t.entryPrice) * t.quantity : 0);
-                    return sum + (t.exitPrice - prevClose) * t.quantity;
-                  }, 0);
-              })();
-              const totalDailyDollar = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0) + closedLastSessionDollar;
+              const moversDollarSum = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
+              const totalDailyDollar = (preMarketActive && yesterdaySnapshot?.dailyPnL !== undefined)
+                ? yesterdaySnapshot.dailyPnL
+                : moversDollarSum;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
               const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;
