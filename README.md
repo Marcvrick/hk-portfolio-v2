@@ -60,6 +60,8 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `update.py` | Cron script for HK TradingView prices (multi-user, HKEX holiday-aware) |
 | `update-us.py` | Cron script for US TradingView prices |
 | `verify-daily.py` | Post-cron self-check: per-ticker close/changePct + dailyPnL drift vs TradingView (`hk` / `us` arg). Fails the GitHub Actions run on >0.02 close, >0.05pp changePct, or >50 in dailyPnL drift |
+| `patch-snapshot-dailypnl.py` | Reusable backfill: corrects any snapshot's `dailyPnL` given `TARGET_DATE PREV_DATE` args. Use when a cron ran before a formula fix. Run: `GOOGLE_APPLICATION_CREDENTIALS=... python3 patch-snapshot-dailypnl.py 2026-05-05 2026-05-04 --dry-run` |
+| `patch-may4-dailypnl.py` | One-off predecessor to `patch-snapshot-dailypnl.py` — left for reference |
 | `patch-data-correction.py` | One-time patch: fix Feb 13/16, Mar 2 closingPrices from Stooq |
 | `verify-weekly.py` | Weekly verification: Firebase snapshots vs FinMC/Stooq parquet data |
 | `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
@@ -80,7 +82,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 |---|:---:|:---:|---|
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
 | Fix cron `dailyPnL` overcount: replace `realized_pnl−yesterday_realized` with `(exitPrice−prevClose)×qty` for positions closed today | ✅ | ✅ | 2026-05-06 |
-| Pre-market Performance tab: add `closedLastSessionDollar` (session-move-only for positions closed last session) | ✅ | ✅ | 2026-05-06 |
+| Pre-market Performance tab: `totalDailyDollar` reads `yesterdaySnapshot.dailyPnL` directly (authoritative cron value); drop `closedLastSessionDollar` IIFE | ✅ | ✅ | 2026-05-06 |
+| Fix `verify-daily.py` Check 3 formula (was using same overcount as cron bug); add Check 4 (8% sanity cap on dailyPnL vs portfolio value) | ✅ | ✅ | 2026-05-06 |
 | Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
 | Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
 | Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
@@ -386,27 +389,31 @@ python -m http.server 8000
 
 ## Changelog
 
-### May 5-6, 2026 — v2.23: pre-market Performance tab includes realized delta from last session
+### May 5-6, 2026 — v2.23–v2.25: fix dailyPnL overcount on days with closed positions
 
-**Symptom:** Header "DERN. SÉANCE fermé" showed +7,507 while Performance tab "Dernière séance P&L" showed +2,267 — a 5,240 HKD gap.
+**Symptom:** Header "DERN. SÉANCE fermé" showed +7,507 HKD while Performance tab "Dernière séance P&L" showed +2,267 HKD. Calendar tile for Tuesday May 5 was permanently stuck at 7,507 even after a hard refresh.
 
-**Root cause — the cron's `dailyPnL` formula had a double-counting bug for sessions where positions were closed:**
+**Root cause — the cron's `dailyPnL` overcounted on any day a position was closed:**
 
-The cron used `daily_pnl += (realized_pnl - yesterday_realized)` to account for positions closed during the session. `realized_pnl` is the FULL entry-to-exit profit (e.g. bought at 10, sold at 15 = +5 × qty). But the prior sessions' daily tiles had already captured the intermediate gains (+1, +1, +1, +1 per day). The closing day then added +5 again instead of just +1 (today's session move). Result: the closing day's tile in the calendar is inflated by all the prior unrealized gains.
+`update.py` computed `daily_pnl += (realized_pnl - yesterday_realized)` for the closed-trade contribution. `realized_pnl` is the **full entry-to-exit profit** (e.g. bought at 9.00, sold at 10.62 = +9,720 HKD). But every prior day's tile had already recorded the daily move of that position while it was held. The closing day then replayed the entire realized gain instead of just the session's move (10.62 − 10.56) × qty. Result: the closing day's tile was inflated by every prior session's unrealized gain that had already been counted.
 
-The browser's live calculation was always correct: `(exitPrice − prevClose) × qty` — only today's session move.
+**Fix v2.24 — cron (`update.py`, `update-us.py`):** Replaced the `realized_pnl − yesterday_realized` block with a loop over `closedTrades` where `exitDate == today`, adding `(exitPrice − yesterday_closing[ticker]) × qty` per trade. Session-move only. Same formula the browser already used.
 
-**Fix — cron (`update.py`, `update-us.py`):** Loop over `closedTrades` with `exitDate == today` and add `(exitPrice − yesterday_closing[ticker]) × qty` for each. Same formula the browser uses. Removed the `realized_pnl - yesterday_realized` line.
+**Fix v2.25 — browser pre-market Performance tab:** In pre-market, `totalDailyDollar` now reads `yesterdaySnapshot.dailyPnL` directly — the same authoritative value already shown in the header card and calendar. Prior approach (`closedLastSessionDollar` IIFE) introduced a delta not reflected in the movers table, causing "Dernière séance P&L" to show a total that didn't match the sum of visible rows.
 
-**Fix — browser pre-market `closedLastSessionDollar`:** In pre-market, the movers table only shows open positions. Added `closedLastSessionDollar` = sum of `(exitPrice − dayBeforeClose) × qty` for positions closed on the last session (exitDate = yesterdaySnapshot.date). This correctly includes the session-move contribution of closed positions without the prior-gains overcount.
+**Fix v2.23 — Sync button blocked outside market hours:** The auto-refresh was already guarded but the manual Sync button had no `disabled` state. Added the same guard. Added `isPreMarketUS()` helper to `index-us.html`. Prevents priceCache corruption from pre-opening auction prices (9:00–9:30 HKT).
 
-**Fix — `patch-may4-dailypnl.py`:** Corrects the already-stored May 4 snapshot `dailyPnL` to the proper value using `positionsAtClose` closingPrices + session-move formula for closedTrades.
+**Historical patches applied to Firestore:**
+- `patch-may4-dailypnl.py` — May 4 snapshot: 17,475 → 13,595 HKD (no closed positions; pure unrealized correction)
+- `patch-snapshot-dailypnl.py 2026-05-05 2026-05-04` — May 5 snapshot: 7,507 → 2,067 HKD (856.HK 6000 shares closed; session move = (10.62 − 10.56) × 6000 = 360 HKD, not the full realized gain)
 
-**Also fixed — Sync button now disabled outside market hours:** Auto-refresh was correctly blocked (line 1125) but the manual Sync button had no guard. Added `disabled` state matching the auto-refresh condition. Added `isPreMarketUS()` helper function to US file. This is a safeguard against potential priceCache corruption during the HK pre-opening auction window (9:00–9:30 HKT) when TV may return indicative prices.
+**Fix — `verify-daily.py` Check 3 formula (also had the same bug):**
+The post-cron verifier was computing `expected_pnl` using `realizedPnL − yesterday_realizedPnL` — the exact same overcount formula. This meant it was approving the inflated values instead of flagging them. Fixed to use `(exitPrice − yesterday_closing) × qty` per closed trade, matching the corrected cron. Also added **Check 4**: if `abs(dailyPnL) / portfolioValue > 8%`, the GitHub Actions run fails regardless of TV agreement — catches any future gross overcount.
 
 **Lessons:**
-1. **The cron's `dailyPnL` is not just unrealized change** — it always includes the realized delta. Any browser-side replication of "today's session P&L" must include the same term or it will silently diverge whenever a trade is closed.
-2. **Every path that mutates priceCache must be blocked outside market hours** — a manual button is as destructive as an auto-refresh.
+1. **The cron's `dailyPnL` is authoritative.** In pre-market, the browser must display it directly — not reconstruct it from individual position deltas. Any reconstruction that omits closed positions will silently diverge.
+2. **Verify scripts must use the correct formula.** A guard that mirrors the bug it's meant to catch provides zero protection. Both the cron and the verifier had the same `realized_pnl − yesterday_realized` formula — both needed to be fixed.
+3. **A `patch-snapshot-dailypnl.py TARGET PREV` script is now the canonical backfill tool** for any future cron formula regression.
 
 ### Apr 26, 2026 — v2.22: cron uses TV change_abs, post-cron verifier, phantom-snapshot guard, dailyPnL/calendar reconciled
 
