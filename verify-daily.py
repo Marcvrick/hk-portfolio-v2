@@ -137,7 +137,16 @@ def verify_portfolio(user_id, data, tv, today):
                 f"TV={tv_e['changePct']:.4f}% diff={stored_pct - tv_e['changePct']:+.4f}pp"
             )
 
-    # Check 3: dailyPnL vs sum(TV change_abs * qty) + realized delta
+    # Check 3: dailyPnL vs correct formula
+    # Open positions: TV change_abs * qty
+    # Closed today:   (exitPrice - yesterday_close) * qty  [session move only]
+    # NOT: realized_pnl - yesterday_realized (that overcounts prior sessions' unrealized gains)
+    yesterday_snap = next(
+        (s for s in sorted(snapshots, key=lambda x: x["date"], reverse=True) if s["date"] < today),
+        None,
+    )
+    yesterday_closing = yesterday_snap.get("closingPrices", {}) if yesterday_snap else {}
+
     expected_pnl = 0.0
     for p in positions:
         ticker = p["ticker"].replace("b.HK", ".HK")
@@ -148,18 +157,31 @@ def verify_portfolio(user_id, data, tv, today):
             expected_pnl += (p.get("currentPrice", 0) - p.get("entryPrice", 0)) * p["quantity"]
         else:
             expected_pnl += tv_e["changeAbs"] * p["quantity"]
-    yesterday_snap = next(
-        (s for s in sorted(snapshots, key=lambda x: x["date"], reverse=True) if s["date"] < today),
-        None,
-    )
-    if yesterday_snap:
-        expected_pnl += snap.get("realizedPnL", 0) - yesterday_snap.get("realizedPnL", 0)
+
+    closed_trades = data.get("closedTrades", [])
+    for t in closed_trades:
+        if t.get("exitDate") != today:
+            continue
+        ticker_clean = t["ticker"].replace("b.HK", ".HK")
+        prev_close = yesterday_closing.get(ticker_clean)
+        if prev_close is not None:
+            expected_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
+        elif t.get("entryDate") == today:
+            expected_pnl += (t.get("exitPrice", 0) - t.get("entryPrice", 0)) * t.get("quantity", 0)
 
     stored_pnl = snap.get("dailyPnL", 0)
     if abs(stored_pnl - expected_pnl) > PNL_DRIFT:
         issues.append(
             f"[{user_id}] dailyPnL drift: stored={stored_pnl:+,.2f} expected(TV)={expected_pnl:+,.2f} "
             f"diff={stored_pnl - expected_pnl:+,.2f}"
+        )
+
+    # Check 4: sanity cap — dailyPnL > 8% of portfolio value is almost certainly wrong
+    portfolio_value = snap.get("portfolioValue", 0)
+    if portfolio_value > 0 and abs(stored_pnl) / portfolio_value > 0.08:
+        issues.append(
+            f"[{user_id}] dailyPnL sanity: {stored_pnl:+,.2f} is {abs(stored_pnl)/portfolio_value*100:.1f}% "
+            f"of portfolio {portfolio_value:,.0f} — likely overcount"
         )
 
     return issues
