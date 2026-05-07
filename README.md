@@ -61,7 +61,13 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `update-us.py` | Cron script for US TradingView prices |
 | `verify-daily.py` | Post-cron self-check: per-ticker close/changePct + dailyPnL drift vs TradingView (`hk` / `us` arg). Fails the GitHub Actions run on >0.02 close, >0.05pp changePct, or >50 in dailyPnL drift |
 | `patch-snapshot-dailypnl.py` | Reusable backfill: corrects any snapshot's `dailyPnL` given `TARGET_DATE PREV_DATE` args. Use when a cron ran before a formula fix. Run: `GOOGLE_APPLICATION_CREDENTIALS=... python3 patch-snapshot-dailypnl.py 2026-05-05 2026-05-04 --dry-run` |
+| `patch-may6-2865-fix.py` | One-time fix: delete erroneous 2865.HK closed trade (fake 900-share sale from qty entry mistake); correct open position qty to 900; remove stale `addedToday*` fields |
+| `patch-may6-closes-from-yahoo.py` | One-time fix: replace 12 wrong May 6 stored closes with Yahoo's settled values; recompute `dailyPnL` (295 → 3,863 HKD), `portfolioValue`, `unrealizedPnL`, and per-ticker `priceCache.previousClose`. Root cause was the 16:30 cron capturing pre-CAS prints (1913.HK off by 1.02 HKD). Idempotent — safe to re-run. |
+| `verify-yesterday-pnl.py` | Audits a past snapshot's stored `dailyPnL` against the cron formula (open positions session move + closed-today `(exit − prior_close) × qty`). Skips false positives from retroactive `realizedPnL` patches. Usage: `python3 verify-yesterday-pnl.py hk 2026-05-06`. |
 | `patch-may4-dailypnl.py` | One-off predecessor to `patch-snapshot-dailypnl.py` — left for reference |
+| `audit-month.py` | Monthly P&L audit: verifies all snapshots in any calendar month against closing-price derivation (open positions, new-position entry-day, closed-trade session move). Usage: `python3 audit-month.py 2026-03`. Drift threshold: 50 HKD. |
+| `patch-apr13-dailypnl.py` | One-time fix: Apr 13 dailyPnL −14,821 → −17,329 (closingPrices were patched post-cron in the Apr 13 incident series; dailyPnL was not realigned at the time) |
+| `patch-apr14-dailypnl.py` | One-time fix: Apr 14 dailyPnL +10,558.9 → +12,444 (1167.HK closed that day; session move (exit − prior_close) × qty was not fully captured by the cron) |
 | `patch-data-correction.py` | One-time patch: fix Feb 13/16, Mar 2 closingPrices from Stooq |
 | `verify-weekly.py` | Weekly verification: Firebase snapshots vs FinMC/Stooq parquet data |
 | `migrate-main-to-uid.py` | One-time migration: portfolios/main → portfolios/{uid} |
@@ -69,7 +75,7 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `patch-apr23-closes.py` | One-time fix: Apr 23 closingPrices realigned to TradingView settlement (CAS-vs-settlement drift) |
 | `patch-april-dailypnl.py` | One-time fix: align April dailyPnL fields with current totalPnL deltas |
 | `patch-all-months-dailypnl.py` | Generalization of the above across all months — reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
-| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, 16:30 HKT) — runs `update.py` then `verify-daily.py hk` |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:45 HKT** — moved from 16:30 on 2026-05-07 to clear the Closing Auction settlement window) — runs `update.py` then `verify-daily.py hk` |
 | `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, 16:00 ET) — runs `update-us.py` then `verify-daily.py us` |
 
 ---
@@ -80,6 +86,11 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Cron at 16:45 HKT (was 16:30) cross-checks TradingView vs Yahoo per held ticker; Yahoo wins when drift >0.05 HKD or >0.5%; snapshot stores `settledAt` / `sources` / `provisional` / `priceProvenance` | ✅ | ❌ | 2026-05-07 |
+| Snapshot modal shows green "Settled" / amber "Provisional" badge with HKT timestamp; `~` marker on calendar tiles flagged provisional; per-ticker source tag (`· yahoo` / `· ✓` / `· tv-only`) in debug breakdown | ✅ | ❌ | 2026-05-07 |
+| Snapshot modal "P&L recalculé" debug breakdown now includes closed-today trades (`(exit − prior_close) × qty`) — was off by 846 HKD on May 6 (missed the 2865.HK closure leg) | ✅ | ❌ | 2026-05-07 |
+| Trash icon on sold rows in Today's Movers; `deleteClosedTrade(id)` removes erroneous closed trades from Firestore | ✅ | ❌ | 2026-05-06 |
+| Editable quantity field in Positions tab; `updateQuantity(id, qty)` saves to Firestore on blur/Enter | ✅ | ❌ | 2026-05-06 |
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
 | Fix cron `dailyPnL` overcount: replace `realized_pnl−yesterday_realized` with `(exitPrice−prevClose)×qty` for positions closed today | ✅ | ✅ | 2026-05-06 |
 | Pre-market Performance tab: `totalDailyDollar` reads `yesterdaySnapshot.dailyPnL` directly (authoritative cron value); drop `closedLastSessionDollar` IIFE | ✅ | ✅ | 2026-05-06 |
@@ -388,6 +399,62 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### May 7, 2026 — v2.28: TV+Yahoo two-source reconciliation, cron moved to 16:45 HKT, settled/provisional badges
+
+**Symptom (Thu May 7 morning, Paris time):** the calendar tile for Wed May 6 showed +295 HKD when it had been ~3k HKD the night before. User frustrated — "every day there is an issue with this app."
+
+**Root cause — single-source CAS-vs-settlement drift on illiquid HK names:**
+The 16:30 HKT cron pulled TradingView Scanner once and stored its `close` field as the day's official close. But TV's scanner at 16:30 occasionally serves the last traded price *before* the Closing Auction Session settles, not the post-CAS settlement. Cross-checking [Marc's May 6 snapshot](#) against Yahoo (which derives daily close from HKEX's published settlement) revealed **12 of 14 tickers were wrong**, with 1913.HK the worst at **35.76 stored vs 36.78 real (-1.02 HKD × 2,300 qty = -2,346 HKD)**. Total impact on stored `dailyPnL`: -3,568 HKD. Real settled P&L was +3,863 HKD, not the +295 the cron locked in.
+
+**This isn't a one-off** — the same class of bug appeared on Mar 5, Apr 23-24, Apr 26. Each time we patched the affected closes manually after the user noticed. Today's fix attacks the source: never trust a single price feed on settlement day.
+
+**Fix v2.28 — `update.py` Yahoo cross-check:**
+- New `reconcile_with_yahoo(tv_prices, positions, target_date)` runs after the TV bulk fetch. For each held ticker, it queries Yahoo's daily close (tries 4 ticker-format candidates: unpadded, 4-digit, 5-digit; gracefully skips on Yahoo unreachable).
+- Tolerance: **0.05 HKD or 0.5%**, whichever is larger. Inside tolerance → both sources agree, keep TV. Outside → Yahoo wins (it's exchange-aligned), and `tv_prices[ticker].close` / `changeAbs` / `changePercent` are mutated in place so all downstream snapshot logic uses the reconciled value.
+- If Yahoo is unreachable for a ticker, that ticker is marked `provisional` and TV is kept as fallback.
+- Snapshot now persists four new fields: `settledAt` (ISO timestamp), `sources` (`["tradingview", "yahoo"]`), `provisional` (true if any held ticker couldn't be confirmed), and `priceProvenance` (per-ticker `{source, tvClose, yahooClose, chosen, drift}` map).
+
+**Cron retiming — `daily-update-hk.yml`:** `08:30 UTC → 08:45 UTC` (16:30 HKT → **16:45 HKT**). 35 min after CAS ends (16:10 HKT) gives both TV and Yahoo time to flush post-auction settlement.
+
+**Fix — UI surfaces reconciliation status:**
+- Snapshot modal header gains a pill: green "Settled · tradingview + yahoo" with HKT lock time, or amber "Provisional — réconciliation incomplète" if `provisional: true`.
+- Calendar tiles flagged provisional get a small amber `~` glyph in the top-right corner.
+- Debug breakdown ("Recalcul via closingPrices") now tags each row with the source: `· yahoo` (corrected), `· ✓` (TV+Yahoo agreed), `· tv-only` (Yahoo unreachable).
+
+**Bonus fix — closed-today contributions in the P&L breakdown:**
+The "Recalcul via closingPrices" inside the snapshot modal was iterating `positionsAtClose` only and **missing the closed-today trade leg entirely**. On May 6 it summed to -551 HKD (open positions only) and disagreed with the stored 295 by exactly the 2865.HK closure (+846), making the stored value look corrupted when it wasn't. Added closed-today rows with `(exit − prior_close) × qty` and a `✖ closed` tag.
+
+**Fix — `verify-yesterday-pnl.py` formula:**
+Old version computed `derived = closingPrices Δ + total realizedPnL Δ`. When a phantom-trade cleanup patch retroactively modified `realizedPnL` (as `patch-may6-2865-fix.py` did), the verifier flagged the day as "drifted" even though the session P&L was correct. Replaced with the cron formula: `(close − prior_close) × qty` for open positions + `(exit − prior_close) × qty` for closed-today trades. Reports realized-Δ separately as a book-keeping sanity check, doesn't fail the run on it.
+
+**Data patch applied:** `patch-may6-closes-from-yahoo.py` — corrected May 6 stored closes for 12 tickers (0177, 0285, 0434, 113, 1316, 1585, 1698, 1913, 1999, 2643, 9690, 9988), recomputed `dailyPnL` 295 → 3,863 HKD, `portfolioValue` 897,948 → 901,516 HKD, `unrealizedPnL` -124,803 → -121,235 HKD, and updated each ticker's `priceCache.previousClose` so today's UI uses the correct baseline.
+
+**Lessons:**
+1. **Two sources beat one, every time.** A single feed at a fixed time captures whatever that feed serves at that moment. CAS prints, settlement reconciliations, and exchange data lags all break single-source freshness assumptions on HK names. Yahoo + TV agreement is much harder to be wrong about than either alone.
+2. **Make freshness state visible.** The user couldn't tell whether a calendar tile was settled or still drifting. The new "Settled / Provisional" badge + per-ticker source tag means a glance answers "is this number final?"
+3. **Verify scripts must use the same formula as the cron.** `verify-yesterday-pnl.py` was using a different P&L decomposition and reported false drifts after every retroactive patch. Same lesson as v2.25's `verify-daily.py` Check 3 fix — guards that don't mirror the system they guard are noise.
+4. **Cron timing matters in microstructure.** 16:30 HKT was 20 min after the CAS auction kicked off and 5 min before settlement was reliably flushed across TV's fan-out. Pushing to 16:45 closes that window cheaply; fundamentally the two-source cross-check is what makes us robust to whatever TV or Yahoo do at the boundary.
+
+### May 6, 2026 — Historical audit: Jan / Mar / Apr P&L verification
+
+**New reusable tool: `audit-month.py`** — verifies every snapshot in a calendar month using the correct dailyPnL formula: open positions `(close − prior_close) × qty`, new positions entered that day `(close − entry_price) × qty`, closed-today positions `(exit − prior_close) × qty`. Drift threshold 50 HKD. Usage: `python3 audit-month.py 2026-03`.
+
+**March 2026:** 22 days audited — all clean. Monthly total −99,006 HKD verified.
+
+**January 2026:** 5 snapshots internally consistent (stored dailyPnL = totalPnL delta for all days). Closing-price verification not possible for Jan 26–29: those early snapshots pre-date the `positionsAtClose` / `closingPrices` fields. All 4 days confirmed correct via totalPnL delta cross-check.
+
+**April 2026 — 2 real drifts found and patched:**
+- `patch-apr13-dailypnl.py` — Apr 13: −14,821 → **−17,329** HKD. Root cause: closingPrices for 113.HK and 3680.HK were patched post-cron during the Apr 13 incident series, but dailyPnL was not realigned. The `patch-april-dailypnl.py` run on Apr 26 used the `totalPnL delta` approach, which relied on stale `unrealizedPnL` in the snapshot (written by the original cron, not updated by the closingPrice patches) — so the realignment was incomplete.
+- `patch-apr14-dailypnl.py` — Apr 14: +10,558.9 → **+12,444** HKD. Root cause: 1167.HK (14,100 shares) was closed that day; the correct session contribution is `(7.58 exit − 7.05 prior_close) × 14,100 = +7,473 HKD`, but the stored value underweighted it by 1,885 HKD.
+
+### May 6, 2026 — v2.26–v2.27: trash icon on sold rows + editable quantity
+
+**v2.26 — Trash icon on sold rows (Today's Movers):** When a closed trade appears in the Today's Movers table with a `(sold)` label, it now shows a red trash icon in the action column instead of an empty cell. Clicking it triggers a confirmation dialog and permanently deletes the closed trade from Firestore via a new `deleteClosedTrade(id)` function. Hidden in friend-view mode. Motivation: entry mistakes (e.g., typing wrong qty then correcting it) can generate a phantom "sale" in `closedTrades` that never happened — the trash icon lets the user remove it without a patch script.
+
+**v2.27 — Editable quantity field (Positions tab):** The qty column in the Positions table is now an editable input (same style as Entry Price), backed by a new `updateQuantity(id, qty)` function. Click the field, type the correct integer, press Enter or click away — saves to Firestore instantly. Validates: positive integers only, ignores blank/zero input.
+
+**Data patch applied:** `patch-may6-2865-fix.py` — deleted erroneous 2865.HK closed trade (qty 900, entry 33.1, exit 35.2, fake profit ~1,890 HKD) and corrected open position qty to 900, removing stale `addedTodayQty/Price/Date` and `qtyBeforeToday` fields left over from the failed entry.
 
 ### May 5-6, 2026 — v2.23–v2.25: fix dailyPnL overcount on days with closed positions
 
