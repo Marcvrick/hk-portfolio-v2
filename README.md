@@ -89,10 +89,10 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Cron cross-checks TradingView vs Yahoo per held ticker; Yahoo wins beyond tolerance (HK: 0.05 HKD/0.5%, US: 0.05 USD/0.3%); snapshot stores `settledAt` / `sources` / `provisional` / `priceProvenance` | ✅ | ✅ | 2026-05-07 |
 | Cron retimed past closing-auction window — HK 16:30 → **16:45 HKT**, US 16:00 → **16:10 ET** | ✅ | ✅ | 2026-05-07 |
 | `~` marker on calendar tiles flagged provisional (Yahoo unreachable for ≥1 ticker) | ✅ | ✅ | 2026-05-07 |
-| Snapshot modal shows green "Settled" / amber "Provisional" pill with timestamp; per-ticker source tag (`· yahoo` / `· ✓` / `· tv-only`) in debug breakdown | ✅ | n/a (US has no snapshot modal) | 2026-05-07 |
-| Snapshot modal "P&L recalculé" debug breakdown now includes closed-today trades (`(exit − prior_close) × qty`) — was off by 846 HKD on May 6 (missed the 2865.HK closure leg) | ✅ | n/a (US has no breakdown) | 2026-05-07 |
-| Trash icon on sold rows in Today's Movers; `deleteClosedTrade(id)` removes erroneous closed trades from Firestore | ✅ | ❌ | 2026-05-06 |
-| Editable quantity field in Positions tab; `updateQuantity(id, qty)` saves to Firestore on blur/Enter | ✅ | ❌ | 2026-05-06 |
+| Snapshot modal shows green "Settled" / amber "Provisional" pill with timestamp; per-ticker source tag (`· yahoo` / `· ✓` / `· tv-only`) in debug breakdown | ✅ | ✅ | 2026-05-07 |
+| Snapshot modal "P&L recalculé" debug breakdown now includes closed-today trades (`(exit − prior_close) × qty`) — was off by 846 HKD on May 6 (missed the 2865.HK closure leg) | ✅ | ✅ | 2026-05-07 |
+| Trash icon on sold rows in Today's Movers; `deleteClosedTrade(id)` removes erroneous closed trades from Firestore | ✅ | ✅ | 2026-05-07 |
+| Editable quantity field in Positions tab; `updateQuantity(id, qty)` saves to Firestore on blur/Enter | ✅ | ✅ | 2026-05-07 |
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
 | Fix cron `dailyPnL` overcount: replace `realized_pnl−yesterday_realized` with `(exitPrice−prevClose)×qty` for positions closed today | ✅ | ✅ | 2026-05-06 |
 | Pre-market Performance tab: `totalDailyDollar` reads `yesterdaySnapshot.dailyPnL` directly (authoritative cron value); drop `closedLastSessionDollar` IIFE | ✅ | ✅ | 2026-05-06 |
@@ -419,7 +419,7 @@ The 16:30 HKT cron pulled TradingView Scanner once and stored its `close` field 
 
 **Cron retiming — `daily-update-hk.yml`:** `08:30 UTC → 08:45 UTC` (16:30 HKT → **16:45 HKT**). 35 min after CAS ends (16:10 HKT) gives both TV and Yahoo time to flush post-auction settlement.
 
-**Mirrored to US — `update-us.py`, `daily-update-us.yml`, `index-us.html`:** Same architecture applied to the US side. Cron retimed `21:00 UTC → 21:10 UTC` (16:00 ET → **16:10 ET**). Tolerance tightened to 0.05 USD / 0.3% because US names are deeper-liquidity. Calendar tiles get the same `~` provisional marker. The richer modal-side UX (badge pill + per-ticker source tag + closed-today breakdown row) doesn't apply to US because `index-us.html` has no clickable snapshot modal — sync table marks those rows `n/a`.
+**Mirrored to US — `update-us.py`, `daily-update-us.yml`, `index-us.html`:** Same architecture applied to the US side. Cron retimed `21:00 UTC → 21:10 UTC` (16:00 ET → **16:10 ET**). Tolerance tightened to 0.05 USD / 0.3% because US names are deeper-liquidity. Full UI parity later the same day: clickable calendar tiles + snapshot detail modal (Settled/Provisional pill, positions table, debug breakdown with closed-today + per-ticker source tag), `~` provisional marker, editable quantity field on Positions tab, and trash icon on sold rows in Today's Movers — every HK-side row in the sync table now reads ✅ ✅.
 
 **Fix — UI surfaces reconciliation status:**
 - Snapshot modal header gains a pill: green "Settled · tradingview + yahoo" with HKT lock time, or amber "Provisional — réconciliation incomplète" if `provisional: true`.
