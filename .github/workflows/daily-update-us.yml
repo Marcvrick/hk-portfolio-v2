@@ -1,7 +1,10 @@
 name: Daily US Portfolio Update
 on:
   schedule:
-    - cron: '0 21 * * 1-5'
+    # 21:10 UTC = 16:10 ET — 10 min after NYSE close so the closing cross has
+    # settled and TradingView Scanner has flushed post-cross prints. 21:00 was
+    # too tight (cron caught the same pre-settlement print that bit HK at 16:30).
+    - cron: '10 21 * * 1-5'
   workflow_dispatch:
 jobs:
   update:

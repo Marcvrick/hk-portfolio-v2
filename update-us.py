@@ -95,6 +95,108 @@ def fetch_tradingview_prices():
     return prices
 
 
+# --- Yahoo Finance reconciliation source ---
+# Same architecture as update.py — TV at the close can return a print before
+# the closing cross settles; Yahoo derives daily close from the consolidated
+# tape, so it's the secondary source of truth. Tolerance is tighter for US
+# names because they're more liquid: 0.05 USD or 0.3% beyond which Yahoo wins.
+RECONCILE_TOLERANCE_PCT = 0.3
+RECONCILE_TOLERANCE_ABS = 0.05
+
+
+def _yahoo_close_for(ticker: str, target_date: str):
+    """Return Yahoo's daily close for `target_date` ('YYYY-MM-DD' in ET) or None."""
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=10d"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            data = json.loads(resp.read())
+    except Exception:
+        return None
+    try:
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        closes = result["indicators"]["quote"][0]["close"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    for i, ts in enumerate(timestamps):
+        # Yahoo timestamps are UTC; convert to ET for date matching
+        dt = datetime.fromtimestamp(ts, ET).strftime("%Y-%m-%d")
+        if dt == target_date and closes[i] is not None:
+            return float(closes[i])
+    return None
+
+
+def reconcile_with_yahoo(tv_prices: dict, positions: list, target_date: str) -> dict:
+    """For each held US ticker, fetch Yahoo's close and reconcile against TV.
+
+    Mutates tv_prices in place when Yahoo wins. Returns provenance dict.
+    """
+    print(f"  Yahoo reconciliation for {len(positions)} held tickers...")
+    provenance = {}
+    for p in positions:
+        ticker = p["ticker"].strip().upper()
+        tv_entry = tv_prices.get(ticker)
+        if tv_entry is None:
+            provenance[ticker] = {"source": "missing", "provisional": True}
+            continue
+        tv_close = tv_entry["close"]
+        yahoo_close = _yahoo_close_for(ticker, target_date)
+        if yahoo_close is None:
+            provenance[ticker] = {
+                "source": "tv-only",
+                "tvClose": tv_close,
+                "yahooClose": None,
+                "chosen": tv_close,
+                "drift": None,
+                "provisional": True,
+            }
+            print(f"  ?? {ticker}: Yahoo unreachable, keeping TV {tv_close} (provisional)")
+            continue
+
+        drift = tv_close - yahoo_close
+        drift_pct = (abs(drift) / yahoo_close * 100) if yahoo_close else 0
+        gap_too_large = abs(drift) > RECONCILE_TOLERANCE_ABS or drift_pct > RECONCILE_TOLERANCE_PCT
+
+        if gap_too_large:
+            tv_entry["close"] = yahoo_close
+            tv_change_abs = tv_entry.get("changeAbs")
+            if tv_change_abs is not None:
+                prev_close = tv_close - tv_change_abs
+                new_change_abs = round(yahoo_close - prev_close, 4)
+                tv_entry["changeAbs"] = new_change_abs
+                tv_entry["changePercent"] = round((new_change_abs / prev_close) * 100, 4) if prev_close else 0
+            provenance[ticker] = {
+                "source": "yahoo-reconciled",
+                "tvClose": tv_close,
+                "yahooClose": yahoo_close,
+                "chosen": yahoo_close,
+                "drift": round(drift, 4),
+                "provisional": False,
+            }
+            print(f"  !! {ticker}: TV={tv_close} Yahoo={yahoo_close} drift={drift:+.4f} ({drift_pct:.2f}%) -> using Yahoo")
+        else:
+            provenance[ticker] = {
+                "source": "tv+yahoo",
+                "tvClose": tv_close,
+                "yahooClose": yahoo_close,
+                "chosen": tv_close,
+                "drift": round(drift, 4),
+                "provisional": False,
+            }
+
+    n_yahoo = sum(1 for v in provenance.values() if v["source"] == "yahoo-reconciled")
+    n_provisional = sum(1 for v in provenance.values() if v.get("provisional"))
+    print(f"  Reconciliation: {n_yahoo} corrected to Yahoo, {n_provisional} provisional")
+    return provenance
+
+
 # --- Yahoo Finance (disabled, kept as fallback) ---
 # def fetch_yahoo_price(ticker: str) -> dict:
 #     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
@@ -159,6 +261,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         if s["date"] < today:
             yesterday_closing = s.get("closingPrices", {})
             break
+
+    # 0. Cross-check TradingView against Yahoo (settlement source of truth).
+    # Mutates tv_prices in place when sources disagree beyond tolerance.
+    price_provenance = reconcile_with_yahoo(tv_prices, positions, today)
 
     # 1. Match TradingView prices to portfolio positions
     print("  Matching TradingView prices...")
@@ -274,6 +380,7 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     if not yesterday_snap:
         daily_pnl = round(current_value - capital_engaged, 2)
 
+    n_provisional_tickers = sum(1 for v in price_provenance.values() if v.get("provisional"))
     snapshot = {
         "date": today,
         "capitalEngaged": round(capital_engaged, 2),
@@ -285,6 +392,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         "closingPrices": closing_prices,
         "dailyPnL": round(daily_pnl, 2),
         "positionsAtClose": positions_at_close,
+        "settledAt": datetime.now(ET).isoformat(),
+        "sources": ["tradingview", "yahoo"],
+        "provisional": n_provisional_tickers > 0,
+        "priceProvenance": price_provenance,
     }
 
     # Replace today's snapshot if exists, otherwise append

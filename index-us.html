@@ -3526,6 +3526,9 @@
                           const hasPnl = cell.pnl !== undefined;
                           const isToday = cell.date === todayStr;
                           const marketClosed = cell.isMarketClosed;
+                          // Provisional = explicitly flagged by update-us.py because Yahoo couldn't confirm at least one ticker.
+                          const cellSnap = snapshots.find(s => s.date === cell.date);
+                          const isProvisional = !!cellSnap && !isToday && cellSnap.provisional === true;
                           let bg = 'bg-gray-50/30';
                           if (marketClosed) {
                             bg = 'bg-gray-100/50'; // Market closed days greyed out
@@ -3533,7 +3536,14 @@
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }
                           return (
-                            <div key={cell.date} className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center ${isToday ? 'ring-1 ring-blue-500' : ''}`}>
+                            <div
+                              key={cell.date}
+                              className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center relative ${isToday ? 'ring-1 ring-blue-500' : ''}`}
+                              title={isProvisional ? 'Provisional — Yahoo reconciliation incomplete for this day' : ''}
+                            >
+                              {isProvisional && (
+                                <span className="absolute top-0 right-0.5 text-[9px] text-amber-600 font-bold leading-none" title="Provisional">~</span>
+                              )}
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
                               {hasPnl && (
                                 <div className={`text-[10px] font-bold ${cell.pnl > 0 ? 'text-green-600' : cell.pnl < 0 ? 'text-red-600' : 'text-muted'}`}>
