@@ -84,6 +84,8 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 
 Both `index.html` (HK) and `index-us.html` (US) share the same core features but are maintained as separate files. When making changes, **always apply to both files** unless the change is market-specific.
 
+> **Status (2026-05-07):** structurally at parity. Both crons run TV+Yahoo reconciliation, both snapshots carry `settledAt` / `sources` / `provisional` / `priceProvenance`, and both UIs expose the snapshot modal with the closed-today P&L breakdown, editable quantity, trash icon on sold rows, and `~` provisional marker on the calendar.
+
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
 | Cron cross-checks TradingView vs Yahoo per held ticker; Yahoo wins beyond tolerance (HK: 0.05 HKD/0.5%, US: 0.05 USD/0.3%); snapshot stores `settledAt` / `sources` / `provisional` / `priceProvenance` | ✅ | ✅ | 2026-05-07 |
@@ -401,6 +403,23 @@ python -m http.server 8000
 ---
 
 ## Changelog
+
+### May 7, 2026 (PM) — v2.29: US UI parity (`index-us.html` reaches feature equality with `index.html`)
+
+**Context:** the morning's v2.28 commit ported the data-layer fix (TV+Yahoo cross-check) to the US side, but `index-us.html` still lacked four UI features that `index.html` had been accumulating since v2.26:
+1. Clickable calendar tiles → snapshot detail modal with debug breakdown
+2. Settled/Provisional pill + per-ticker source tag in that modal
+3. Editable quantity input on the Positions tab (was display-only)
+4. Trash icon on sold rows in Today's Movers (no way to delete a phantom closed trade without a Python patch script)
+
+**Fix v2.29 — full UI parity:**
+- New state hook `selectedSnapshotDate` in `index-us.html` mirrors HK. Calendar tiles get `onClick={() => hasSnapshot && setSelectedSnapshotDate(cell.date)}` + `cursor-pointer hover:ring-1` styling.
+- New helper `updateSnapshot(date, updates)` patches a single snapshot field in place, persists via `saveData`. Used by editable `portfolioValue` + `dailyPnL` inputs in the modal header and by the "Apply this P&L" button.
+- New helper `deleteClosedTrade(id)` filters and persists `closedTrades`. Wired to the trash icon, gated on `!viewingFriendEmail` (no destructive actions when viewing a friend's portfolio).
+- New helper `updateQuantity(id, qty)` validates positive integer, mutates `positions[i].quantity`, persists. Wired to a new `<input type="number">` on the Positions tab.
+- Snapshot modal JSX is a 1:1 port of the HK modal with USD currency, English copy, and ET timestamp formatting (`Asia/Hong_Kong` → `America/New_York`). The debug breakdown computes `(exit − prior_close) × qty` for closed-today trades and shows `· yahoo` / `· ✓` / `· tv-only` source tags pulled from `snap.priceProvenance`.
+
+**Result — sync table is now 100% ✅✅** for every row dated 2026-05-05 onwards. The two HTMLs are functionally interchangeable on everything related to the cron pipeline and post-cron audit.
 
 ### May 7, 2026 — v2.28: TV+Yahoo two-source reconciliation, cron moved to 16:45 HKT, settled/provisional badges
 
