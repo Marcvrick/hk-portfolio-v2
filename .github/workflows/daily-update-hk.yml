@@ -1,7 +1,10 @@
 name: Daily HK Portfolio Update
 on:
     schedule:
-      - cron: '30 8 * * 1-5'
+      # 08:45 UTC = 16:45 HKT — 35 min after the Closing Auction ends (16:10 HKT)
+      # so TradingView Scanner has had time to flush post-CAS settlement prints.
+      # 16:30 was too early — caught pre-CAS prices on illiquid HK names.
+      - cron: '45 8 * * 1-5'
     workflow_dispatch:
 jobs:
     update:

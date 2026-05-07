@@ -1,0 +1,19 @@
+# Firebase service account private key — NEVER commit
+firebase-credentials.json
+*-credentials.json
+*-service-account.json
+*-adminsdk-*.json
+*firebase*.json
+hk-portfolio-v2/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables
+.env
+.env.local
+
+# macOS
+.DS_Store

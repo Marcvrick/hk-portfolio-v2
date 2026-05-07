@@ -1696,6 +1696,14 @@
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
       };
 
+      const updateQuantity = (id, qty) => {
+        const parsed = parseInt(qty, 10);
+        if (!parsed || parsed <= 0) return;
+        const newPos = positions.map(p => p.id === id ? { ...p, quantity: parsed } : p);
+        setPositions(newPos);
+        saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+      };
+
       const updateEntryDate = (id, date) => {
         if (!date) return;
         const newPos = positions.map(p => p.id === id ? { ...p, entryDate: date } : p);
@@ -1805,6 +1813,13 @@
         const newTx = transactions.filter(t => t.id !== id);
         setTransactions(newTx);
         saveData(positions, closedTrades, newTx, priceCache, snapshots, settings);
+      };
+
+      const deleteClosedTrade = (id) => {
+        if (!confirm('Supprimer ce trade clôturé ? Cette action est irréversible.')) return;
+        const newClosed = closedTrades.filter(t => t.id !== id);
+        setClosedTrades(newClosed);
+        saveData(positions, newClosed, transactions, priceCache, snapshots, settings);
       };
 
       // ===== SNAPSHOT =====
@@ -2619,7 +2634,16 @@
                               )}
                             </td>
                             <td className="px-2 py-1.5 truncate max-w-24 hidden md:table-cell">{p.name}</td>
-                            <td className="px-2 py-1.5 text-right font-mono">{fmt(p.quantity)}</td>
+                            <td className="px-2 py-1.5 text-right font-mono">
+                              <input
+                                type="number"
+                                step="1"
+                                defaultValue={p.quantity}
+                                onBlur={(e) => updateQuantity(p.id, e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                className="bg-gray-50 border-0 rounded px-1.5 py-0.5 w-20 text-right text-xs text-muted focus:ring-1 focus:ring-lime-accent outline-none"
+                              />
+                            </td>
                             <td className="px-2 py-1.5 text-right">
                               <input
                                 type="number"
@@ -2797,7 +2821,8 @@
                             style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '100px', height: '100px' }}
                           >
                             <span className="text-2xl font-bold text-gray-900">{formatTotal(total)}</span>
-                            <span className="text-xs text-gray-500 uppercase tracking-wide">HKD</span>
+                            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Valeur actuelle</span>
+                            <span className="text-[10px] text-gray-400 tracking-wide">HKD</span>
                           </div>
                         </div>
 
@@ -3712,7 +3737,17 @@
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.weight.toFixed(1)}%</td>
                           <td className="px-1 py-1.5 text-center">
-                            {!p.isClosed && (
+                            {p.isClosed ? (
+                              !viewingFriendEmail && (
+                                <button
+                                  onClick={() => deleteClosedTrade(p.id)}
+                                  className="p-0.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
+                                  title="Supprimer ce trade clôturé"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )
+                            ) : (
                               <button
                                 onClick={() => refreshSinglePrice(p.ticker)}
                                 className={`p-0.5 rounded hover:bg-gray-100 transition-colors ${hasPriceData ? 'text-muted hover:text-dark-text' : 'text-orange-500 hover:text-orange-700'}`}
@@ -3896,14 +3931,21 @@
                           } else if (hasPnl) {
                             bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
                           }
-                          const hasSnapshot = snapshots.some(s => s.date === cell.date);
+                          const cellSnap = snapshots.find(s => s.date === cell.date);
+                          const hasSnapshot = !!cellSnap;
+                          // Provisional = explicitly flagged by update.py because Yahoo couldn't confirm at least one ticker.
+                          // Old snapshots (pre-May 7 2026) don't have this field — treat as "trust the stored value".
+                          const isProvisional = hasSnapshot && !isToday && cellSnap.provisional === true;
                           return (
                             <div
                               key={cell.date}
-                              className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center ${isToday ? 'ring-1 ring-blue-500' : ''} ${hasSnapshot ? 'cursor-pointer hover:ring-1 hover:ring-lime-accent' : ''}`}
+                              className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center relative ${isToday ? 'ring-1 ring-blue-500' : ''} ${hasSnapshot ? 'cursor-pointer hover:ring-1 hover:ring-lime-accent' : ''}`}
                               onClick={() => hasSnapshot && setSelectedSnapshotDate(cell.date)}
-                              title={showWeek ? `Semaine: ${cell.weekTotal >= 0 ? '+' : ''}${Math.round(cell.weekTotal)} HKD` : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
+                              title={showWeek ? `Semaine: ${cell.weekTotal >= 0 ? '+' : ''}${Math.round(cell.weekTotal)} HKD` : isProvisional ? 'Provisional — sources non réconciliées (cliquez pour détails)' : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
                             >
+                              {isProvisional && (
+                                <span className="absolute top-0 right-0.5 text-[9px] text-amber-600 font-bold leading-none" title="Provisional">~</span>
+                              )}
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
                               {showWeek ? (
                                 <div className={`text-[10px] font-bold ${cell.weekTotal >= 0 ? 'text-fuchsia-700' : 'text-pink-600'}`}>
@@ -3933,7 +3975,30 @@
                       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-auto" onClick={e => e.stopPropagation()}>
                         <div className="sticky top-0 bg-white border-b border-gray-200 p-4">
                           <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-lg">Clôture du {fmtDate(snap.date)}</h3>
+                            <div>
+                              <h3 className="font-bold text-lg">Clôture du {fmtDate(snap.date)}</h3>
+                              {/* Settled/Provisional badge — built from update.py metadata.
+                                  Older snapshots (before May 7 2026) lack settledAt/sources, fall through silently. */}
+                              {snap.settledAt && (
+                                <div className="mt-1 flex items-center gap-2 text-[11px]">
+                                  {snap.provisional ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
+                                      Provisional — réconciliation incomplète
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                                      Settled · {(snap.sources || ['tradingview']).join(' + ')}
+                                    </span>
+                                  )}
+                                  <span className="text-muted">verrouillé à {(() => {
+                                    try { return new Date(snap.settledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' }) + ' HKT'; }
+                                    catch { return snap.settledAt; }
+                                  })()}</span>
+                                </div>
+                              )}
+                            </div>
                             <button onClick={() => setSelectedSnapshotDate(null)} className="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
                           </div>
                           <div className="mt-3 p-3 bg-gray-50 rounded-lg">
@@ -4068,6 +4133,24 @@
                                 breakdown.push({ ticker, type: 'HOLD', prevClose, currClose, qty: p.quantity, pnl });
                               }
                             });
+                            // Closed-today contributions: positions sold during snap.date contribute
+                            // their session move (exitPrice - prevClose) × qty to dailyPnL.
+                            // Without this the recalculated total is off by the closed-trade session.
+                            const closedToday = (closedTrades || []).filter(t => t.exitDate === snap.date);
+                            closedToday.forEach(t => {
+                              const ticker = t.ticker?.replace(/b\.HK$/, '.HK');
+                              const prevClose = prevClosingPrices[ticker];
+                              if (prevClose != null && t.exitPrice != null) {
+                                const pnl = (t.exitPrice - prevClose) * t.quantity;
+                                recalculatedPnL += pnl;
+                                breakdown.push({ ticker, type: 'CLOSED', prevClose, currClose: t.exitPrice, qty: t.quantity, pnl });
+                              } else if (t.entryPrice != null && t.exitPrice != null) {
+                                // No prior close (e.g. position opened and closed same day): use entryPrice
+                                const pnl = (t.exitPrice - t.entryPrice) * t.quantity;
+                                recalculatedPnL += pnl;
+                                breakdown.push({ ticker, type: 'CLOSED-INTRADAY', prevClose: t.entryPrice, currClose: t.exitPrice, qty: t.quantity, pnl });
+                              }
+                            });
 
                             return (
                               <div className="mt-4 pt-4 border-t border-gray-200 text-xs">
@@ -4088,11 +4171,20 @@
                                     {breakdown.length > 0 && (
                                       <div className="mt-3 pt-2 border-t border-gray-300">
                                         <div className="font-semibold text-lime-hover mb-1">📊 Recalcul via closingPrices:</div>
-                                        {breakdown.map((b, i) => (
-                                          <div key={i} className="text-[10px]">
-                                            {b.ticker?.replace('.HK','')}: {b.type === 'NEW' ? '🆕' : ''} ({b.prevClose?.toFixed(2)} → {b.currClose?.toFixed(2)}) × {b.qty} = <span className={b.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{b.pnl >= 0 ? '+' : ''}{fmt(b.pnl)}</span>
-                                          </div>
-                                        ))}
+                                        {breakdown.map((b, i) => {
+                                          const tag = b.type === 'NEW' ? '🆕' : (b.type === 'CLOSED' || b.type === 'CLOSED-INTRADAY') ? '✖ closed' : '';
+                                          const prov = (snap.priceProvenance || {})[b.ticker];
+                                          const srcTag = prov?.source === 'yahoo-reconciled' ? ' · yahoo'
+                                            : prov?.source === 'tv-only' ? ' · tv-only'
+                                            : prov?.source === 'tv+yahoo' ? ' · ✓'
+                                            : '';
+                                          return (
+                                            <div key={i} className="text-[10px]">
+                                              {b.ticker?.replace('.HK','')}: {tag} ({b.prevClose?.toFixed(2)} → {b.currClose?.toFixed(2)}) × {b.qty} = <span className={b.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{b.pnl >= 0 ? '+' : ''}{fmt(b.pnl)}</span>
+                                              <span className="text-muted">{srcTag}</span>
+                                            </div>
+                                          );
+                                        })}
                                         <div className="font-bold mt-1">= P&L recalculé: {fmt(recalculatedPnL)}</div>
                                         <button
                                           onClick={() => {

@@ -122,6 +122,125 @@ def fetch_tradingview_prices():
     return prices
 
 
+# --- Yahoo Finance reconciliation source ---
+# Used to cross-check TradingView's CAS print against the official exchange
+# settlement. TV scanner at 16:30 HKT (and even at 16:45) can return the last
+# traded price BEFORE the closing auction settles — Yahoo derives close from
+# HKEX's published settlement, so it's the secondary source of truth.
+RECONCILE_TOLERANCE_PCT = 0.5    # 0.5% — bigger gap = use Yahoo
+RECONCILE_TOLERANCE_ABS = 0.05   # 0.05 HKD — bigger gap = use Yahoo
+
+
+def _yahoo_close_for(ticker_clean: str, target_date: str):
+    """Return Yahoo's daily close for `target_date` ('YYYY-MM-DD' in HKT) or None.
+
+    Tries multiple ticker formats because Yahoo's HK listings inconsistently
+    accept zero-padded vs unpadded codes.
+    """
+    base = ticker_clean.replace(".HK", "")
+    # Try unpadded, 4-digit padded, 5-digit padded; dedupe
+    candidates = []
+    for c in [f"{base}.HK", f"{base.lstrip('0')}.HK", f"{base.zfill(4)}.HK", f"{base.zfill(5)}.HK"]:
+        if c not in candidates:
+            candidates.append(c)
+
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    for cand in candidates:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{cand}?interval=1d&range=10d"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                data = json.loads(resp.read())
+        except Exception:
+            continue
+        try:
+            result = data["chart"]["result"][0]
+            timestamps = result["timestamp"]
+            closes = result["indicators"]["quote"][0]["close"]
+        except (KeyError, IndexError, TypeError):
+            continue
+        for i, ts in enumerate(timestamps):
+            dt = datetime.fromtimestamp(ts, HKT).strftime("%Y-%m-%d")
+            if dt == target_date and closes[i] is not None:
+                return float(closes[i])
+    return None
+
+
+def reconcile_with_yahoo(tv_prices: dict, positions: list, target_date: str) -> dict:
+    """For each held ticker, fetch Yahoo's close and reconcile against TV.
+
+    Returns provenance dict: { ticker: {source, tvClose, yahooClose, chosen, drift, provisional} }
+    Mutates tv_prices in place — replaces close/changeAbs when Yahoo wins.
+    """
+    print(f"  Yahoo reconciliation for {len(positions)} held tickers...")
+    provenance = {}
+    for p in positions:
+        clean = p["ticker"].replace("b.HK", ".HK")
+        tv_entry = tv_prices.get(clean)
+        if tv_entry is None:
+            provenance[clean] = {"source": "missing", "provisional": True}
+            continue
+        tv_close = tv_entry["close"]
+        yahoo_close = _yahoo_close_for(clean, target_date)
+        if yahoo_close is None:
+            # Yahoo unreachable — keep TV but flag as provisional
+            provenance[clean] = {
+                "source": "tv-only",
+                "tvClose": tv_close,
+                "yahooClose": None,
+                "chosen": tv_close,
+                "drift": None,
+                "provisional": True,
+            }
+            print(f"  ?? {clean}: Yahoo unreachable, keeping TV {tv_close} (provisional)")
+            continue
+
+        drift = tv_close - yahoo_close
+        drift_pct = (abs(drift) / yahoo_close * 100) if yahoo_close else 0
+        gap_too_large = abs(drift) > RECONCILE_TOLERANCE_ABS or drift_pct > RECONCILE_TOLERANCE_PCT
+
+        if gap_too_large:
+            # Yahoo is exchange-aligned — prefer it. Patch tv_prices so downstream
+            # logic (priceCache, snapshot, dailyPnL) uses the reconciled value.
+            tv_entry["close"] = yahoo_close
+            # Keep TV's previous-close baseline by adjusting changeAbs/changePercent
+            tv_change_abs = tv_entry.get("changeAbs")
+            if tv_change_abs is not None:
+                # Original prevClose = tv_close - tv_change_abs; recompute change vs that.
+                prev_close = tv_close - tv_change_abs
+                new_change_abs = round(yahoo_close - prev_close, 4)
+                tv_entry["changeAbs"] = new_change_abs
+                tv_entry["changePercent"] = round((new_change_abs / prev_close) * 100, 4) if prev_close else 0
+            provenance[clean] = {
+                "source": "yahoo-reconciled",
+                "tvClose": tv_close,
+                "yahooClose": yahoo_close,
+                "chosen": yahoo_close,
+                "drift": round(drift, 4),
+                "provisional": False,
+            }
+            print(f"  !! {clean}: TV={tv_close} Yahoo={yahoo_close} drift={drift:+.4f} ({drift_pct:.2f}%) -> using Yahoo")
+        else:
+            provenance[clean] = {
+                "source": "tv+yahoo",
+                "tvClose": tv_close,
+                "yahooClose": yahoo_close,
+                "chosen": tv_close,
+                "drift": round(drift, 4),
+                "provisional": False,
+            }
+
+    n_yahoo = sum(1 for v in provenance.values() if v["source"] == "yahoo-reconciled")
+    n_provisional = sum(1 for v in provenance.values() if v.get("provisional"))
+    print(f"  Reconciliation: {n_yahoo} corrected to Yahoo, {n_provisional} provisional")
+    return provenance
+
+
 # --- Yahoo Finance (disabled, kept as fallback) ---
 # def fetch_yahoo_price(ticker: str) -> dict:
 #     """Fetch price from Yahoo Finance chart API (no CORS needed server-side)."""
@@ -188,6 +307,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         if s["date"] < today:
             yesterday_closing = s.get("closingPrices", {})
             break
+
+    # 0. Cross-check TradingView against Yahoo (settlement source of truth).
+    # Mutates tv_prices in place when Yahoo and TV disagree beyond tolerance.
+    price_provenance = reconcile_with_yahoo(tv_prices, positions, today)
 
     # 1. Match TradingView prices to portfolio positions
     print("  Matching TradingView prices...")
@@ -317,6 +440,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         # No yesterday snapshot — fall back to total unrealized
         daily_pnl = round(current_value - capital_engaged, 2)
 
+    # Provenance: snapshot is "settled" only if every held ticker was reconciled
+    # against Yahoo. If Yahoo was unreachable for any ticker, the whole snapshot
+    # is marked provisional so the UI can flag it.
+    n_provisional_tickers = sum(1 for v in price_provenance.values() if v.get("provisional"))
     snapshot = {
         "date": today,
         "capitalEngaged": round(capital_engaged, 2),
@@ -328,6 +455,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         "closingPrices": closing_prices,
         "dailyPnL": round(daily_pnl, 2),
         "positionsAtClose": positions_at_close,
+        "settledAt": datetime.now(HKT).isoformat(),
+        "sources": ["tradingview", "yahoo"],
+        "provisional": n_provisional_tickers > 0,
+        "priceProvenance": price_provenance,  # per-ticker source/drift breakdown
     }
 
     # Replace today's snapshot if exists, otherwise append
