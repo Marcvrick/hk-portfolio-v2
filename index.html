@@ -1226,8 +1226,12 @@
               if (useTvChange) {
                 return sum + cached.change * p.quantity;
               }
+              // Align fallback with moversData (line ~3520): when priceCache is missing
+              // (newly added position, fetch failure), still contribute using yesterdayClosingPrices.
+              // Previously gated on `cached?.success` which silently dropped positions absent
+              // from priceCache, causing calendar (dailyGain) vs Today's P&L (movers) divergence.
               const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
-              if (cached?.success && prevClose) {
+              if (prevClose) {
                 return sum + (curPrice - prevClose) * p.quantity;
               }
               return sum;
