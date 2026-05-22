@@ -404,6 +404,51 @@ python -m http.server 8000
 
 ## Changelog
 
+### May 22, 2026 — v2.30: calendar/header divergence fix when `priceCache` is missing a ticker
+
+**Symptom (Fri May 22, intraday):** after a new HK position (1308.HK / SITC International, 6 000 shares @ 34.92 HKD, entryDate 2026-05-21) was inserted directly into Firestore via an admin script (the app's "Add Position" modal had silently failed to persist the day before), the Performance tab showed two contradictory totals for today:
+- Today's P&L tile (top of page) → **+18 176 HKD**
+- May 22 cell in the calendar grid → **+12 056 HKD**
+
+Gap = 6 120 HKD, exactly the contribution of 1308.HK as displayed in the movers table ((34.92 − 33.90) × 6 000).
+
+**Root cause — gated contribution in `dailyGain`:**
+The header card's daily-gain `useEffect` (`index.html` line 1230, pre-fix) built each position's contribution like this:
+
+```js
+const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
+if (cached?.success && prevClose) {
+  return sum + (curPrice - prevClose) * p.quantity;
+}
+return sum;  // ← silently drops the position
+```
+
+The condition required both a successful `priceCache` entry **and** a resolved `prevClose`. For 1308.HK, `priceCache` had no entry at all (the position was added outside the app, so the per-ticker fetch hadn't populated `priceCache["1308.HK"]` yet), so `cached?.success` was falsy → contribution = 0 → 1308 dropped from `dailyGain.value`.
+
+Meanwhile the Performance tab's `moversData` (line ~3520) builds `previousClose` via a longer fallback chain that hits `yesterdayClosingPrices[cleanTicker]` when `cached` is absent, then unconditionally adds `(currentPrice − previousClose) × quantity`. So the tile included 1308 (with prevClose 33.90 pulled from the patched May 21 snapshot) while the calendar didn't.
+
+This is the same class of bug previously documented in v2.21 (Apr 14 entry) — a position absent from `priceCache` silently contributes 0 to one calculation while being included in another, surfacing as cross-surface drift.
+
+**Fix:**
+Drop the `cached?.success` half of the gate; require only `prevClose`. `getPrevClose` already falls back to `yesterdayClosingPrices` when `priceCache` is empty, matching how `moversData` resolves prevClose.
+
+```js
+const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, today, null);
+if (prevClose) {
+  return sum + (curPrice - prevClose) * p.quantity;
+}
+return sum;
+```
+
+US side (`index-us.html`) checked — already has the correct unconditional fallback (lines 1023-1033). No US patch needed.
+
+**Same-day cleanup applied manually (admin scripts, not committed):**
+- `positions` array in Firestore: 1308.HK appended (qty 6 000, entryPrice 34.92, entryDate 2026-05-21).
+- May 21 snapshot retroactively rebuilt: `positionCount 13→14`, `portfolioValue 783 648→987 048`, `dailyPnL −6 985→−13 105` (added entry-day contribution `(33.90 − 34.92) × 6 000 = −6 120`), plus `closingPrices["1308.HK"]=33.90` and a `positionsAtClose` entry with `pnl −6 120` / `pnlPercent −2.92%`. `priceProvenance["1308.HK"]` tagged `yahoo-historical-backfill`.
+- GH Actions cron forced via `gh workflow run daily-update-hk.yml` (the May 22 scheduled run hadn't fired yet — free-tier drift is consistently ~3 h, runs land at 11:30-12:00 UTC instead of 08:45 UTC). After the forced run, snapshot May 22 settled at `dailyPnL=14 583`, `closingPrices["1308.HK"]=34.32`, and `priceCache["1308.HK"]` was populated (`previousClose 33.90`, `price 34.32`, `change +0.42`).
+
+**Result:** after refresh, both surfaces converged on +14 583 HKD for May 22.
+
 ### May 7, 2026 (PM) — v2.29: US UI parity (`index-us.html` reaches feature equality with `index.html`)
 
 **Context:** the morning's v2.28 commit ported the data-layer fix (TV+Yahoo cross-check) to the US side, but `index-us.html` still lacked four UI features that `index.html` had been accumulating since v2.26:
