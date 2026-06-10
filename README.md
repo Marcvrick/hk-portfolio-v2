@@ -361,6 +361,9 @@ python -m http.server 8000
 
 ## Maintenance
 
+> **Operational wiki** — `wiki/` folder contains deep procedures, formulas, verification scripts, and the full incident log. README = code docs + changelog. Wiki = how not to break things.
+> Key pages: `wiki/index.md` (7 rules), `wiki/dailypnl-formula.md` (cron formula), `wiki/recording-a-sale.md` (sale procedure), `wiki/incidents.md` (past incidents).
+
 ### Documentation
 - **PRD.md** - Product Requirements Document avec:
   - Data models (positions, snapshots, transactions, etc.)
@@ -400,9 +403,74 @@ python -m http.server 8000
 - **Price data source**: TradingView Scanner API (browser + cron), no CORS proxy needed
 - **Debug snapshots**: Check browser console for snapshot logs
 
+### Recording a Sale (position removal)
+
+Full procedure: **`wiki/recording-a-sale.md`** — 8-step checklist with common mistakes table.
+
+**Critical rule (learnt from Jun 9 2026 incident):** the `dailyPnL` held-leg uses the prior **trading day** close (TradingView `change_abs`), NOT the prior snapshot close. These diverge whenever the cron missed days. Always fetch the correct prevClose via yfinance for gap periods. Full formula: `wiki/dailypnl-formula.md`.
+
+Quick summary:
+1. Confirm exit price / date / qty with Dany before touching anything
+2. Run `diagnose-<ticker>.py` to see which post-sale snapshots actually exist (cron gaps are common)
+3. Fetch prior-trading-day closes via yfinance for any gap days
+4. Dry-run → show output → get go-ahead → `--apply`
+5. Verify drift ≈ 0 with independent recomputation (`wiki/verification.md`)
+
 ---
 
 ## Changelog
+
+### Jun 10, 2026 — Data patch: 9988.HK (Alibaba) sale recorded, Jun 3 / 8 / 9 / 10 snapshots corrected + Jun 8 capitalEngaged repaired
+
+**Context:** 9988.HK was sold on 2026-05-29 at HK$121.40 (800 shares, full position, entry 131 from 2026-05-05) but was never entered in the app. The position stayed open in Firestore; every snapshot from Jun 3 onward counted it as still held.
+
+**Why the sale date had no snapshot:** cron gap — no snapshots exist between 2026-05-28 and 2026-06-02. The sale (May 29) falls inside that gap, so the first affected snapshot is Jun 3.
+
+**Patch applied — `patch-may29-remove-9988.py`:**
+- `closedTrades`: appended `{ticker: 9988.HK, qty: 800, entry: 131, exit: 121.40, exitDate: 2026-05-29}` — realized −7,680 HKD
+- `positions`: removed 9988.HK (14 → 13 open positions)
+- `priceCache`: dropped stale 9988.HK entry
+- Per affected snapshot — `portfolioValue` / `capitalEngaged` / `unrealizedPnL` / `positionCount` recomputed directly from `positionsAtClose` (enforces invariants); `dailyPnL` had the 9988 held-leg subtracted (prior *trading day* close: Jun 2 = 130.9 and Jun 5 = 122.4 from yfinance for the gap days, Jun 8/Jun 9 snapshot closes otherwise); `realizedPnL` += −7,680:
+
+  | Date | dailyPnL | portfolioValue | realizedPnL | 9988 leg |
+  |---|---|---|---|---|
+  | Jun 3 | 5,459 → 10,739 | 997,241 → 897,801 | 32,001 → 24,321 | −5,280 |
+  | Jun 8 | −11,574 → −8,694 | 787,170 → 692,130 | 30,081 → 22,401 | −2,880 |
+  | Jun 9 | 1,925 → 3,285 | 807,145 → 713,465 | 30,081 → 22,401 | −1,360 |
+  | Jun 10 | −9,522 → −5,282 | 797,623 → 708,183 | 30,081 → 22,401 | −4,240 |
+
+**Side repair:** the Jun 8 `capitalEngaged` field was still 1,133,071 — stale since `patch-jun9-remove-1308.py` removed 1308 from `positionsAtClose` but never reduced `capitalEngaged`, breaking the `unrealized = pv − capEngaged` invariant. Recomputing from the post-removal `positionsAtClose` corrected it (818,751) and removed 9988 in one pass.
+
+**Caveat (Jun 3 dailyPnL):** the Jun 3 snapshot's stored 9988 close (124.3) has no `priceProvenance` and disagrees with yfinance raw (126.6). The leg uses the snapshot's own close paired with yfinance Jun 2 (130.9), so Jun 3's session-P&L display carries small uncertainty; all value/realized/unrealized figures are exact.
+
+**Verified:** every snapshot now satisfies `posCount = len(positionsAtClose)`, `pv = Σ close×qty`, `unrealized = pv − capEngaged`. See `wiki/incidents.md` (2026-06-10) and `wiki/recording-a-sale.md`.
+
+---
+
+### Jun 9, 2026 — Data patch: 1308.HK (SITC International) sale recorded, Jun 8 + Jun 9 snapshots corrected
+
+**Context:** 1308.HK was sold on 2026-06-04 at HK$34.60 (6,000 shares, entry 34.92) but was never entered in the app. The position remained open in Firestore; Jun 8 and Jun 9 snapshots counted it as still held.
+
+**Why no Jun 4 / Jun 5 snapshots existed:** The cron did not produce snapshots for Jun 4 or Jun 5 (likely GitHub Actions drift or holiday). The last pre-sale snapshot was Jun 3 (1308 close 34.80). The first post-sale snapshot was Jun 8.
+
+**Patch applied — two scripts required:**
+
+`patch-jun9-remove-1308.py` (first pass):
+- `closedTrades`: appended `{ticker: 1308.HK, qty: 6000, entry: 34.92, exit: 34.60, exitDate: 2026-06-04}` — realized −1,920 HKD
+- `positions`: removed 1308.HK (14 → 13 open positions)
+- `priceCache`: dropped stale 1308.HK entry
+- Jun 8 snapshot: dailyPnL −9,654 → −12,654 (intermediate, see correction below), portfolioValue −211,800, unrealizedPnL −2,280, realizedPnL +−1,920
+- Jun 9 snapshot: dailyPnL −3,774 → **+4,746** ✓, portfolioValue −203,280, unrealizedPnL +6,240, realizedPnL +−1,920
+
+`patch-jun8-dailypnl-fix.py` (correction):
+- Jun 8 first pass subtracted `(35.30 − 34.80) × 6,000 = +3,000` using Jun 3 as prevClose. Wrong: the cron uses TradingView `change_abs` = prior *trading day* close. 1308's Jun 5 close (verified via yfinance) was 34.98, giving the correct contribution `(35.30 − 34.98) × 6,000 = +1,920`. Over-correction: 1,080 HKD.
+- Jun 8 dailyPnL corrected: −12,654 → **−11,574** ✓
+
+**Final verified state:** Jun 8 dailyPnL −11,574, Jun 9 dailyPnL +4,746. Both confirmed drift = 0 by independent recomputation.
+
+**Protocol established:** see `wiki/recording-a-sale.md` for the full checklist. See `wiki/dailypnl-formula.md` for why prevClose must be the prior *trading day* close, not the prior snapshot close.
+
+---
 
 ### May 22, 2026 — v2.30: calendar/header divergence fix when `priceCache` is missing a ticker
 

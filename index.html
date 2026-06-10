@@ -957,7 +957,7 @@
         }
       };
 
-      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers) => {
+      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers, opts = {}) => {
         // Don't save when viewing friend's portfolio
         if (viewingFriendEmail) {
           console.log('Skipping save - viewing friend portfolio (read-only mode)');
@@ -977,13 +977,61 @@
           savedFriends,
           ownerEmail: userEmail // For friend portfolio lookup
         };
+        // SILENT-DROP GUARD: detect tickers in live Firestore that are missing
+        // from BOTH the outgoing save AND the current React-state snapshot
+        // (i.e. positions that exist in the cloud but never reached this client).
+        // Legitimate deletes/sells pass through because the dropped ticker is in
+        // the React-state closure `positions`. Explicit replace paths (import,
+        // friend-share) opt out via opts.skipGuard.
+        if (!opts.skipGuard) {
+          try {
+            const liveDoc = await db.doc(getPortfolioDoc(userId)).get();
+            if (liveDoc.exists) {
+              const livePositions = liveDoc.data().positions || [];
+              const outgoingTickers = new Set(dataToSave.positions.map(p => p.ticker));
+              const reactStateTickers = new Set(positions.map(p => p.ticker));
+              const silentlyDropped = livePositions.filter(
+                p => !outgoingTickers.has(p.ticker) && !reactStateTickers.has(p.ticker)
+              );
+              if (silentlyDropped.length > 0) {
+                const tickerList = silentlyDropped.map(p => p.ticker).join(', ');
+                console.error(
+                  `[SAVE GUARD] Aborting save — would silently drop positions present in Firestore but missing from this client: ${tickerList}. Reloading from cloud.`
+                );
+                alert(
+                  `⚠️ Sauvegarde bloquée\n\nLe cloud contient des positions absentes de cet onglet : ${tickerList}\n\nRechargement automatique depuis Firestore pour éviter une perte de données.`
+                );
+                // Reload fresh state so the next save reflects the cloud truth
+                try {
+                  const fresh = await firestoreStorage.loadFromFirestore();
+                  if (fresh) {
+                    const migrated = migrateDataToV7(fresh);
+                    setPositions(migrated.positions);
+                    setClosedTrades(migrated.closedTrades);
+                    setTransactions(migrated.transactions);
+                    setPriceCache(migrated.priceCache);
+                    setSnapshots(migrated.snapshots);
+                  }
+                } catch (reloadErr) {
+                  console.error('[SAVE GUARD] Reload failed:', reloadErr);
+                }
+                return false;
+              }
+            }
+          } catch (guardErr) {
+            // If the pre-check itself fails (network, permissions), proceed with
+            // the save rather than block all writes. The guard is a safety net,
+            // not a hard gate.
+            console.warn('[SAVE GUARD] Pre-check failed, proceeding with save:', guardErr);
+          }
+        }
         // Save to Firestore (primary)
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
         if (!saved) {
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
         }
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail, userId]);
 
       // ===== DATA CORRECTION: Clean up stale tracking fields, fix historical data =====
       useEffect(() => {
@@ -2218,7 +2266,7 @@
               setPriceCache(migrated.priceCache);
               setSnapshots(migrated.snapshots);
               setSettings(migrated.settings);
-              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings);
+              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings, undefined, undefined, undefined, { skipGuard: true });
               alert('Import réussi!');
             }
           } catch (err) {
@@ -2983,7 +3031,7 @@
                         const rowClass = w.targetReached
                           ? 'bg-green-50 hover:bg-green-100'
                           : w.gap !== null && w.gap <= 5
-                            ? 'bg-yellow-50 hover:bg-yellow-100'
+                            ? 'bg-gray-100 hover:bg-gray-200'
                             : 'hover:bg-gray-50';
 
                         return (
