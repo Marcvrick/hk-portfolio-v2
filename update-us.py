@@ -16,9 +16,21 @@ import urllib.request
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# Eastern Time (US)
-ET = timezone(timedelta(hours=-5))  # EST (note: doesn't account for DST)
+# Eastern Time (US) — DST-aware. The old fixed UTC-5 was off by an hour from
+# March to November; harmless for date stamps so far, but it shrank the
+# midnight-drift margin and mislabeled settledAt times.
+from zoneinfo import ZoneInfo
+ET = ZoneInfo("America/New_York")
+
+from market_calendar import is_trading_day, coverage_warning, NYSE_HOLIDAYS
+
 COLLECTION = "us-portfolios"
+
+# Snapshot-validity window: the NYSE closing cross settles within minutes of
+# 16:00 ET; before 16:10 ET TV serves intraday prints. After midnight ET a
+# drifted GitHub Actions run would compute the WRONG `today`.
+# Override for manual reruns: ALLOW_OFF_HOURS=1.
+WINDOW_START = "16:10"
 
 
 def init_firebase():
@@ -365,13 +377,20 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
                 prev_close = yesterday_closing.get(ticker)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * p["quantity"]
-    # Add today's closed-position contribution: (exitPrice − yesterday_close) × qty.
+    # Add today's closed-position contribution: (exitPrice − prev_trading_day_close) × qty.
     # Using (realized_pnl - yesterday_realized) overcounts prior sessions' unrealized gains.
+    # prev close baseline = TV's official previous-session close (close − change_abs); the
+    # stored snapshot close is only a fallback — it goes stale across snapshot gaps.
     for t in closed_trades:
         if t.get("exitDate") != today:
             continue
         ticker_clean = t["ticker"].strip().replace(".HK", "").upper() if ".HK" in t.get("ticker","") else t.get("ticker","").strip().upper()
-        prev_close = yesterday_closing.get(ticker_clean)
+        tv_entry = tv_prices.get(ticker_clean) or {}
+        tv_close, tv_change_abs = tv_entry.get("close"), tv_entry.get("changeAbs")
+        if tv_close is not None and tv_change_abs is not None:
+            prev_close = tv_close - tv_change_abs  # prior trading-day close, gap-proof
+        else:
+            prev_close = yesterday_closing.get(ticker_clean)
         if prev_close is not None:
             daily_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
         elif t.get("entryDate") == today:
@@ -433,15 +452,38 @@ def run():
     print("Connecting to Firestore...")
     db = init_firebase()
 
-    today = datetime.now(ET).strftime("%Y-%m-%d")
+    now_et = datetime.now(ET)
+    today = now_et.strftime("%Y-%m-%d")
     print(f"=== US Portfolio Update {today} ===")
+
+    warn = coverage_warning(today)
+    if warn:
+        print(warn)
+
+    # NEW (Jun 10 2026): the US cron previously had NO holiday guard at all —
+    # every NYSE holiday wrote a phantom snapshot duplicating the prior
+    # session's change_abs as a fresh dailyPnL tile.
+    if not is_trading_day(today, "us"):
+        weekday = datetime.strptime(today, "%Y-%m-%d").strftime("%A")
+        reason = "holiday" if today in NYSE_HOLIDAYS else "weekend"
+        print(f"  Skipping — {weekday} {today} is a {reason} (NYSE closed)")
+        print("=== Done: No updates ===")
+        return
+
+    # Time-window guard: no snapshots before the closing cross settles, and a
+    # run drifted past midnight ET aborts instead of stamping the wrong date.
+    if os.environ.get("ALLOW_OFF_HOURS") != "1" and now_et.strftime("%H:%M") < WINDOW_START:
+        print(f"  Skipping — {now_et.strftime('%H:%M')} ET is before {WINDOW_START} (close not settled; "
+              "a drifted run from yesterday's schedule lands here too). Set ALLOW_OFF_HOURS=1 to override.")
+        print("=== Done: No updates ===")
+        return
 
     # Fetch all US prices in one bulk call
     print("Fetching TradingView US prices...")
     tv_prices = fetch_tradingview_prices()
     if not tv_prices:
         print("ERROR: No prices from TradingView — aborting")
-        return
+        sys.exit(1)  # red run, not a silent green skip
 
     # Get all user portfolios in the us-portfolios collection
     collection_ref = db.collection(COLLECTION)

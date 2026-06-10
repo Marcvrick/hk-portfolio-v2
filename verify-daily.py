@@ -29,10 +29,19 @@ from datetime import datetime, timezone, timedelta
 
 import firebase_admin
 from firebase_admin import credentials, firestore
+from zoneinfo import ZoneInfo
+
+from market_calendar import is_trading_day, coverage_warning
 
 CLOSE_DRIFT = 0.02
 PCT_DRIFT = 0.05
 PNL_DRIFT = 50.0
+
+# Same snapshot-validity window as update.py / update-us.py: before this
+# market-local time, either the close hasn't settled or we're a drifted run
+# from yesterday's schedule sitting in the next day — skip instead of
+# producing a false-alarm red run. Override: ALLOW_OFF_HOURS=1.
+WINDOW_START = "16:10"
 
 MARKETS = {
     "hk": {
@@ -48,7 +57,7 @@ MARKETS = {
     "us": {
         "scanner_url": "https://scanner.tradingview.com/america/scan",
         "collection": "us-portfolios",
-        "tz": timezone(timedelta(hours=-5)),  # ET (DST handled approximately; weekday check is what matters)
+        "tz": ZoneInfo("America/New_York"),  # DST-aware (was fixed UTC-5)
         "currency": "USD",
         "pad": False,
         "ticker_suffix": "",
@@ -163,7 +172,13 @@ def verify_portfolio(user_id, data, tv, today):
         if t.get("exitDate") != today:
             continue
         ticker_clean = t["ticker"].replace("b.HK", ".HK")
-        prev_close = yesterday_closing.get(ticker_clean)
+        # Mirror the cron: prev close = TV close − change_abs (prior trading-day
+        # close, gap-proof); stored snapshot close only as fallback.
+        tv_e = tv.get(ticker_clean)
+        if tv_e is not None:
+            prev_close = tv_e["close"] - tv_e["changeAbs"]
+        else:
+            prev_close = yesterday_closing.get(ticker_clean)
         if prev_close is not None:
             expected_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
         elif t.get("entryDate") == today:
@@ -194,10 +209,26 @@ def main():
     market = sys.argv[1]
     cfg = MARKETS[market]
 
-    today = datetime.now(cfg["tz"]).strftime("%Y-%m-%d")
-    weekday = datetime.now(cfg["tz"]).weekday()
-    if weekday >= 5:
-        print(f"verify-daily {market}: {today} is a weekend — skip")
+    now_local = datetime.now(cfg["tz"])
+    today = now_local.strftime("%Y-%m-%d")
+
+    warn = coverage_warning(today)
+    if warn:
+        print(warn)
+
+    # Holiday-aware skip. The old weekend-only check made every HKEX holiday a
+    # false-alarm red run ("no snapshot for today") — confirmed on 2026-05-25.
+    # False reds train the operator to ignore the only channel that catches
+    # real failures.
+    if not is_trading_day(today, market):
+        print(f"verify-daily {market}: {today} is a weekend/holiday — skip")
+        return
+
+    # Same validity window as the updater: a run drifted past market-local
+    # midnight must not red-flag the next day's (legitimately absent) snapshot.
+    if os.environ.get("ALLOW_OFF_HOURS") != "1" and now_local.strftime("%H:%M") < WINDOW_START:
+        print(f"verify-daily {market}: {now_local.strftime('%H:%M')} local is before {WINDOW_START} — "
+              "nothing to verify yet, skip")
         return
 
     db = init_firebase()

@@ -16,29 +16,17 @@ import urllib.request
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+from market_calendar import is_trading_day, coverage_warning, HKEX_HOLIDAYS
+
 HKT = timezone(timedelta(hours=8))
 COLLECTION = "portfolios"
 
-# HKEX Market Holidays (market fully closed)
-# Source: https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf
-HKEX_HOLIDAYS = {
-    '2025-01-01', '2025-01-29', '2025-01-30', '2025-01-31',
-    '2025-04-04', '2025-04-18', '2025-04-21', '2025-05-01',
-    '2025-05-05', '2025-05-31', '2025-07-01', '2025-10-01',
-    '2025-10-07', '2025-12-25', '2025-12-26',
-    '2026-01-01', '2026-02-17', '2026-02-18', '2026-02-19',
-    '2026-04-03', '2026-04-06', '2026-05-01',
-    '2026-05-25', '2026-06-19', '2026-07-01', '2026-10-01',
-    '2026-10-19', '2026-12-25',
-}
-
-
-def is_trading_day(date_str):
-    """Check if a date is a HKEX trading day (not weekend, not holiday)."""
-    d = datetime.strptime(date_str, "%Y-%m-%d")
-    if d.weekday() >= 5:  # Saturday or Sunday
-        return False
-    return date_str not in HKEX_HOLIDAYS
+# Snapshot-validity window: the CAS auction ends 16:10 HKT; before that TV
+# serves intraday/pre-CAS prints. After midnight HKT a drifted GitHub Actions
+# run would compute the WRONG `today` and stamp yesterday's prices on it.
+# So: only write snapshots between WINDOW_START and midnight, HKT.
+# Override for manual reruns: ALLOW_OFF_HOURS=1.
+WINDOW_START = "16:10"
 
 
 def init_firebase():
@@ -421,20 +409,29 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
                 prev_close = yesterday_closing.get(clean)
                 if prev_close is not None:
                     daily_pnl += (cur_price - prev_close) * p["quantity"]
-    # Add today's closed-position contribution: (exitPrice − yesterday_close) × qty.
+    # Add today's closed-position contribution: (exitPrice − prev_trading_day_close) × qty.
     # Do NOT use (realized_pnl - yesterday_realized): that adds the full entry-to-exit profit,
     # which overcounts all prior sessions' unrealized gains already captured in previous dailyPnL tiles.
+    # prev close baseline = TV's official previous-session close (close − change_abs), the same
+    # source the held-position legs use. Yesterday's stored snapshot close is only a fallback:
+    # when the last snapshot is older than one trading day (gap), it is days stale — the exact
+    # error class behind the Jun 9 2026 over-correction (wiki/dailypnl-formula.md rule 5).
     for t in closed_trades:
         if t.get("exitDate") != today:
             continue
         clean = t["ticker"].replace("b.HK", ".HK")
-        prev_close = yesterday_closing.get(clean)
+        tv_entry = tv_prices.get(clean) or {}
+        tv_close, tv_change_abs = tv_entry.get("close"), tv_entry.get("changeAbs")
+        if tv_close is not None and tv_change_abs is not None:
+            prev_close = tv_close - tv_change_abs  # prior trading-day close, gap-proof
+        else:
+            prev_close = yesterday_closing.get(clean)
         if prev_close is not None:
             daily_pnl += (t.get("exitPrice", 0) - prev_close) * t.get("quantity", 0)
         elif t.get("entryDate") == today:
             # Opened and closed same session: gain is exit − entry
             daily_pnl += (t.get("exitPrice", 0) - t.get("entryPrice", 0)) * t.get("quantity", 0)
-        # else: no prev_close, not same-day — skip; can't compute session contribution
+        # else: no prev_close available at all — skip; can't compute session contribution
 
     if not yesterday_snap:
         # No yesterday snapshot — fall back to total unrealized
@@ -496,13 +493,28 @@ def run():
     print("Connecting to Firestore...")
     db = init_firebase()
 
-    today = datetime.now(HKT).strftime("%Y-%m-%d")
+    now_hkt = datetime.now(HKT)
+    today = now_hkt.strftime("%Y-%m-%d")
     print(f"=== HK Portfolio Update {today} ===")
 
-    if not is_trading_day(today):
+    warn = coverage_warning(today)
+    if warn:
+        print(warn)
+
+    if not is_trading_day(today, "hk"):
         weekday = datetime.strptime(today, "%Y-%m-%d").strftime("%A")
         reason = "holiday" if today in HKEX_HOLIDAYS else "weekend"
         print(f"  Skipping — {weekday} {today} is a {reason} (HKEX closed)")
+        print("=== Done: No updates ===")
+        return
+
+    # Time-window guard: refuse to snapshot before the CAS settles. This also
+    # neutralises a GitHub Actions run that drifts past midnight HKT — it would
+    # arrive here with the NEXT day's date and pre-open prices, and abort
+    # instead of writing a corrupt snapshot.
+    if os.environ.get("ALLOW_OFF_HOURS") != "1" and now_hkt.strftime("%H:%M") < WINDOW_START:
+        print(f"  Skipping — {now_hkt.strftime('%H:%M')} HKT is before {WINDOW_START} (CAS not settled; "
+              "a drifted run from yesterday's schedule lands here too). Set ALLOW_OFF_HOURS=1 to override.")
         print("=== Done: No updates ===")
         return
 
@@ -511,7 +523,7 @@ def run():
     tv_prices = fetch_tradingview_prices()
     if not tv_prices:
         print("ERROR: No prices from TradingView — aborting")
-        return
+        sys.exit(1)  # red run, not a silent green skip
 
     # Get all user portfolios in the portfolios collection
     collection_ref = db.collection(COLLECTION)

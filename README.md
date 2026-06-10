@@ -57,8 +57,10 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index.html` | HK Portfolio - Production app (dark mode default) |
 | `index-us.html` | US Portfolio - Same layout, USD currency |
 | `index-dev.html` | Development version |
-| `update.py` | Cron script for HK TradingView prices (multi-user, HKEX holiday-aware) |
-| `update-us.py` | Cron script for US TradingView prices |
+| `update.py` | Cron script for HK TradingView prices (multi-user, holiday-aware via `market_calendar.py`, 16:10→midnight HKT validity window) |
+| `update-us.py` | Cron script for US TradingView prices (holiday-aware since 2026-06-10; previously wrote phantom snapshots on every NYSE holiday) |
+| `market_calendar.py` | Shared trading calendar (HKEX + NYSE holidays 2026-2027, `is_trading_day`, coverage warning) used by both update scripts and `verify-daily.py` so the three can never drift apart |
+| `patch-remove-nontrading-snapshots.py` | Reusable cleanup: deletes snapshots dated on weekends/holidays (phantom tiles corrupt week/month totals). Idempotent, `--dry-run` / `--apply` |
 | `verify-daily.py` | Post-cron self-check: per-ticker close/changePct + dailyPnL drift vs TradingView (`hk` / `us` arg). Fails the GitHub Actions run on >0.02 close, >0.05pp changePct, or >50 in dailyPnL drift |
 | `patch-snapshot-dailypnl.py` | Reusable backfill: corrects any snapshot's `dailyPnL` given `TARGET_DATE PREV_DATE` args. Use when a cron ran before a formula fix. Run: `GOOGLE_APPLICATION_CREDENTIALS=... python3 patch-snapshot-dailypnl.py 2026-05-05 2026-05-04 --dry-run` |
 | `patch-may6-2865-fix.py` | One-time fix: delete erroneous 2865.HK closed trade (fake 900-share sale from qty entry mistake); correct open position qty to 900; remove stale `addedToday*` fields |
@@ -75,8 +77,8 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `patch-apr23-closes.py` | One-time fix: Apr 23 closingPrices realigned to TradingView settlement (CAS-vs-settlement drift) |
 | `patch-april-dailypnl.py` | One-time fix: align April dailyPnL fields with current totalPnL deltas |
 | `patch-all-months-dailypnl.py` | Generalization of the above across all months — reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
-| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:45 HKT** — moved from 16:30 on 2026-05-07 to clear the Closing Auction settlement window) — runs `update.py` then `verify-daily.py hk` |
-| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, **16:10 ET** — moved from 16:00 on 2026-05-07 to clear the closing-cross settlement window) — runs `update-us.py` then `verify-daily.py us` |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:45 HKT** primary + **21:00 HKT backup entry** added 2026-06-10 against free-tier drift/skips) — runs `update.py` then `verify-daily.py hk` |
+| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, **16:10 ET** primary + **~20:00 ET backup entry** added 2026-06-10) — runs `update-us.py` then `verify-daily.py us` |
 
 ---
 
@@ -88,6 +90,9 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Save guard in `saveData`: silent-drop abort (positions) + snapshot merge (restores cloud snapshots missing from a stale tab; never lets an unsettled browser snapshot replace a cron-settled one) | ✅ | ✅ | 2026-06-10 |
+| Cron hardening: shared `market_calendar.py` (HKEX+NYSE 2026-27), US holiday guard, 16:10→midnight validity window (`ALLOW_OFF_HOURS=1` override), `sys.exit(1)` on TV failure, closed-today prevClose from TV `close − change_abs` (gap-proof) | ✅ | ✅ | 2026-06-10 |
+| Workflow backup schedule entry (HK 21:00 HKT / US ~20:00 ET) — idempotent re-run covers drifted/skipped primary runs | ✅ | ✅ | 2026-06-10 |
 | Cron cross-checks TradingView vs Yahoo per held ticker; Yahoo wins beyond tolerance (HK: 0.05 HKD/0.5%, US: 0.05 USD/0.3%); snapshot stores `settledAt` / `sources` / `provisional` / `priceProvenance` | ✅ | ✅ | 2026-05-07 |
 | Cron retimed past closing-auction window — HK 16:30 → **16:45 HKT**, US 16:00 → **16:10 ET** | ✅ | ✅ | 2026-05-07 |
 | `~` marker on calendar tiles flagged provisional (Yahoo unreachable for ≥1 ticker) | ✅ | ✅ | 2026-05-07 |
@@ -247,8 +252,8 @@ This ensures:
 
 | Workflow | Script | Schedule | Collection |
 |----------|--------|----------|------------|
-| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:30 UTC (16:30 HKT) | `portfolios` |
-| `daily-update-us.yml` | `update-us.py` | Mon-Fri 21:00 UTC (16:00 ET) | `us-portfolios` |
+| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:45 UTC (16:45 HKT) + backup 13:00 UTC (21:00 HKT) | `portfolios` |
+| `daily-update-us.yml` | `update-us.py` | Mon-Fri 21:10 UTC (16:10 ET) + backup 01:00 UTC (~20:00 ET) | `us-portfolios` |
 
 Both share the same `FIREBASE_CREDENTIALS_JSON` secret. To trigger manually: GitHub > Actions > Select workflow > "Run workflow".
 
@@ -394,7 +399,7 @@ python -m http.server 8000
 | Fee calculation | See PRD.md (7 components) | See PRD.md |
 | Ticker format | `XXXX.HK` | `AAPL`, `MSFT` |
 | Firestore collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
-| Cron schedule | 08:30 UTC (16:30 HKT) | 21:00 UTC (16:00 ET) |
+| Cron schedule | 08:45 UTC (16:45 HKT) + 13:00 UTC backup | 21:10 UTC (16:10 ET) + 01:00 UTC backup |
 | Currency | HKD | USD |
 
 ### Common Maintenance Tasks
@@ -419,6 +424,29 @@ Quick summary:
 ---
 
 ## Changelog
+
+### Jun 10, 2026 (PM) — v2.32: reliability hardening after the "cron gap" root cause was disproven
+
+**Trigger:** full reliability audit. Key discovery: the missing-snapshot "cron gaps" (May 29–Jun 2, Jun 4–5) never were cron failures. The Actions runs were green on every one of those dates (Jun 4 log: `Saved to Firestore (88 snapshots)` + `verify-daily HK PASS`); the snapshots were destroyed afterwards by a stale browser tab saving its old `snapshots` array via the full-document `doc.set()`. Full findings: `wiki/reliability-risks.md`.
+
+**Shipped (commit 1 — v2.31):** the silent-drop save guard written May 26 but never pushed (GitHub Pages served v2.30 without it for 15 days).
+
+**Shipped (commit 2 — v2.32):**
+1. **Snapshot merge guard** (`index.html` + `index-us.html`): on every guarded save, cloud snapshots missing from the outgoing array are restored instead of wiped (there is no UI path that legitimately deletes a snapshot by date), and a cron-settled snapshot (`settledAt`) is never replaced by an unsettled browser-computed one for the same date. Kills the snapshot-wipe mechanism behind the fake "cron gaps".
+2. **`market_calendar.py`** (new): one shared holiday table (HKEX + NYSE, 2026 + gazetted/announced 2027) + `is_trading_day(date, market)` + coverage warning past 2027-12-31. Used by `update.py`, `update-us.py`, `verify-daily.py`.
+3. **US holiday guard**: `update-us.py` previously had NO holiday check; on every NYSE holiday it wrote a phantom snapshot duplicating the prior session's `change_abs` (confirmed live: May 25 Memorial Day snapshot with `settledAt`, dailyPnL −387.85).
+4. **verify-daily holiday awareness**: HKEX holidays no longer produce false-alarm red runs (May 25 was red for "no snapshot" — alarm fatigue is what buries real failures).
+5. **Time-window guard** (16:10 → midnight market time, `ALLOW_OFF_HOURS=1` override): a free-tier run drifting past market midnight now aborts instead of stamping yesterday's prices on the wrong date. Observed margin was down to 80 min on Jun 1 (run started 22:40 HKT).
+6. **Backup cron entries** (HK 13:00 UTC, US 01:00 UTC): snapshot writes are idempotent per date, so the second run either rewrites identical values or covers a skipped/failed primary run.
+7. **Loud failures**: `update.py` / `update-us.py` now `sys.exit(1)` when the TradingView bulk fetch returns nothing (was a green-step `return`).
+8. **Closed-today prevClose fix**: the `(exit − prevClose) × qty` leg now uses TV's `close − change_abs` (prior *trading-day* close, gap-proof) instead of the prior *snapshot* close — the cron itself was violating wiki/dailypnl-formula rule 5.
+9. **DST-correct ET**: `update-us.py` / `verify-daily.py` use `ZoneInfo("America/New_York")` instead of fixed UTC-5.
+
+**Data patch:** `patch-remove-nontrading-snapshots.py` removed 4 phantom snapshots (HK: Sunday 2026-02-01 dailyPnL −4,500; US: 2026-02-16, 2026-04-03, and cron-settled 2026-05-25 dailyPnL −387.85). Both portfolios verified clean after.
+
+**Still open (planned):** move `snapshots` to a Firestore subcollection. Measured 2026-06-10: HK doc 332 KB, US 305 KB, growing ~80 KB/month toward the 1 MiB per-document hard limit (~early 2027). The subcollection also eliminates the full-array overwrite class entirely.
+
+---
 
 ### Jun 10, 2026 — Data patch: 9988.HK (Alibaba) sale recorded, Jun 3 / 8 / 9 / 10 snapshots corrected + Jun 8 capitalEngaged repaired
 

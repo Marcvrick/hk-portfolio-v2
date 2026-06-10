@@ -1017,6 +1017,39 @@
                 }
                 return false;
               }
+
+              // SNAPSHOT MERGE GUARD (Jun 10 2026): the actual mechanism behind
+              // the "cron gap" incidents — a tab opened before the cron ran
+              // saves its stale snapshots array via doc.set() and wipes the
+              // cron's snapshots (Jun 4/5 2026: Actions runs green + verify
+              // PASS, snapshots gone by Jun 9). There is no UI path that
+              // deletes a snapshot by date (the auto-snapshot effect filters
+              // today's date but re-appends a replacement), so a date present
+              // in the cloud but missing from the outgoing array can only mean
+              // stale client state → restore it instead of wiping it.
+              // Second rule: a cron-settled snapshot (has settledAt) is never
+              // replaced by a browser-computed unsettled one for the same date.
+              // Manual edits via the snapshot modal keep settledAt, so they
+              // still pass through.
+              const liveSnaps = liveDoc.data().snapshots || [];
+              const outgoingByDate = new Map((dataToSave.snapshots || []).map(s => [s.date, s]));
+              let restoredCount = 0, protectedCount = 0;
+              liveSnaps.forEach(ls => {
+                const out = outgoingByDate.get(ls.date);
+                if (!out) {
+                  outgoingByDate.set(ls.date, ls);
+                  restoredCount++;
+                } else if (ls.settledAt && !out.settledAt) {
+                  outgoingByDate.set(ls.date, ls);
+                  protectedCount++;
+                }
+              });
+              if (restoredCount > 0 || protectedCount > 0) {
+                const mergedSnaps = [...outgoingByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+                console.warn(`[SAVE GUARD] Snapshot merge: restored ${restoredCount} cloud snapshot(s) missing from this tab, protected ${protectedCount} settled snapshot(s) from unsettled overwrite.`);
+                dataToSave.snapshots = mergedSnaps;
+                setSnapshots(mergedSnaps);
+              }
             }
           } catch (guardErr) {
             // If the pre-check itself fails (network, permissions), proceed with

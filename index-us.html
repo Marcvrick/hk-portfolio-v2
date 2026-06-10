@@ -891,7 +891,7 @@
         }
       };
 
-      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers) => {
+      const saveData = useCallback(async (newPos, newClosed, newTx, newCache, newSnap, newSettings, newWishlist, newWishlistAlerts, newAllowedViewers, opts = {}) => {
         // Don't save when viewing friend's portfolio
         if (viewingFriendEmail) {
           console.log('Skipping save - viewing friend portfolio (read-only mode)');
@@ -911,13 +911,83 @@
           savedFriends,
           ownerEmail: userEmail // For friend portfolio lookup
         };
+        // SILENT-DROP GUARD + SNAPSHOT MERGE GUARD (ported from index.html,
+        // Jun 10 2026). saveToFirestore is a full doc.set() replace, so a tab
+        // holding stale React state wipes whatever the cron or another device
+        // wrote after the tab loaded. Two protections:
+        // 1) abort saves that would drop positions this client never knew;
+        // 2) merge back cloud snapshots missing from the outgoing array, and
+        //    never let an unsettled browser snapshot replace a cron-settled
+        //    one for the same date. Explicit replace paths (import) opt out
+        //    via opts.skipGuard.
+        if (!opts.skipGuard) {
+          try {
+            const liveDoc = await db.doc(getPortfolioDoc(userId)).get();
+            if (liveDoc.exists) {
+              const livePositions = liveDoc.data().positions || [];
+              const outgoingTickers = new Set(dataToSave.positions.map(p => p.ticker));
+              const reactStateTickers = new Set(positions.map(p => p.ticker));
+              const silentlyDropped = livePositions.filter(
+                p => !outgoingTickers.has(p.ticker) && !reactStateTickers.has(p.ticker)
+              );
+              if (silentlyDropped.length > 0) {
+                const tickerList = silentlyDropped.map(p => p.ticker).join(', ');
+                console.error(
+                  `[SAVE GUARD] Aborting save — would silently drop positions present in Firestore but missing from this client: ${tickerList}. Reloading from cloud.`
+                );
+                alert(
+                  `⚠️ Sauvegarde bloquée\n\nLe cloud contient des positions absentes de cet onglet : ${tickerList}\n\nRechargement automatique depuis Firestore pour éviter une perte de données.`
+                );
+                try {
+                  const fresh = await firestoreStorage.loadFromFirestore();
+                  if (fresh) {
+                    const migrated = migrateDataToV7(fresh);
+                    setPositions(migrated.positions);
+                    setClosedTrades(migrated.closedTrades);
+                    setTransactions(migrated.transactions);
+                    setPriceCache(migrated.priceCache);
+                    setSnapshots(migrated.snapshots);
+                  }
+                } catch (reloadErr) {
+                  console.error('[SAVE GUARD] Reload failed:', reloadErr);
+                }
+                return false;
+              }
+
+              const liveSnaps = liveDoc.data().snapshots || [];
+              const outgoingByDate = new Map((dataToSave.snapshots || []).map(s => [s.date, s]));
+              let restoredCount = 0, protectedCount = 0;
+              liveSnaps.forEach(ls => {
+                const out = outgoingByDate.get(ls.date);
+                if (!out) {
+                  outgoingByDate.set(ls.date, ls);
+                  restoredCount++;
+                } else if (ls.settledAt && !out.settledAt) {
+                  outgoingByDate.set(ls.date, ls);
+                  protectedCount++;
+                }
+              });
+              if (restoredCount > 0 || protectedCount > 0) {
+                const mergedSnaps = [...outgoingByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+                console.warn(`[SAVE GUARD] Snapshot merge: restored ${restoredCount} cloud snapshot(s) missing from this tab, protected ${protectedCount} settled snapshot(s) from unsettled overwrite.`);
+                dataToSave.snapshots = mergedSnaps;
+                setSnapshots(mergedSnaps);
+              }
+            }
+          } catch (guardErr) {
+            // If the pre-check itself fails (network, permissions), proceed with
+            // the save rather than block all writes. The guard is a safety net,
+            // not a hard gate.
+            console.warn('[SAVE GUARD] Pre-check failed, proceeding with save:', guardErr);
+          }
+        }
         // Save to Firestore (primary)
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
         if (!saved) {
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('us-portfolio-v7', JSON.stringify(dataToSave));
         }
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail, userId]);
 
       // Close friend dropdown on outside click
       useEffect(() => {
@@ -1979,7 +2049,7 @@
               setPriceCache(migrated.priceCache);
               setSnapshots(migrated.snapshots);
               setSettings(migrated.settings);
-              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings);
+              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings, undefined, undefined, undefined, { skipGuard: true });
               alert('Import réussi!');
             }
           } catch (err) {

@@ -5,6 +5,11 @@ on:
     # settled and TradingView Scanner has flushed post-cross prints. 21:00 was
     # too tight (cron caught the same pre-settlement print that bit HK at 16:30).
     - cron: '10 21 * * 1-5'
+    # Backup entry: 01:00 UTC Tue-Sat = Mon-Fri evening ET (~20:00-21:00 ET).
+    # Free-tier schedules drift and can skip entirely; the snapshot write is
+    # idempotent per date. update-us.py's time-window guard aborts any run
+    # that drifts past midnight ET.
+    - cron: '0 1 * * 2-6'
   workflow_dispatch:
 jobs:
   update:
