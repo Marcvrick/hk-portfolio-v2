@@ -425,6 +425,35 @@ Quick summary:
 
 ## Changelog
 
+### Jun 11, 2026 — v2.33: closedTrades merge guard (both HTMLs)
+
+**Gap:** the v2.31/v2.32 guards protected `positions` (silent-drop abort) and `snapshots` (merge), but **`closedTrades` had no guard** — a stale tab's full `doc.set()` still wiped any trade recorded after the tab loaded, while silently re-adding the sold positions (the positions guard only catches drops, not re-adds). This is the mechanism that ate the 0177/1585 sale records of May 28.
+
+**Fix:** in `saveData` (index.html + index-us.html), after the snapshot merge guard: any closedTrade present in the live cloud doc but missing from BOTH the outgoing save and the React-state closure is restored into the outgoing array (key = `id|ticker|exitDate`, ticker normalized via `convertOldTicker`). Deletes made in the active tab still pass because the deleted trade is in the React-state closure at save time. Console-logged as `[SAVE GUARD] closedTrades merge`.
+
+---
+
+### Jun 11, 2026 — Data patch: 0177.HK + 1585.HK sales of May 28 recorded (stale-tab overwrite residue), Jun 3/8/9/10/11 snapshots corrected
+
+**Context:** Dany sold 0177.HK (Jiangsu Expressway, 6,000 sh @ 10.30, entry 9.997) and 1585.HK (Yadea, 8,000 sh @ 11.26, entry 13.04) on 2026-05-28, but both were back in open positions with no closedTrades entry — residue of the pre-v2.31/32 stale-tab overwrite (see Jun 10 PM entry below): the close-position writes were reverted client-side. An intraday close + same-day revert leaves no snapshot presence gap, which is why `diagnose-presence-history.py` shows both tickers in all 86 snapshots.
+
+**Patch applied — `patch-may28-remove-177-1585.py`:**
+- `closedTrades`: 0177.HK realized **+1,818**, 1585.HK realized **−14,240** (net −12,422), exitDate 2026-05-28
+- `positions`: 13 → 11; `priceCache`: dropped `0177.HK`, `1585.HK`, and a stray unpadded `177.HK` key
+- 5 snapshots corrected (value fields recomputed from `positionsAtClose`, dailyPnL legs subtracted with prior-trading-day closes — Jun 2 + Jun 5 from yfinance, rest from prior snapshots):
+
+  | Date | dailyPnL | portfolioValue | realizedPnL |
+  |---|---|---|---|
+  | Jun 3 | 10,739 → 14,119 | 897,801 → 742,321 | 24,321 → 11,899 |
+  | Jun 8 | −8,694 → −9,634 | 692,130 → 533,530 | 22,401 → 9,979 |
+  | Jun 9 | 3,285 → 3,905 | 713,465 → 555,485 | 22,401 → 9,979 |
+  | Jun 10 | −2,117 → 543 | 711,348 → 556,028 | 22,401 → 9,979 |
+  | Jun 11 | −3,654 → −314 | 707,694 → 555,714 | 22,401 → 9,979 |
+
+**Verified:** all invariants hold on the five snapshots; Σ closedTrades = latest snapshot realizedPnL = 9,979 (drift 0), so the next cron run stays consistent. Caveat: the Jun 3 snapshot is not cron-written and stores stale May 27 closes — its dailyPnL remains approximate. Details: `wiki/incidents.md` (2026-06-11).
+
+---
+
 ### Jun 10, 2026 (PM) — v2.32: reliability hardening after the "cron gap" root cause was disproven
 
 **Trigger:** full reliability audit. Key discovery: the missing-snapshot "cron gaps" (May 29–Jun 2, Jun 4–5) never were cron failures. The Actions runs were green on every one of those dates (Jun 4 log: `Saved to Firestore (88 snapshots)` + `verify-daily HK PASS`); the snapshots were destroyed afterwards by a stale browser tab saving its old `snapshots` array via the full-document `doc.set()`. Full findings: `wiki/reliability-risks.md`.

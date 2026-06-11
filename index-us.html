@@ -973,6 +973,29 @@
                 dataToSave.snapshots = mergedSnaps;
                 setSnapshots(mergedSnaps);
               }
+
+              // CLOSEDTRADES MERGE GUARD (Jun 11 2026, ported from index.html):
+              // a stale tab's doc.set() replace wipes closedTrades entries it
+              // never knew about while re-adding the sold positions (the
+              // positions guard only catches drops, not re-adds) — this ate
+              // the HK 0177/1585 sale records of May 28. A trade present in
+              // the cloud but missing from BOTH the outgoing save and the
+              // React-state closure can only mean stale client state →
+              // restore it. A delete made in this tab passes because the
+              // deleted trade is still in the React-state closure at save time.
+              const liveClosed = liveDoc.data().closedTrades || [];
+              const tradeKey = t => `${t.id ?? ''}|${convertOldTicker(t.ticker)}|${t.exitDate}`;
+              const outgoingTradeKeys = new Set((dataToSave.closedTrades || []).map(tradeKey));
+              const reactStateTradeKeys = new Set(closedTrades.map(tradeKey));
+              const staleMissingTrades = liveClosed.filter(
+                t => !outgoingTradeKeys.has(tradeKey(t)) && !reactStateTradeKeys.has(tradeKey(t))
+              );
+              if (staleMissingTrades.length > 0) {
+                const mergedClosed = [...(dataToSave.closedTrades || []), ...staleMissingTrades];
+                console.warn(`[SAVE GUARD] closedTrades merge: restored ${staleMissingTrades.length} cloud trade(s) missing from this tab: ${staleMissingTrades.map(t => `${t.ticker} (${t.exitDate})`).join(', ')}`);
+                dataToSave.closedTrades = mergedClosed;
+                setClosedTrades(mergedClosed);
+              }
             }
           } catch (guardErr) {
             // If the pre-check itself fails (network, permissions), proceed with
