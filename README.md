@@ -425,6 +425,18 @@ Quick summary:
 
 ## Changelog
 
+### Jun 15, 2026 — v2.34: cron reliability — fan-out schedule slots + Node 24 action bump
+
+**Gap:** on Jun 15 (Mon) the HK `Daily Portfolio Update` workflow **skipped entirely** — GitHub's free-tier scheduler never fired the 08:45 UTC slot, and the single 13:00 UTC backup hadn't run yet. After HK close the app blocks manual refresh, so with no Jun 15 snapshot in Firestore it showed stale Friday data ("the app doesn't update today"). Live prices (TradingView Scanner) were fine throughout — this was purely a missing cron run. Recovered same-day via `workflow_dispatch`.
+
+**Fix (both workflows):**
+- **More shots at the scheduler.** HK now fans out **5** schedule slots across its valid window (16:45 / 18:00 / 20:00 / 21:00 / 23:00 HKT = 08:45–15:00 UTC); US now **4** slots valid in both EDT and EST (17:10 / 19:00 / 21:00 / 23:00 ET). The snapshot write is idempotent per date, so extra firings just rewrite the same settled values; the time-window guard (`16:10 → midnight` local, `ALLOW_OFF_HOURS=1` override) rejects anything outside the window. Goal: at least one slot lands even when GitHub drops some.
+- **Node 24 readiness.** Bumped `actions/checkout@v4 → v5` and `actions/setup-python@v5 → v6` ahead of GitHub forcing Node 24 on runners (Jun 16, 2026), which deprecated the v4/v5 Node-20 actions.
+
+**Note:** this does not eliminate GitHub's scheduler flakiness — it makes a single skip self-heal. If a day still slips through entirely, `gh workflow run daily-update-hk.yml` (or `-us`) writes the snapshot on demand.
+
+---
+
 ### Jun 11, 2026 — v2.33: closedTrades merge guard (both HTMLs)
 
 **Gap:** the v2.31/v2.32 guards protected `positions` (silent-drop abort) and `snapshots` (merge), but **`closedTrades` had no guard** — a stale tab's full `doc.set()` still wiped any trade recorded after the tab loaded, while silently re-adding the sold positions (the positions guard only catches drops, not re-adds). This is the mechanism that ate the 0177/1585 sale records of May 28.

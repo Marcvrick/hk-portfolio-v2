@@ -1,22 +1,26 @@
 name: Daily US Portfolio Update
 on:
   schedule:
-    # 21:10 UTC = 16:10 ET — 10 min after NYSE close so the closing cross has
-    # settled and TradingView Scanner has flushed post-cross prints. 21:00 was
-    # too tight (cron caught the same pre-settlement print that bit HK at 16:30).
-    - cron: '10 21 * * 1-5'
-    # Backup entry: 01:00 UTC Tue-Sat = Mon-Fri evening ET (~20:00-21:00 ET).
-    # Free-tier schedules drift and can skip entirely; the snapshot write is
-    # idempotent per date. update-us.py's time-window guard aborts any run
-    # that drifts past midnight ET.
-    - cron: '0 1 * * 2-6'
+    # GitHub free-tier schedules drift 1.5-6h and SKIP ENTIRELY at random
+    # (Jun 15 2026: HK's slot never fired). The snapshot write is idempotent
+    # per date, so firing several times is harmless — a re-run rewrites the
+    # same settled values. We fan out FOUR slots across update-us.py's valid
+    # window (16:10 ET → midnight ET), chosen to stay valid in BOTH EDT and
+    # EST (the guard checks the DST-aware ET clock, not UTC). Goal: at least
+    # one lands even when GitHub drops some.
+    # 21:10 UTC — 10 min after the NYSE closing cross (16:10 EST / 17:10 EDT),
+    # after TradingView flushed post-cross prints (21:00 was too tight).
+    - cron: '10 21 * * 1-5'   # 16:10 EST / 17:10 EDT — primary
+    - cron: '0 23 * * 1-5'    # 18:00 EST / 19:00 EDT — backup 1 (same UTC day)
+    - cron: '0 1 * * 2-6'     # 20:00 EST / 21:00 EDT — backup 2 (next UTC day)
+    - cron: '0 3 * * 2-6'     # 22:00 EST / 23:00 EDT — backup 3 (last before midnight ET)
   workflow_dispatch:
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install dependencies

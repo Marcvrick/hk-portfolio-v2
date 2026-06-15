@@ -1,22 +1,27 @@
 name: Daily HK Portfolio Update
 on:
     schedule:
-      # 08:45 UTC = 16:45 HKT — 35 min after the Closing Auction ends (16:10 HKT)
-      # so TradingView Scanner has had time to flush post-CAS settlement prints.
-      # 16:30 was too early — caught pre-CAS prices on illiquid HK names.
-      - cron: '45 8 * * 1-5'
-      # Backup entry (21:00 HKT nominal). Free-tier schedules drift 1.5-6h and
-      # can skip entirely; the snapshot write is idempotent per date, so a
-      # second run just rewrites the same values. update.py's time-window
-      # guard aborts any run that drifts past midnight HKT.
-      - cron: '0 13 * * 1-5'
+      # GitHub free-tier schedules drift 1.5-6h and SKIP ENTIRELY at random
+      # (Jun 15 2026: the 08:45 slot never fired). The snapshot write is
+      # idempotent per date, so firing several times a day is harmless — a
+      # re-run just rewrites the same settled values. We therefore fan out
+      # FIVE slots across update.py's valid window (16:10 HKT / 08:10 UTC →
+      # midnight HKT / 16:00 UTC); the guard aborts anything outside it.
+      # Goal: at least one of the five lands even when GitHub drops some.
+      # 16:45 HKT — 35 min after the Closing Auction ends (16:10 HKT), so
+      # TradingView Scanner has flushed post-CAS prints (16:30 was too early).
+      - cron: '45 8 * * 1-5'   # 16:45 HKT — primary
+      - cron: '0 10 * * 1-5'   # 18:00 HKT — backup 1
+      - cron: '0 12 * * 1-5'   # 20:00 HKT — backup 2
+      - cron: '0 13 * * 1-5'   # 21:00 HKT — backup 3
+      - cron: '0 15 * * 1-5'   # 23:00 HKT — backup 4 (last before midnight HKT)
     workflow_dispatch:
 jobs:
     update:
       runs-on: ubuntu-latest
       steps:
-        - uses: actions/checkout@v4
-        - uses: actions/setup-python@v5
+        - uses: actions/checkout@v5
+        - uses: actions/setup-python@v6
           with:
             python-version: '3.12'
         - name: Install dependencies
