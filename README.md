@@ -425,6 +425,34 @@ Quick summary:
 
 ## Changelog
 
+### Jun 17, 2026 — v2.35: pin `@babel/standalone` to 7.29.7 — Babel 8 broke in-browser JSX, blank page
+
+**Symptom:** the app loaded to a **completely white screen** — no login form, nothing rendered — on `index.html` and `index-us.html`. No code had changed since Jun 15 (last commit was v2.34); the site simply stopped working overnight.
+
+**Root cause — unpinned CDN dependency served a new major version.** All three HTMLs included Babel with **no version pin**:
+
+```html
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+```
+
+unpkg resolves a bare package path to the **latest** published version. Babel shipped its major release **8.0** (unpkg began serving `@babel/standalone@8.0.1` as `latest`), whose breaking changes fail the `<script type="text/babel">` runtime transform the app relies on to compile its JSX in the browser. Result: the script body never transpiles, `ReactDOM.render` never runs, blank page. Firebase (plain JS, loaded separately) was unaffected — the `marccharnal` token still refreshed normally that day, which is why this looked at first like a login problem rather than a render failure.
+
+**Diagnosis trail (what ruled out the wrong causes):**
+- GitHub Pages served HTTP 200 with the correct latest code → not a hosting/deploy issue.
+- Firebase Identity Toolkit answered `signInWithPassword` normally; both auth users active/undisabled → not an auth-backend or account issue.
+- All nine CDN URLs returned 200 → nothing was *down*; the failure was a **version bump**, not an outage.
+- `curl -IL unpkg.com/@babel/standalone/babel.min.js` redirected to `@8.0.1` → confirmed the bare path now resolves to Babel 8.
+
+**Fix:** pin to the last known-good 7.x across all three files (`index.html`, `index-us.html`, `index-dev.html`):
+
+```html
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+```
+
+**Lesson:** every CDN `<script>`/`<link>` must pin an exact version. The other deps were already safe-ish (`react@18`, `react-dom@18`, `recharts@2.5.0`, `prop-types@15`, `firebasejs/10.7.1`); `@babel/standalone` was the only bare path and the only one that could jump a major version without warning. **Audit rule:** `grep -nE 'unpkg\.com/[^@"]+/' *.html` should return nothing — any bare unpkg path is a latent time-bomb.
+
+---
+
 ### Jun 15, 2026 — v2.34: cron reliability — fan-out schedule slots + Node 24 action bump
 
 **Gap:** on Jun 15 (Mon) the HK `Daily Portfolio Update` workflow **skipped entirely** — GitHub's free-tier scheduler never fired the 08:45 UTC slot, and the single 13:00 UTC backup hadn't run yet. After HK close the app blocks manual refresh, so with no Jun 15 snapshot in Firestore it showed stale Friday data ("the app doesn't update today"). Live prices (TradingView Scanner) were fine throughout — this was purely a missing cron run. Recovered same-day via `workflow_dispatch`.
