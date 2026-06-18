@@ -16,6 +16,11 @@ Three checks, with their thresholds:
   2. Per-ticker changePercent drift > 0.05 percentage points
   3. dailyPnL drift                 > 50 in market currency vs sum(TV change_abs * qty)
 
+Ex-dividend aware (mirrors update.py): on a held ticker's ex-div day update.py folds the
+dividend into changePercent and the dailyPnL leg (total return), while TV reports only the
+raw price gap-down. Checks 2 + 3 re-fold the dividend (read from priceCache.dividendPerShare
+/ exDivDate) before comparing, so a legitimate ex-div day is not a false-alarm red run.
+
 If anything trips, prints a structured FAIL block and exits 1 so the GitHub
 Actions run is marked red. Clean run prints a one-line PASS and exits 0.
 """
@@ -140,10 +145,18 @@ def verify_portfolio(user_id, data, tv, today):
             )
         cached = price_cache.get(ticker, {})
         stored_pct = cached.get("changePercent")
-        if stored_pct is not None and abs(stored_pct - tv_e["changePct"]) > PCT_DRIFT:
+        tv_pct = tv_e["changePct"]
+        # Ex-dividend day: update.py folds the dividend into changePercent (total return),
+        # while TV still reports the raw price-only gap-down. Re-fold the dividend into the
+        # TV figure before comparing, else every ex-div day is a false-alarm red run.
+        if cached.get("exDivDate") == today and cached.get("dividendPerShare"):
+            prev_close = tv_e["close"] - tv_e["changeAbs"]
+            if prev_close:
+                tv_pct = (tv_e["changeAbs"] + cached["dividendPerShare"]) / prev_close * 100
+        if stored_pct is not None and abs(stored_pct - tv_pct) > PCT_DRIFT:
             issues.append(
                 f"[{user_id}] {ticker} priceCache.changePercent drift: stored={stored_pct:.4f}% "
-                f"TV={tv_e['changePct']:.4f}% diff={stored_pct - tv_e['changePct']:+.4f}pp"
+                f"TV={tv_pct:.4f}% diff={stored_pct - tv_pct:+.4f}pp"
             )
 
     # Check 3: dailyPnL vs correct formula
@@ -165,7 +178,11 @@ def verify_portfolio(user_id, data, tv, today):
         if p.get("entryDate") == today:
             expected_pnl += (p.get("currentPrice", 0) - p.get("entryPrice", 0)) * p["quantity"]
         else:
-            expected_pnl += tv_e["changeAbs"] * p["quantity"]
+            # Mirror update.py's total-return fold: on an ex-div day the dividend is added
+            # back into the daily move, so the dailyPnL leg is (change_abs + dividend) * qty.
+            cached = price_cache.get(ticker, {})
+            div = cached.get("dividendPerShare", 0) if cached.get("exDivDate") == today else 0
+            expected_pnl += (tv_e["changeAbs"] + div) * p["quantity"]
 
     closed_trades = data.get("closedTrades", [])
     for t in closed_trades:
