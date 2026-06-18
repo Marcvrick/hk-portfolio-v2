@@ -425,6 +425,28 @@ Quick summary:
 
 ## Changelog
 
+### Jun 18, 2026 — v2.38: US ex-dividend parity (`update-us.py` + `index-us.html`)
+
+Ports the HK ex-div feature (`be66e99`) to the US pipeline: on an ex-div day the daily move now reads as a total return, not a raw price gap-down loss.
+
+- **`update-us.py`:** `_yahoo_dividend_for()` + `fetch_dividends_today()` (Yahoo ex-date lookup; also tries the dash share-class form, e.g. `BRK.B` → `BRK-B`). Ex-div days fold the dividend into `priceCache.change`/`changePercent` and the `dailyPnL` leg, keeping the real `previousClose`; `priceCache` gains `dividendPerShare`/`exDivDate`/`rawChange`; the snapshot gains `dividendsToday`/`dividendIncomeToday`.
+- **`index-us.html`:** `refreshPrices` carries the cron's ex-div adjustment over a fresh raw TradingView fetch (same day); the movers table shows the 💰 div badge + total-return tooltip.
+- **`verify-daily.py`** already covers US — its ex-div re-fold (`fb55a79`) reads `exDivDate`/`dividendPerShare` from `priceCache`, which the US cron now writes.
+
+**Validated:** `_yahoo_dividend_for` resolves real US ex-dates (KO 2026-06-15 $0.53, MSFT 2026-05-21 $0.91); `index-us.html` re-transpiles clean under `@babel/standalone` 7.29.7.
+
+---
+
+### Jun 18, 2026 — v2.37: Performance tab shows last session on market-closed days (was HKD 0)
+
+**Symptom:** on the **2026-06-19 Dragon Boat holiday** the HK Performance tab showed **"Today's P&L: HKD 0"** while the header card showed "Marché fermé" — the tab looked disconnected.
+
+**Root cause:** `getMarketToday()` returns the closed day, so `isMarketClosedToday` gated every per-position daily leg to 0, and since it is not pre-market `totalDailyDollar` fell through to `moversDollarSum = 0`. (Long-standing — every weekend showed 0 too; the mid-week holiday made it obvious.)
+
+**Fix (`0d6039a`):** new `showLastSession = preMarketActive || isMarketClosedToday` routes closed days through the same "last completed session" path as pre-market. Per-position moves come from the stable `cached.change` (no trading since the last session); the total uses that session's cron-stored `dailyPnL` (authoritative — matches header + calendar). Adds a "Marché fermé" banner and the "Dernière séance P&L" label. The US tab already showed the last session on closed days (it never gated the per-position change), so no US change was needed. Validated: re-transpiles clean under `@babel/standalone` 7.29.7; on 2026-06-19 the total reads the Jun 18 `dailyPnL` −15,001.54 instead of 0.
+
+---
+
 ### Jun 18, 2026 — v2.36: `verify-daily` made ex-dividend aware (stop false-red runs)
 
 **Symptom:** Dany reported the Performance tab "seems disconnected". GitHub Actions also showed today's HK runs going **red**.
