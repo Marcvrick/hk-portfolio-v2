@@ -425,6 +425,24 @@ Quick summary:
 
 ## Changelog
 
+### Jun 18, 2026 — v2.36: `verify-daily` made ex-dividend aware (stop false-red runs)
+
+**Symptom:** Dany reported the Performance tab "seems disconnected". GitHub Actions also showed today's HK runs going **red**.
+
+**Diagnosis — the data was correct, the verify gate was wrong.** A live Firestore read showed all three "today's P&L" paths reconciling (header `dailyGain`, Performance movers, snapshot `dailyPnL` all ≈ −15,002) and the new ex-div fold (`be66e99`) working on 300.HK (Haier, ex-div 4.367 HKD: raw −5.55% → total-return −0.65%). But `be66e99` folded the dividend into `update.py` (`priceCache.changePercent` + the `dailyPnL` leg) and `index.html` **without updating `verify-daily.py`**, which still compared against raw TradingView:
+- Check 2: `300.HK changePercent drift: stored −0.6536% vs TV −5.5524% (+4.90pp)`
+- Check 3: `dailyPnL drift +873.46` = exactly the dividend income (4.367 × 200 qty)
+
+update.py writes the snapshot **before** verify-daily runs, so the snapshot was correct; only the post-check failed — but a false red erodes the one channel that flags real failures.
+
+**Contributing factor (no code fix):** GitHub dropped the 16:45 HKT primary cron slot and drifted the backups (the v2.34 fan-out weakness); the app served yesterday's `priceCache` from ~16:00→20:12 HKT — the likely window the Performance tab looked "disconnected".
+
+**Fix (`fb55a79`):** `verify-daily.py` Checks 2 + 3 re-fold the dividend (from `priceCache.exDivDate`/`dividendPerShare`) before comparing, mirroring update.py. Activates only when those fields are present, so the US pipeline (no ex-div fold yet) is unaffected. Validated: patched `verify_portfolio` returns 0 issues for 2026-06-18 against a fresh 3717-ticker TV pull.
+
+**Lesson:** any change to the daily-move math (`update.py` / `index.html`) must update `verify-daily.py` in the same commit. The three P&L paths and the verify gate must read the same adjusted value. (US ex-div parity in `update-us.py` is still open.)
+
+---
+
 ### Jun 17, 2026 — v2.35: pin `@babel/standalone` to 7.29.7 — Babel 8 broke in-browser JSX, blank page
 
 **Symptom:** the app loaded to a **completely white screen** — no login form, nothing rendered — on `index.html` and `index-us.html`. No code had changed since Jun 15 (last commit was v2.34); the site simply stopped working overnight.
