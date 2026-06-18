@@ -3605,6 +3605,11 @@
               // Pre-market: prices are stale (price == previousClose), so use snapshots
               // to show previous session's actual daily performance
               const preMarketActive = isPreMarket() || isBeforeMarketOpen();
+              // A market-closed day (weekend / HKEX holiday) has no live session. Like
+              // pre-market — and like the header card, which shows "Marché fermé" rather
+              // than a bare 0 — display the LAST completed trading session instead of a
+              // misleading "Today's P&L = 0". (HKEX holiday e.g. 2026-06-19 Dragon Boat.)
+              const showLastSession = preMarketActive || isMarketClosedToday;
               const dayBeforeYesterdaySnapshot = yesterdaySnapshot
                 ? sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date))
                 : null;
@@ -3650,12 +3655,14 @@
                 } else {
                   previousClose = p.currentPrice;
                 }
-                // On weekends: daily change is 0 (no trading)
-                // Pre-market: show previous session's actual change (from snapshots)
-                // Otherwise: use TradingView's official values directly (never recompute %)
+                // Live day: use TradingView's official values directly (never recompute %).
+                // Market-closed day (weekend/holiday): cached.change still holds the LAST
+                // session's TV change (no trading since), so the same path yields that
+                // session's per-position move — rows then sum to the last session's total
+                // rather than all reading 0.
                 let dailyChangePercent = 0;
                 let dailyChangeDollar = 0;
-                if (!isMarketClosedToday) {
+                if (!isMarketClosedToday || showLastSession) {
                   // Use TradingView's official % directly when available (no recomputation).
                   // Pre-market is included: cached.change holds the previous session's TV
                   // change_abs (auto-refresh is blocked pre-market so it stays stable).
@@ -3728,12 +3735,13 @@
                 return perfSortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
               });
 
-              // In pre-market: use the cron-stored dailyPnL as the authoritative total.
-              // It already matches the header card and calendar. The per-position movers below
-              // show individual changes for context; they may not sum to this total when positions
-              // were closed during that session (closed positions aren't in the movers table).
+              // Pre-market or a market-closed day (weekend/holiday): use the cron-stored
+              // dailyPnL of the last session as the authoritative total. It already matches
+              // the header card and calendar. The per-position movers below show individual
+              // changes for context; they may not sum to this total when positions were
+              // closed during that session (closed positions aren't in the movers table).
               const moversDollarSum = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
-              const totalDailyDollar = (preMarketActive && yesterdaySnapshot?.dailyPnL !== undefined)
+              const totalDailyDollar = (showLastSession && yesterdaySnapshot?.dailyPnL !== undefined)
                 ? yesterdaySnapshot.dailyPnL
                 : moversDollarSum;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
@@ -3755,11 +3763,19 @@
                   </div>
                 )}
 
+                {/* Market-closed banner (weekend / HKEX holiday) — clarifies the P&L shown is the last session, not today */}
+                {isMarketClosedToday && !preMarketActive && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+                    <span className="text-gray-600 text-xs font-medium">Marché fermé aujourd'hui (week-end ou jour férié HKEX) · Données de la dernière séance</span>
+                  </div>
+                )}
+
                 {/* Daily Summary Bar */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-muted text-xs">{preMarketActive ? "Dernière séance P&L" : "Today's P&L"}</div>
+                      <div className="text-muted text-xs">{showLastSession ? "Dernière séance P&L" : "Today's P&L"}</div>
                       <div className={`text-2xl font-bold ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} HKD
                         <span className="text-sm ml-2">({totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%)</span>
