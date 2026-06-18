@@ -159,6 +159,64 @@ def _yahoo_close_for(ticker_clean: str, target_date: str):
     return None
 
 
+def _yahoo_dividend_for(ticker_clean: str, target_date: str):
+    """Return the dividend-per-share whose EX-date == target_date ('YYYY-MM-DD' HKT), else None.
+
+    On an ex-dividend day the close gaps down by ~the dividend. Returning the amount lets
+    the caller convert that price-only gap into a total-return daily move (price + dividend),
+    so a holder is not shown a paper loss for cash they actually receive.
+    """
+    base = ticker_clean.replace(".HK", "")
+    candidates = []
+    for c in [f"{base}.HK", f"{base.lstrip('0')}.HK", f"{base.zfill(4)}.HK", f"{base.zfill(5)}.HK"]:
+        if c not in candidates:
+            candidates.append(c)
+
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    for cand in candidates:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{cand}?interval=1d&range=1mo&events=div"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                data = json.loads(resp.read())
+        except Exception:
+            continue
+        try:
+            result = data["chart"]["result"][0]
+            divs = result.get("events", {}).get("dividends", {}) or {}
+        except (KeyError, IndexError, TypeError):
+            continue
+        # This candidate format resolved on Yahoo — trust its dividend list and stop.
+        for ev in divs.values():
+            ts, amt = ev.get("date"), ev.get("amount")
+            if ts is None or amt is None:
+                continue
+            ex_date = datetime.fromtimestamp(ts, HKT).strftime("%Y-%m-%d")
+            if ex_date == target_date:
+                return float(amt)
+        return None
+    return None
+
+
+def fetch_dividends_today(positions: list, target_date: str) -> dict:
+    """Return { clean_ticker: dividend_per_share } for held tickers going ex-div today."""
+    out = {}
+    for p in positions:
+        clean = p["ticker"].replace("b.HK", ".HK")
+        div = _yahoo_dividend_for(clean, target_date)
+        if div:
+            out[clean] = div
+            print(f"  $$ {clean}: ex-dividend {div} HKD/share today -> daily move shown on total-return basis")
+    if not out:
+        print("  No ex-dividends among held tickers today")
+    return out
+
+
 def reconcile_with_yahoo(tv_prices: dict, positions: list, target_date: str) -> dict:
     """For each held ticker, fetch Yahoo's close and reconcile against TV.
 
@@ -300,6 +358,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     # Mutates tv_prices in place when Yahoo and TV disagree beyond tolerance.
     price_provenance = reconcile_with_yahoo(tv_prices, positions, today)
 
+    # 0-bis. Detect tickers going ex-dividend today. Their close gaps down by ~the dividend,
+    # so the raw daily move overstates the loss — we fold the dividend back into the move.
+    dividends_today = fetch_dividends_today(positions, today)
+
     # 1. Match TradingView prices to portfolio positions
     print("  Matching TradingView prices...")
     matched = 0
@@ -324,6 +386,16 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
             prev_close = yesterday_closing.get(clean, price)
             change_abs = round(price - prev_close, 4)
             change_pct = round((change_abs / prev_close) * 100, 4) if prev_close else 0
+        # Ex-dividend adjustment: fold the dividend into the daily move so it reads as a
+        # total return. previousClose stays the REAL prior-session close, so the identity
+        # change / previousClose == changePercent still holds.
+        div_today = dividends_today.get(clean)
+        raw_change_abs, raw_change_pct = change_abs, change_pct
+        if div_today:
+            change_abs = round(raw_change_abs + div_today, 4)
+            change_pct = round((change_abs / prev_close) * 100, 4) if prev_close else 0
+            # Propagate to the dailyPnL leg below, which reads tv_entry["changeAbs"].
+            tv_entry["changeAbs"] = change_abs
         price_cache[clean] = {
             "success": True,
             "price": price,
@@ -333,9 +405,17 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
             "currency": "HKD",
             "lastUpdated": datetime.now(HKT).isoformat(),
         }
+        if div_today:
+            price_cache[clean].update({
+                "dividendPerShare": round(div_today, 4),
+                "exDivDate": today,
+                "rawChange": raw_change_abs,
+                "rawChangePercent": raw_change_pct,
+            })
         p["currentPrice"] = price
         matched += 1
-        print(f"  OK {clean}: {price} (prevClose: {prev_close}, chg: {change_pct}%)")
+        div_note = f" [ex-div {div_today}: raw {raw_change_pct}% -> total-return {change_pct}%]" if div_today else ""
+        print(f"  OK {clean}: {price} (prevClose: {prev_close}, chg: {change_pct}%){div_note}")
     print(f"  Matched {matched}/{len(positions)} positions")
 
     # 2. Calculate snapshot
@@ -441,6 +521,10 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     # against Yahoo. If Yahoo was unreachable for any ticker, the whole snapshot
     # is marked provisional so the UI can flag it.
     n_provisional_tickers = sum(1 for v in price_provenance.values() if v.get("provisional"))
+    # Ex-dividend income booked into today's move (already inside dailyPnL via the total-return change).
+    dividend_income_today = round(sum(
+        dividends_today.get(p["ticker"].replace("b.HK", ".HK"), 0) * p["quantity"] for p in positions
+    ), 2)
     snapshot = {
         "date": today,
         "capitalEngaged": round(capital_engaged, 2),
@@ -456,6 +540,8 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         "sources": ["tradingview", "yahoo"],
         "provisional": n_provisional_tickers > 0,
         "priceProvenance": price_provenance,  # per-ticker source/drift breakdown
+        "dividendsToday": {k: round(v, 4) for k, v in dividends_today.items()},
+        "dividendIncomeToday": dividend_income_today,
     }
 
     # Replace today's snapshot if exists, otherwise append
