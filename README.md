@@ -90,6 +90,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Completed-trades ticker links to its TradingView chart (new tab, owner-gated). HK uses `HKEX:<code>` (leading zeros stripped); US uses the bare symbol — both reuse saved chart layout `b8EBWJ7k`. (US already had it; ported to HK.) | ✅ | ✅ | 2026-06-25 |
 | **Partial-sale cost-basis fix:** `closePosition` no longer rewrites the remaining shares' `entryPrice` on a partial sell (was subtracting realized profit from the basis → corruption; e.g. sell 500 of 800 2359.HK @ 148.2 bought 128.7 left the 300 remaining at 96.20). Partial close now reduces `quantity` only; the realized gain stays in `closedTrades`. Matches `index-dev.html`. | ✅ | ✅ | 2026-06-25 |
 | Save guard in `saveData`: silent-drop abort (positions) + snapshot merge (restores cloud snapshots missing from a stale tab; never lets an unsettled browser snapshot replace a cron-settled one) | ✅ | ✅ | 2026-06-10 |
 | Cron hardening: shared `market_calendar.py` (HKEX+NYSE 2026-27), US holiday guard, 16:10→midnight validity window (`ALLOW_OFF_HOURS=1` override), `sys.exit(1)` on TV failure, closed-today prevClose from TV `close − change_abs` (gap-proof) | ✅ | ✅ | 2026-06-10 |
@@ -425,6 +426,12 @@ Quick summary:
 ---
 
 ## Changelog
+
+### Jun 25, 2026 — v2.40: Chart link on the Completed Trades ticker (`index.html`)
+
+The HK Completed Trades tab now links each ticker to its TradingView chart, opening in a new tab — the US file already had this (`index-us.html`). HK builds the symbol as `HKEX:<code>` with leading zeros stripped (`0700.HK` → `HKEX:700`); US uses the bare symbol. Owner-gated (`userEmail === 'marccharnal@gmail.com'`), reusing the same saved chart layout (`b8EBWJ7k`).
+
+---
 
 ### Jun 25, 2026 — v2.39: Partial-sale cost-basis corruption fix (`index.html` + `index-us.html`)
 
