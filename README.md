@@ -90,6 +90,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| **Partial-sale cost-basis fix:** `closePosition` no longer rewrites the remaining shares' `entryPrice` on a partial sell (was subtracting realized profit from the basis → corruption; e.g. sell 500 of 800 2359.HK @ 148.2 bought 128.7 left the 300 remaining at 96.20). Partial close now reduces `quantity` only; the realized gain stays in `closedTrades`. Matches `index-dev.html`. | ✅ | ✅ | 2026-06-25 |
 | Save guard in `saveData`: silent-drop abort (positions) + snapshot merge (restores cloud snapshots missing from a stale tab; never lets an unsettled browser snapshot replace a cron-settled one) | ✅ | ✅ | 2026-06-10 |
 | Cron hardening: shared `market_calendar.py` (HKEX+NYSE 2026-27), US holiday guard, 16:10→midnight validity window (`ALLOW_OFF_HOURS=1` override), `sys.exit(1)` on TV failure, closed-today prevClose from TV `close − change_abs` (gap-proof) | ✅ | ✅ | 2026-06-10 |
 | Workflow backup schedule entry (HK 21:00 HKT / US ~20:00 ET) — idempotent re-run covers drifted/skipped primary runs | ✅ | ✅ | 2026-06-10 |
@@ -424,6 +425,15 @@ Quick summary:
 ---
 
 ## Changelog
+
+### Jun 25, 2026 — v2.39: Partial-sale cost-basis corruption fix (`index.html` + `index-us.html`)
+
+`closePosition`'s partial-close branch rewrote the **remaining** shares' `entryPrice` by subtracting the realized profit from their cost basis (`newEntryPrice = (remainingCost − profit) / remainingQty`). Selling 500 of 800 2359.HK shares @ 148.2 (bought @ 128.7) left the 300 remaining shares showing entryPrice **96.20** instead of 128.7. The realized gain is already booked in `closedTrades`, so this double-counted it — overstating total P&L by the profit and corrupting the displayed basis.
+
+- **Fix (both files):** the partial-close branch now reduces `quantity` only; `entryPrice` is untouched. This is exactly the logic `index-dev.html` already carried — the corrected version was never ported into the two production files.
+- **Data repair:** `patch-jun25-fix-2359-basis.py` reset 2359.HK to 128.7 (qty 300) and corrected the 2026-06-25 in-app snapshot: leg `entryPrice` 96.2 → 128.7, leg `pnl` 14,880 → 5,130, `capitalEngaged` 756,319.1 → 766,069.1, `unrealizedPnL` −152,730.1 → −162,480.1. `portfolioValue` / `dailyPnL` / `realizedPnL` / `closingPrices` were not affected by the bug and were left untouched. Verified by re-read.
+
+---
 
 ### Jun 18, 2026 — v2.38: US ex-dividend parity (`update-us.py` + `index-us.html`)
 
