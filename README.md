@@ -90,6 +90,7 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
+| Positions tab: Entrée + Actuel columns collapsed by default, toggled by clicking the **Qté** header (▸/▾); new sortable **Weight** column (position mkt value ÷ portfolio value, like the Performance tab). tfoot colSpans track the toggle; total row shows 100%. | ✅ | ✅ | 2026-06-25 |
 | Completed-trades ticker links to its TradingView chart (new tab, owner-gated). HK uses `HKEX:<code>` (leading zeros stripped); US uses the bare symbol — both reuse saved chart layout `b8EBWJ7k`. (US already had it; ported to HK.) | ✅ | ✅ | 2026-06-25 |
 | **Partial-sale cost-basis fix:** `closePosition` no longer rewrites the remaining shares' `entryPrice` on a partial sell (was subtracting realized profit from the basis → corruption; e.g. sell 500 of 800 2359.HK @ 148.2 bought 128.7 left the 300 remaining at 96.20). Partial close now reduces `quantity` only; the realized gain stays in `closedTrades`. Matches `index-dev.html`. | ✅ | ✅ | 2026-06-25 |
 | Save guard in `saveData`: silent-drop abort (positions) + snapshot merge (restores cloud snapshots missing from a stale tab; never lets an unsettled browser snapshot replace a cron-settled one) | ✅ | ✅ | 2026-06-10 |
@@ -426,6 +427,12 @@ Quick summary:
 ---
 
 ## Changelog
+
+### Jun 25, 2026 — v2.41: Positions tab — collapsible price columns + Weight column (`index.html` + `index-us.html`)
+
+The Positions table now hides **Entrée** and **Actuel** by default; clicking the **Qté** header toggles them on/off (▸/▾ indicator). A new **Weight** column (position market value ÷ total portfolio value, sortable, mirroring the Performance tab) is always shown, so the default view is less crowded (net −1 column vs before). The tbody map is wrapped in an IIFE that computes `totalPortfolioValue` once; the tfoot `colSpan` adapts to the toggle and the total row shows 100%. Both files transpile clean under `@babel/standalone`.
+
+---
 
 ### Jun 25, 2026 — v2.40: Chart link on the Completed Trades ticker (`index.html`)
 

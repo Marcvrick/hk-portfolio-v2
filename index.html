@@ -812,6 +812,7 @@
       const [pendingInvites, setPendingInvites] = useState([]); // invites from friends who authorized viewing
       const [showInvitePopup, setShowInvitePopup] = useState(false);
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
+      const [showPriceCols, setShowPriceCols] = useState(false); // Positions tab: Entrée/Actuel cols hidden until the Qté header is clicked
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
       // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
@@ -2710,18 +2711,25 @@
                       <tr>
                         <th className="px-2 py-1.5 text-left cursor-pointer hover:text-dark-text" onClick={() => sort('ticker')}>Ticker</th>
                         <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
-                        <th className="px-2 py-1.5 text-right">Qté</th>
-                        <th className="px-2 py-1.5 text-right">Entrée</th>
-                        <th className="px-2 py-1.5 text-right">Actuel</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPriceCols(v => !v)} title="Afficher / masquer Entrée et Actuel">Qté {showPriceCols ? '▾' : '▸'}</th>
+                        {showPriceCols && <th className="px-2 py-1.5 text-right">Entrée</th>}
+                        {showPriceCols && <th className="px-2 py-1.5 text-right">Actuel</th>}
                         <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('entryDate')}>Achat</th>
                         <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('days')}>Jours</th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnl')}>P&L</th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnlPercent')}>%</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text select-none" onClick={() => sort('value')}>Weight {sortConfig.key === 'value' && (sortConfig.direction === 'desc' ? '↓' : '↑')}</th>
                         <th className="px-2 py-1.5"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {getSorted().map((p, index) => {
+                      {(() => {
+                        const totalPortfolioValue = positions.reduce((s, q) => {
+                          const ct = q.ticker.replace(/b\.HK$/, '.HK');
+                          const price = priceCache[ct]?.success ? priceCache[ct].price : q.currentPrice;
+                          return s + price * q.quantity;
+                        }, 0);
+                        return getSorted().map((p, index) => {
                         const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                         const cached = priceCache[cleanTicker];
                         const currentPrice = cached?.success ? cached.price : p.currentPrice;
@@ -2729,6 +2737,7 @@
                         const pnl = (currentPrice - p.entryPrice) * p.quantity;
                         const pnlP = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
                         const displayTicker = p.ticker.replace('.HK', '');
+                        const weight = totalPortfolioValue > 0 ? (currentPrice * p.quantity / totalPortfolioValue) * 100 : 0;
 
                         const warnThreshold = settings.alertThreshold || 8;
                         const dangerThreshold = settings.dangerThreshold || 10;
@@ -2766,6 +2775,7 @@
                                 className="bg-gray-50 border-0 rounded px-1.5 py-0.5 w-20 text-right text-xs text-muted focus:ring-1 focus:ring-lime-accent outline-none"
                               />
                             </td>
+                            {showPriceCols && (
                             <td className="px-2 py-1.5 text-right">
                               <input
                                 type="number"
@@ -2775,6 +2785,8 @@
                                 className="bg-gray-50 border-0 rounded px-1.5 py-0.5 w-20 text-right text-xs text-muted focus:ring-1 focus:ring-lime-accent outline-none"
                               />
                             </td>
+                            )}
+                            {showPriceCols && (
                             <td className="px-2 py-1.5 text-right">
                               <input
                                 type="number"
@@ -2784,6 +2796,7 @@
                                 className="bg-gray-50 border-0 rounded px-1.5 py-0.5 w-20 text-right text-xs focus:ring-1 focus:ring-lime-accent outline-none"
                               />
                             </td>
+                            )}
                             <td className="px-2 py-1.5 text-center text-muted cursor-pointer" onClick={() => setEditingEntryDate(p.id)}>
                               {editingEntryDate === p.id ? (
                                 <input
@@ -2810,6 +2823,7 @@
                               {isWarning && !isDanger && <span className="text-orange-400 mr-0.5" title={`Alerte -${settings.alertThreshold || 8}%`}>⚠️</span>}
                               <span className={`font-bold ${pnlP >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnlP >= 0 ? '+' : ''}{pnlP.toFixed(1)}%</span>
                             </td>
+                            <td className="px-2 py-1.5 text-right text-muted">{weight.toFixed(1)}%</td>
                             <td className="px-2 py-1.5 text-center">
                               <div className="flex items-center justify-center gap-0.5">
                                 {!viewingFriendEmail && <button onClick={() => setCloseModal({ show: true, position: {...p, currentPrice}, exitPrice: currentPrice.toString(), exitDate: today, sellQuantity: p.quantity.toString() })} className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"><CheckCircle size={14} /></button>}
@@ -2819,7 +2833,8 @@
                             </td>
                           </tr>
                         );
-                      })}
+                        });
+                      })()}
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       {(() => {
@@ -2833,11 +2848,12 @@
                         const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
                         return (
                           <tr>
-                            <td className="px-2 py-1.5 md:hidden" colSpan="5">TOTAL ({positions.length} positions)</td>
-                            <td className="px-2 py-1.5 hidden md:table-cell" colSpan="6">TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5 md:hidden" colSpan={showPriceCols ? 5 : 3}>TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5 hidden md:table-cell" colSpan={showPriceCols ? 6 : 4}>TOTAL ({positions.length} positions)</td>
                             <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
                             <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
                             <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
+                            <td className="px-2 py-1.5 text-right text-muted">100%</td>
                             <td></td>
                           </tr>
                         );
