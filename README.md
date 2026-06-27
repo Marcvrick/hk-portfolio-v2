@@ -428,6 +428,18 @@ Quick summary:
 
 ## Changelog
 
+### Jun 27, 2026 — v2.42: Save guard reads server-authoritative + calendar shows real gaps (`index.html` + `index-us.html`)
+
+**Symptom**: the calendar showed the *same* daily P&L on several June days. **Root cause (from the Actions logs — not a cron outage)**: the HK cron ran and succeeded every day, snapshot count climbing 89→94 (Jun 16→24), then collapsing to 89 on the first Jun 25 run. A browser tab holding Firestore's **stale local cache** (offline/asleep since before Jun 16) overwrote the server's snapshots array. The snapshot merge guard (added Jun 10) failed to stop it because it read the live doc with a plain `.get()` — which resolves from the **same stale cache** as the outgoing save — and its catch was coded to *proceed* on read failure.
+
+**Fixes**:
+- **Save guard** now reads `db.doc(...).get({ source: 'server' })` (authoritative cloud copy, never cache) and **fails closed** — aborts the save and writes the localStorage backup if the server is unreachable, instead of proceeding. This closes the clobber path for good.
+- **Calendar** no longer fabricates a value for a trading day with no snapshot: it spread the gap's total change evenly across the missing days, which is what painted the identical numbers. Missing days now render **blank** — a real gap looks like a gap.
+
+**Data repair** (`patch-jun-gap-backfill.py`): rebuilt the phantom Jun 15 + inserted real settled snapshots for Jun 16/17/18/22/23/24 from Yahoo closes (dailyPnL on the proper prevTradingDay chain, Jun 19 holiday respected). Validated: recomputed Jun 25 = −6322, exactly matching the stored cron value. Both HTMLs transpile clean under `@babel/standalone` 7.29.7. See `wiki/incidents.md` + `wiki/reliability-risks.md` (#1) for the full write-up.
+
+---
+
 ### Jun 25, 2026 — v2.41: Positions tab — collapsible price columns + Weight column (`index.html` + `index-us.html`)
 
 The Positions table now hides **Entrée** and **Actuel** by default; clicking the **Qté** header toggles them on/off (▸/▾ indicator). A new **Weight** column (position market value ÷ total portfolio value, sortable, mirroring the Performance tab) is always shown, so the default view is less crowded (net −1 column vs before). The tbody map is wrapped in an IIFE that computes `totalPortfolioValue` once; the tfoot `colSpan` adapts to the toggle and the total row shows 100%. Both files transpile clean under `@babel/standalone`.
