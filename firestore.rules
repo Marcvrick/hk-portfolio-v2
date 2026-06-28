@@ -1,0 +1,62 @@
+rules_version = '2';
+// HK / US Portfolio — content-protecting security rules.
+//
+// WHY THIS EXISTS (read wiki/reliability-risks.md + wiki/incidents.md first):
+// The old rules allowed the authenticated owner to replace the WHOLE document
+// (doc.set()). A stale browser tab is the authenticated owner, so it could wipe
+// closedTrades / snapshots / positions written after it loaded. That is the root
+// cause of every data-loss incident (Jun 4/5, May 28/29, Jun 11, Jun 16-24, the
+// Jun 24 WuXi sale + Xiaomi loss of Jun 28). Client-side guards can't fix it
+// because the offending tab runs OLD code. These rules run on Google's servers
+// and apply regardless of client version. The cron + admin SDK bypass rules, so
+// the daily update and repair scripts are unaffected; only the browser client is
+// constrained — which is exactly where the bug originates.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function owner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // res = existing doc, req = incoming doc.
+    // closedTrades & snapshots may NEVER shrink (no browser path legitimately
+    // removes one). positions may grow, stay, shrink by exactly 1 (a manual
+    // single delete), or shrink by any amount ONLY when a closedTrade was added
+    // (a real sale). A stale tab reverting to an old state drops several
+    // positions with no new trade -> rejected here, on the server.
+    function safePortfolioUpdate() {
+      let res = resource.data;
+      let req = request.resource.data;
+      return req.get('closedTrades', []).size() >= res.get('closedTrades', []).size()
+          && req.get('snapshots', []).size() >= res.get('snapshots', []).size()
+          && (
+               req.get('positions', []).size() >= res.get('positions', []).size()
+               || req.get('closedTrades', []).size() > res.get('closedTrades', []).size()
+               || res.get('positions', []).size() - req.get('positions', []).size() == 1
+             );
+    }
+
+    match /portfolios/{userId} {
+      allow read: if owner(userId)
+                  || (request.auth != null
+                      && request.auth.token.email in resource.data.allowedViewers);
+      allow create: if owner(userId);
+      allow update: if owner(userId) && safePortfolioUpdate();
+      // whole-document delete: default deny
+    }
+
+    match /us-portfolios/{userId} {
+      allow read: if owner(userId)
+                  || (request.auth != null
+                      && request.auth.token.email in resource.data.allowedViewers);
+      allow create: if owner(userId);
+      allow update: if owner(userId) && safePortfolioUpdate();
+    }
+
+    match /viewerInvites/{inviteId} {
+      allow create: if request.auth != null;
+      allow read, update: if request.auth != null
+                          && request.auth.token.email == resource.data.inviteeEmail;
+    }
+  }
+}

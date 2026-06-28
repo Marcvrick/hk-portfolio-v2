@@ -1304,8 +1304,17 @@
         // If trades were closed today (e.g. sold during pre-market), show actual P&L instead of yesterday's reference
         const hasClosedTradesToday = closedTrades.some(t => t.exitDate === today);
         if (isMarketClosedToday) {
-          // On weekends/holidays: show 0 (no trading happened today)
-          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false, isBeforeOpen: false });
+          // On weekends/holidays: show the LAST COMPLETED SESSION's P&L, not 0.
+          // The data is already in yesterdaySnapshot (most recent date < today).
+          // Forcing 0 here made the "Vendredi" header card read 0 while the
+          // Performance tab correctly showed the last session — the Jun 18 2026
+          // showLastSession fix covered the Performance tab but not this header
+          // card. Mirror the beforeOpen branch (same percent basis), keep
+          // isWeekend so the label stays "Vendredi" / "Marché fermé".
+          const prevValue = yesterdaySnapshot?.portfolioValue || 1;
+          const prevPnl = yesterdaySnapshot?.dailyPnL ?? 0;
+          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: true, isLive: false, isPreMarket: false, isBeforeOpen: false });
         } else if (beforeOpen && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
           // Before market open (no trades today): show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;

@@ -1102,8 +1102,13 @@
         // Calculate daily gain
         // Priority: use cron snapshot data when available (most accurate), fallback to live calculation
         if (isMarketClosedToday) {
-          // On weekends/holidays: show 0 (no trading happened today)
-          setDailyGain({ value: 0, percent: 0, hasYesterday: true, isWeekend: true });
+          // On weekends/holidays: show the LAST COMPLETED SESSION's P&L, not 0
+          // (kept HK index.html in sync — Jun 28 2026 fix; forcing 0 made the
+          // weekend header card read 0 while the data sits in yesterdaySnapshot).
+          const prevValue = yesterdaySnapshot?.portfolioValue || 1;
+          const prevPnl = yesterdaySnapshot?.dailyPnL ?? 0;
+          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: true });
         } else {
           // Always calculate from live price data (no stored snapshot shortcut)
           // Stored todaySnapshot.dailyPnL can be stale if saved with wrong priceCache
