@@ -3410,7 +3410,6 @@
                 const weight = totalPortfolioValue > 0 ? (marketValue / totalPortfolioValue) * 100 : 0;
                 // Calculate total P&L from entry for danger/warning status
                 const totalPnlPercent = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
-                const totalPnlDollar = (currentPrice - p.entryPrice) * p.quantity;
                 const perfWarnThreshold = settings.alertThreshold || 8;
                 const perfDangerThreshold = settings.dangerThreshold || 10;
                 const isDanger = totalPnlPercent <= -perfDangerThreshold;
@@ -3425,11 +3424,10 @@
                   weight,
                   isNewToday: isNewToday && !isMarketClosedToday, // Only show NEW badge on trading days
                   totalPnlPercent,
-                  totalPnlDollar,
                   isDanger,
                   isWarning
                 };
-              }).sort((a, b) => b.totalPnlPercent - a.totalPnlPercent);
+              }).sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
 
               // Include positions closed today in movers
               const closedTodayData = closedTrades.filter(t => t.exitDate === todayStr).map(t => {
@@ -3439,11 +3437,9 @@
                 const prevClose = cached?.previousCloseOverride || (cached?.success && cached.previousClose ? cached.previousClose : null) || yesterdayClosingPrices[ct] || t.entryPrice;
                 const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
-                const totalPnlPercent = t.entryPrice > 0 ? ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100 : 0;
-                const totalPnlDollar = (t.exitPrice - t.entryPrice) * t.quantity;
-                return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, totalPnlPercent, totalPnlDollar, marketValue: 0, weight: 0, isClosed: true };
+                return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
               });
-              const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.totalPnlPercent - a.totalPnlPercent);
+              const allMovers = [...moversData, ...closedTodayData].sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
 
               const moversDollarSum = allMovers.reduce((s, p) => s + p.dailyChangeDollar, 0);
               const totalDailyDollar = (preMarketActive && yesterdaySnapshot?.dailyPnL !== undefined)
@@ -3451,10 +3447,6 @@
                 : moversDollarSum;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
               const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
-              // Since-entry totals (the Movers table now shows P&L from entry, not the daily move)
-              const totalEntryPnlDollar = allMovers.reduce((s, p) => s + (p.totalPnlDollar || 0), 0);
-              const totalEntryCost = allMovers.reduce((s, p) => s + ((p.entryPrice || 0) * (p.quantity || 0)), 0);
-              const totalEntryPnlPercent = totalEntryCost > 0 ? (totalEntryPnlDollar / totalEntryCost) * 100 : 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;
               const losersCount = allMovers.filter(p => p.dailyChangePercent < 0).length;
               const unchangedCount = allMovers.filter(p => p.dailyChangePercent === 0).length;
@@ -3503,7 +3495,7 @@
 
                 {/* Today's Movers Table */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
-                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">Mes positions — P&L depuis l'entrée</h3>
+                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">Today's Movers</h3>
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
@@ -3511,8 +3503,8 @@
                         <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
                         <th className="px-2 py-1.5 text-right">Prev Close</th>
                         <th className="px-2 py-1.5 text-right">Actuel</th>
-                        <th className="px-2 py-1.5 text-right" title="Variation depuis votre prix d'entrée">% Entrée</th>
-                        <th className="px-2 py-1.5 text-right" title="P&L total depuis votre entrée">P&L Entrée</th>
+                        <th className="px-2 py-1.5 text-right">% Change</th>
+                        <th className="px-2 py-1.5 text-right">Daily $</th>
                         <th className="px-2 py-1.5 text-right">Weight</th>
                         <th className="px-1 py-1.5"></th>
                       </tr>
@@ -3559,11 +3551,11 @@
                             {p.isNewToday && <span className="text-lime-accent text-[9px] ml-0.5">↵</span>}
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.currentPrice.toFixed(2)}</td>
-                          <td className={`px-2 py-1.5 text-right font-bold ${p.totalPnlPercent > 0 ? 'text-green-600' : p.totalPnlPercent < 0 ? 'text-red-600' : 'text-muted'}`}>
-                            {p.totalPnlPercent > 0 ? '+' : ''}{p.totalPnlPercent.toFixed(2)}%
+                          <td className={`px-2 py-1.5 text-right font-bold ${p.dailyChangePercent > 0 ? 'text-green-600' : p.dailyChangePercent < 0 ? 'text-red-600' : 'text-muted'}`}>
+                            {p.dailyChangePercent > 0 ? '+' : ''}{p.dailyChangePercent.toFixed(2)}%
                           </td>
-                          <td className={`px-2 py-1.5 text-right font-semibold ${p.totalPnlDollar > 0 ? 'text-green-600' : p.totalPnlDollar < 0 ? 'text-red-600' : 'text-muted'}`}>
-                            {p.totalPnlDollar >= 0 ? '+' : ''}{fmt(p.totalPnlDollar)}
+                          <td className={`px-2 py-1.5 text-right font-semibold ${p.dailyChangeDollar > 0 ? 'text-green-600' : p.dailyChangeDollar < 0 ? 'text-red-600' : 'text-muted'}`}>
+                            {p.dailyChangeDollar >= 0 ? '+' : ''}{fmt(p.dailyChangeDollar)}
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.weight.toFixed(1)}%</td>
                           <td className="px-1 py-1.5 text-center">
@@ -3584,11 +3576,11 @@
                       <tr>
                         <td className="px-2 py-1.5 md:hidden" colSpan="3">TOTAL</td>
                         <td className="px-2 py-1.5 hidden md:table-cell" colSpan="4">TOTAL</td>
-                        <td className={`px-2 py-1.5 text-right ${totalEntryPnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {totalEntryPnlPercent >= 0 ? '+' : ''}{totalEntryPnlPercent.toFixed(2)}%
+                        <td className={`px-2 py-1.5 text-right ${totalDailyPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%
                         </td>
-                        <td className={`px-2 py-1.5 text-right ${totalEntryPnlDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {totalEntryPnlDollar >= 0 ? '+' : ''}{fmt(totalEntryPnlDollar)}
+                        <td className={`px-2 py-1.5 text-right ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)}
                         </td>
                         <td className="px-2 py-1.5 text-right">100%</td>
                         <td></td>
