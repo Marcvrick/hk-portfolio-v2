@@ -820,6 +820,7 @@
       const [sortConfig, setSortConfig] = useState({ key: 'days', direction: 'desc' });
       const [showPriceCols, setShowPriceCols] = useState(false); // Positions tab: Entrée/Actuel cols hidden until the Qté header is clicked
       const [showPrevClose, setShowPrevClose] = useState(false); // Performance tab: Prev Close col hidden until the Actuel header is clicked
+      const [showClosedDates, setShowClosedDates] = useState(false); // History tab: Date In/Out hidden until the Durée header is clicked
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
       // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
@@ -3374,12 +3375,14 @@
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-2 py-1.5 text-left">Ticker</th>
+                        <th className="px-2 py-1.5 text-left">Nom</th>
                         <th className="px-2 py-1.5 text-right">Qté</th>
                         <th className="px-2 py-1.5 text-right">Achat</th>
                         <th className="px-2 py-1.5 text-right">Vente</th>
-                        <th className="px-2 py-1.5 text-center">Date In</th>
-                        <th className="px-2 py-1.5 text-center">Date Out</th>
-                        <th className="px-2 py-1.5 text-center bg-lime-accent/20">Durée</th>
+                        <th className="px-2 py-1.5 text-center bg-lime-accent/20 cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowClosedDates(v => !v)} title="Afficher / masquer Date In et Date Out">Durée {showClosedDates ? '▾' : '▸'}</th>
+                        {showClosedDates && <th className="px-2 py-1.5 text-center">Date In</th>}
+                        {showClosedDates && <th className="px-2 py-1.5 text-center">Date Out</th>}
+                        <th className="px-2 py-1.5 text-right">Frais</th>
                         <th className="px-2 py-1.5 text-right">P&L</th>
                         <th className="px-2 py-1.5 text-right">%</th>
                       </tr>
@@ -3399,12 +3402,14 @@
                               </a>
                             ) : t.ticker.replace('.HK', '')}
                           </td>
+                          <td className="px-2 py-1.5 text-left text-muted truncate" title={t.name || ''}>{(t.name || '').slice(0, 10)}</td>
                           <td className="px-2 py-1.5 text-right">{fmt(t.quantity)}</td>
                           <td className="px-2 py-1.5 text-right">{t.entryPrice.toFixed(2)}</td>
                           <td className="px-2 py-1.5 text-right">{t.exitPrice.toFixed(2)}</td>
-                          <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.entryDate)}</td>
-                          <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.exitDate)}</td>
                           <td className="px-2 py-1.5 text-center"><span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${t.days > 120 ? 'bg-red-100 text-red-700' : t.days > 60 ? 'bg-orange-100 text-orange-700' : t.days > 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-lime-accent text-dark-text'}`}>{t.days}j</span></td>
+                          {showClosedDates && <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.entryDate)}</td>}
+                          {showClosedDates && <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.exitDate)}</td>}
+                          <td className="px-2 py-1.5 text-right text-muted">{t.fees > 0 ? fmt(t.fees) : '—'}</td>
                           <td className={`px-2 py-1.5 text-right font-semibold ${t.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`} title={t.fees > 0 ? `Brut: ${fmt(t.grossPnl)} | Frais: ${fmt(t.fees)}` : ''}>
                             {t.pnl >= 0 ? '+' : ''}{fmt(t.pnl)}
                             {t.fees > 0 && <span className="text-muted text-[9px] ml-0.5">net</span>}
@@ -3415,8 +3420,11 @@
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       <tr>
-                        <td className="px-2 py-1.5" colSpan="6">TOTAL</td>
+                        <td className="px-2 py-1.5" colSpan="5">TOTAL</td>
                         <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-lime-accent text-dark-text">{m.avgClosedDuration.toFixed(0)}j</span></td>
+                        {showClosedDates && <td className="px-2 py-1.5"></td>}
+                        {showClosedDates && <td className="px-2 py-1.5"></td>}
+                        <td className="px-2 py-1.5 text-right text-muted">{fmt(closedWithCalc.reduce((s, t) => s + (t.fees || 0), 0))}</td>
                         <td className={`px-2 py-1.5 text-right ${m.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.realizedPnL >= 0 ? '+' : ''}{fmt(m.realizedPnL)}</td>
                         <td className="px-2 py-1.5 text-right text-lime-accent">{m.winRate.toFixed(0)}%</td>
                       </tr>
