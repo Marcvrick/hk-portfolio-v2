@@ -2061,6 +2061,7 @@
       const m = calculateMetrics;
       const fmt = (n, d = 0) => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
       const fmtDate = (d) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+      const fmtInvested = (n) => { const k = Math.round(n / 100) / 10; return (Number.isInteger(k) ? k.toString() : k.toFixed(1)) + 'k'; }; // 30000 → "30k", 50500 → "50.5k"
 
       // ===== DATA MANAGEMENT =====
       const resetData = async () => {
@@ -2471,7 +2472,8 @@
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-2 py-1.5 text-left cursor-pointer hover:text-dark-text" onClick={() => sort('ticker')}>Ticker</th>
-                        <th className="px-2 py-1.5 text-left hidden md:table-cell">Nom</th>
+                        <th className="px-2 py-1.5 text-left">Nom</th>
+                        <th className="px-2 py-1.5 text-right">Investi</th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPriceCols(v => !v)} title="Afficher / masquer Entrée et Actuel">Qté {showPriceCols ? '▾' : '▸'}</th>
                         {showPriceCols && <th className="px-2 py-1.5 text-right">Entrée</th>}
                         {showPriceCols && <th className="px-2 py-1.5 text-right">Actuel</th>}
@@ -2525,7 +2527,8 @@
                                 }`} title={`MAJ: ${cached.lastUpdated ? fmtDate(cached.lastUpdated) : 'N/A'}`}></span>
                               )}
                             </td>
-                            <td className="px-2 py-1.5 truncate max-w-24 hidden md:table-cell">{p.name}</td>
+                            <td className="px-2 py-1.5 whitespace-nowrap" title={p.name}>{(p.name || '').slice(0, 8)}</td>
+                            <td className="px-2 py-1.5 text-right text-muted font-mono">{fmtInvested(p.entryPrice * p.quantity)}</td>
                             <td className="px-2 py-1.5 text-right font-mono">
                               <input
                                 type="number"
@@ -2609,8 +2612,7 @@
                         const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
                         return (
                           <tr>
-                            <td className="px-2 py-1.5 md:hidden" colSpan={showPriceCols ? 5 : 3}>TOTAL ({positions.length} positions)</td>
-                            <td className="px-2 py-1.5 hidden md:table-cell" colSpan={showPriceCols ? 6 : 4}>TOTAL ({positions.length} positions)</td>
+                            <td className="px-2 py-1.5" colSpan={showPriceCols ? 7 : 5}>TOTAL ({positions.length} positions)</td>
                             <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
                             <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
                             <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
