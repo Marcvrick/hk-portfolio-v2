@@ -471,6 +471,21 @@
       return 'old';
     };
 
+    // A priceCache "from today" = at least one successful entry was written on today's
+    // ET date (browser refresh or the 16:10 ET cron). Mirrors index.html — see
+    // wiki/morning-stale-first-paint.md. (Distinct from `marketDay`, which no fetch
+    // path actually sets; the marketOpenToday check relies on it staying unset.)
+    // lastUpdated mixes UTC "Z" (browser) and offset strings (cron): compare via
+    // Date→ET date, never by sorting the raw strings.
+    const isCacheFromToday = (cache) => {
+      const today = getMarketToday();
+      return Object.values(cache || {}).some(c => {
+        if (!c?.success || !c?.lastUpdated) return false;
+        const etDate = new Date(c.lastUpdated).toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
+        return etDate === today;
+      });
+    };
+
     // ===== CALCULATION FUNCTIONS =====
     // Capital Engagé = somme des coûts d'entrée des positions ouvertes (automatique)
     const calculateCapitalEngaged = (positions) => {
@@ -1046,10 +1061,17 @@
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
-        // Don't auto-refresh after market close — cron captures official closing prices
-        // at 16:00 ET. A later fetch can return different post-settlement values.
-        if (isAfterClose() || isMarketClosed(getMarketToday())) {
+        // Don't auto-refresh on closed days (weekend / NYSE holiday).
+        if (isMarketClosed(getMarketToday())) {
           console.log('Skipping auto-refresh — market closed');
+          return;
+        }
+        // After the close: refresh ONLY while the cache still holds a prior session
+        // (tab loaded between 16:00 ET and the cron). Once today's data is in, never
+        // refetch — a later fetch can return different post-settlement values; the
+        // 16:10 ET cron values are authoritative. See wiki/morning-stale-first-paint.md.
+        if (isAfterClose() && isCacheFromToday(priceCache)) {
+          console.log('Skipping auto-refresh — market closed, cache already from today');
           return;
         }
         // Auto-refresh prices when page loads (if no recent cache)
@@ -2181,9 +2203,9 @@
               <div className="flex gap-3">
                 <button
                   onClick={refreshPrices}
-                  disabled={isRefreshing || isPreMarketUS() || isAfterClose()}
-                  title={(isPreMarketUS() || isAfterClose()) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
-                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarketUS() || isAfterClose()) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
+                  disabled={isRefreshing || isPreMarketUS() || (isAfterClose() && isCacheFromToday(priceCache))}
+                  title={(isPreMarketUS() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
+                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarketUS() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
                 >
                   <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/>
                   {isRefreshing ? `${refreshProgress.current}/${refreshProgress.total}` : 'Sync'}

@@ -554,6 +554,19 @@
       return 'old';
     };
 
+    // A priceCache "from today" = at least one successful entry was written on today's
+    // HKT date (browser refresh or the 16:45 HKT cron). Every morning the persisted
+    // cache still holds the PRIOR session's closes + change values; rendering those
+    // as "today" was the "wrong on first load" bug — see wiki/morning-stale-first-paint.md.
+    // Note: lastUpdated mixes UTC "Z" strings (browser) and +08:00 strings (cron), so
+    // compare via Date→HKT date, never by sorting the raw strings.
+    const isCacheFromToday = (cache) => {
+      const today = getMarketToday();
+      return Object.values(cache || {}).some(c =>
+        c?.success && c?.lastUpdated && hktDateStr(new Date(c.lastUpdated)) === today
+      );
+    };
+
     // ===== CALCULATION FUNCTIONS =====
     // Capital Engagé = somme des coûts d'entrée des positions ouvertes (automatique)
     const calculateCapitalEngaged = (positions) => {
@@ -1248,10 +1261,18 @@
       // ===== AUTO-REFRESH PRICES ON LOAD =====
       useEffect(() => {
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
-        // Don't auto-refresh outside market hours — cron captures official closing prices
-        // at 16:30 HKT via TradingView. Don't auto-refresh outside market hours.
-        if (isAfterClose() || isPreMarket() || isBeforeMarketOpen() || isMarketClosed(getMarketToday())) {
+        // Don't auto-refresh before the open (pre-open prices are stale) or on closed days.
+        if (isPreMarket() || isBeforeMarketOpen() || isMarketClosed(getMarketToday())) {
           console.log('Skipping auto-refresh — market not open');
+          return;
+        }
+        // After the close: refresh ONLY while the cache still holds a prior session
+        // (tab loaded in the 16:00 HKT → cron window). TradingView already serves
+        // today's official close then. Once today's data is in (cron or refresh),
+        // never refetch — the 16:45 HKT cron values are authoritative (ex-div folded).
+        // See wiki/morning-stale-first-paint.md.
+        if (isAfterClose() && isCacheFromToday(priceCache)) {
+          console.log('Skipping auto-refresh — market closed, cache already from today');
           return;
         }
         // Auto-refresh prices when page loads (if no recent cache)
@@ -1336,6 +1357,17 @@
           const prevPnl = yesterdaySnapshot.dailyPnL;
           const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: true, isBeforeOpen: false });
+        } else if (!isCacheFromToday(priceCache) && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
+          // STALE-CACHE GATE (see wiki/morning-stale-first-paint.md): the persisted
+          // priceCache still holds the PRIOR session — first load of the day before the
+          // auto-refresh lands, or the 16:00 HKT → cron window. Computing "today" from
+          // it displayed yesterday's move as today's. Show the last completed session
+          // instead (same presentation as beforeOpen); the effect re-runs the moment
+          // fresh prices arrive (priceCache is a dep) and switches to live.
+          const prevValue = yesterdaySnapshot.portfolioValue || 1;
+          const prevPnl = yesterdaySnapshot.dailyPnL;
+          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: true });
         } else {
           // No snapshot yet — calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
@@ -1423,6 +1455,17 @@
         // during pre-market still persist).
         if (!todaySnapshot && (isBeforeMarketOpen() || isPreMarket())) {
           console.log('Skipping snapshot - market has not opened yet for', today);
+          return;
+        }
+
+        // GUARD (see wiki/morning-stale-first-paint.md): never MINT today's snapshot
+        // from a prior-session cache — its closingPrices would be yesterday's closes
+        // and its dailyPnL yesterday's move. Worst in the 16:00 HKT → cron window,
+        // where nothing corrects the wrong snapshot until the cron replaces it (or
+        // never, on a day every cron run fails). Updates to an EXISTING today
+        // snapshot stay allowed so structural edits persist.
+        if (!todaySnapshot && !isCacheFromToday(priceCache)) {
+          console.log('Skipping snapshot - priceCache still holds a prior session for', today);
           return;
         }
 
@@ -2439,9 +2482,9 @@
               <div className="flex gap-3">
                 <button
                   onClick={refreshPrices}
-                  disabled={isRefreshing || isPreMarket() || isBeforeMarketOpen() || isAfterClose()}
-                  title={(isPreMarket() || isBeforeMarketOpen() || isAfterClose()) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
-                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarket() || isBeforeMarketOpen() || isAfterClose()) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
+                  disabled={isRefreshing || isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))}
+                  title={(isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
+                  className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
                 >
                   <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/>
                   {isRefreshing ? `${refreshProgress.current}/${refreshProgress.total}` : 'Sync'}
@@ -2530,9 +2573,15 @@
                       live
                     </span>
                   )}
-                  {(dailyGain.isPreMarket || dailyGain.isBeforeOpen) && (
+                  {(dailyGain.isPreMarket || dailyGain.isBeforeOpen) && !isRefreshing && (
                     <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-gray-400 font-medium normal-case">
                       {dailyGain.isPreMarket ? 'pré-ouv.' : 'fermé'}
+                    </span>
+                  )}
+                  {isRefreshing && (
+                    <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-gray-400 font-medium normal-case">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse"></span>
+                      maj
                     </span>
                   )}
                 </div>
@@ -3673,7 +3722,12 @@
               // pre-market — and like the header card, which shows "Marché fermé" rather
               // than a bare 0 — display the LAST completed trading session instead of a
               // misleading "Today's P&L = 0". (HKEX holiday e.g. 2026-06-19 Dragon Boat.)
-              const showLastSession = preMarketActive || isMarketClosedToday;
+              // Stale-cache case (cache still = prior session, e.g. first morning load
+              // before the auto-refresh lands): display exactly like pre-market — the
+              // last completed session, labeled as such — never yesterday's numbers
+              // presented as "Today". See wiki/morning-stale-first-paint.md.
+              const cacheIsToday = isCacheFromToday(priceCache);
+              const showLastSession = preMarketActive || isMarketClosedToday || !cacheIsToday;
               const dayBeforeYesterdaySnapshot = yesterdaySnapshot
                 ? sortedSnapsForPrevClose.find(s => s.date < yesterdaySnapshot.date && isTradingDay(s.date))
                 : null;
@@ -3874,7 +3928,7 @@
 
                 {/* Today's Movers Table */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
-                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">{preMarketActive ? "Dernière séance" : "Today's Movers"}</h3>
+                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">{showLastSession ? "Dernière séance" : "Today's Movers"}</h3>
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>

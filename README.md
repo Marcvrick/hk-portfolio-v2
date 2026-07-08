@@ -428,6 +428,21 @@ Quick summary:
 
 ## Changelog
 
+### Jul 8, 2026 — v2.43: priceCache freshness gate — first morning load no longer shows yesterday as "today" (`index.html` + `index-us.html`)
+
+**Symptom (Dany)**: the first load of the app in the morning often showed wrong data; a reload showed correct data. **Root cause**: the first paint rendered the persisted `priceCache` — still holding the PRIOR session's closes and `change` values every morning — as if it were today, with no freshness check. During HK hours the auto-refresh corrected the tab seconds later (and saved the fresh cache, which is why the reload looked like the fix); between 16:00 HKT and the cron nothing corrected it at all, and the browser even minted today's snapshot from the stale cache. Full trace: `wiki/morning-stale-first-paint.md`.
+
+- **New helper `isCacheFromToday(priceCache)`** (both files): true if at least one successful cache entry was written on today's market date (HKT / ET). Compares via `Date` conversion, never raw-string sorts (`lastUpdated` mixes UTC `Z` browser strings and offset cron strings).
+- **Header `dailyGain` gate (HK)**: when the cache is not from today (and no trades were closed today), the card shows the last completed session (`yesterdaySnapshot.dailyPnL`, "Dern. séance" label) instead of computing a pseudo-live value off yesterday's `change`. Flips to live automatically when fresh prices arrive.
+- **Performance tab (HK)**: `showLastSession` now also covers the stale-cache case, so the summary card, the movers table and its title all present the last completed session consistently instead of "Today's".
+- **Auto-refresh after close (both files)**: the blanket `isAfterClose()` skip is now "skip only if the cache is already from today" — a tab loaded in the close→cron window fetches today's official close instead of sitting on yesterday's numbers. Same-day cron data is never refetched (post-settlement / ex-div values stay authoritative). The manual Sync button follows the same rule.
+- **Snapshot mint guard (HK)**: never CREATE today's snapshot from a prior-session cache (updates to an existing today snapshot stay allowed). The US file already had this via its `marketOpenToday` check.
+- **Header card**: small pulsing "maj" tag while a refresh is in flight.
+
+Both files transpile clean under `@babel/standalone` 7.29.7; `isCacheFromToday` unit-tested against both timestamp formats.
+
+---
+
 ### Jun 27, 2026 — v2.42: Save guard reads server-authoritative + calendar shows real gaps (`index.html` + `index-us.html`)
 
 **Symptom**: the calendar showed the *same* daily P&L on several June days. **Root cause (from the Actions logs — not a cron outage)**: the HK cron ran and succeeded every day, snapshot count climbing 89→94 (Jun 16→24), then collapsing to 89 on the first Jun 25 run. A browser tab holding Firestore's **stale local cache** (offline/asleep since before Jun 16) overwrote the server's snapshots array. The snapshot merge guard (added Jun 10) failed to stop it because it read the live doc with a plain `.get()` — which resolves from the **same stale cache** as the outgoing save — and its catch was coded to *proceed* on read failure.
