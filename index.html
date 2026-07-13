@@ -3390,7 +3390,11 @@
                     const grossPct = (grossPnl / buyAmount) * 100;
                     const netPct = (netPnl / costBasis) * 100;
                     return (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <div className="text-muted">Montant investi</div>
+                          <div className="font-bold">{fmt(buyAmount, 2)} HKD</div>
+                        </div>
                         <div className="bg-gray-50 rounded-lg p-2">
                           <div className="text-muted">Gain brut</div>
                           <div className="font-bold">{grossPct >= 0 ? '+' : ''}{grossPct.toFixed(2)}%</div>
