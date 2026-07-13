@@ -824,6 +824,9 @@
       const [positionAdded, setPositionAdded] = useState(false);
       const [newWishlistItem, setNewWishlistItem] = useState({ ticker: '', name: '', targetPrice: '', notes: '' });
       const [editingWishlistId, setEditingWishlistId] = useState(null);
+      const [feeCalcBuyPrice, setFeeCalcBuyPrice] = useState('');
+      const [feeCalcSellPrice, setFeeCalcSellPrice] = useState('');
+      const [feeCalcQuantity, setFeeCalcQuantity] = useState('1000'); // pre-filled so buy+sell price alone already yield a result
       const [showLoginAlertPopup, setShowLoginAlertPopup] = useState(false);
       const [loginAlertShown, setLoginAlertShown] = useState(false);
       const [newTransaction, setNewTransaction] = useState({ type: 'deposit', amount: '', date: getMarketToday(), notes: '', linkedTicker: '' });
@@ -3329,6 +3332,90 @@
                     </div>
                   </div>
                 )}
+
+                {/* HSBC Fee / Net Gain Calculator */}
+                <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-4">
+                  <h3 className="font-semibold mb-2 text-sm">Calculateur de frais HSBC (gain net)</h3>
+                  <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                    <div>
+                      <label className="text-muted block mb-1">Prix d'achat</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="ex: 10.00"
+                        value={feeCalcBuyPrice}
+                        onChange={(e) => setFeeCalcBuyPrice(e.target.value)}
+                        className="w-full bg-gray-50 rounded px-2 py-1.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-muted block mb-1">Prix de vente</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="ex: 10.60"
+                        value={feeCalcSellPrice}
+                        onChange={(e) => setFeeCalcSellPrice(e.target.value)}
+                        className="w-full bg-gray-50 rounded px-2 py-1.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-muted block mb-1">Quantité (actions, optionnel)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        placeholder="ex: 1000"
+                        value={feeCalcQuantity}
+                        onChange={(e) => setFeeCalcQuantity(e.target.value)}
+                        className="w-full bg-gray-50 rounded px-2 py-1.5"
+                      />
+                    </div>
+                  </div>
+                  {(() => {
+                    const buyPrice = parseFloat(feeCalcBuyPrice) || 0;
+                    const sellPrice = parseFloat(feeCalcSellPrice) || 0;
+                    const qty = parseFloat(feeCalcQuantity) || 0;
+                    if (buyPrice <= 0 || sellPrice <= 0 || qty <= 0) {
+                      return <div className="text-muted text-xs">Entrez un prix d'achat et un prix de vente.</div>;
+                    }
+                    const buyAmount = buyPrice * qty;
+                    const sellAmount = sellPrice * qty;
+                    const buyFees = calcTradingFees(buyAmount, qty, true);
+                    const sellFees = calcTradingFees(sellAmount, qty, false);
+                    const totalFees = buyFees + sellFees;
+                    const costBasis = buyAmount + buyFees;
+                    const netProceeds = sellAmount - sellFees;
+                    const netPnl = netProceeds - costBasis;
+                    const grossPnl = sellAmount - buyAmount;
+                    const grossPct = (grossPnl / buyAmount) * 100;
+                    const netPct = (netPnl / costBasis) * 100;
+                    return (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <div className="text-muted">Gain brut</div>
+                          <div className="font-bold">{grossPct >= 0 ? '+' : ''}{grossPct.toFixed(2)}%</div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <div className="text-muted">Total frais HSBC</div>
+                          <div className="font-bold">{fmt(totalFees, 2)} HKD</div>
+                          <div className="text-muted">(achat {fmt(buyFees, 2)} + vente {fmt(sellFees, 2)})</div>
+                        </div>
+                        <div className={`rounded-lg p-2 ${netPnl >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                          <div className="text-muted">Gain net</div>
+                          <div className={`font-bold ${netPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {netPct >= 0 ? '+' : ''}{netPct.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className={`rounded-lg p-2 ${netPnl >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                          <div className="text-muted">P&L net</div>
+                          <div className={`font-bold ${netPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {netPnl >= 0 ? '+' : ''}{fmt(netPnl, 2)} HKD
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             )}
 
