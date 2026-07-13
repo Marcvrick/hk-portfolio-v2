@@ -958,8 +958,27 @@
               const livePositions = liveDoc.data().positions || [];
               const outgoingTickers = new Set(dataToSave.positions.map(p => p.ticker));
               const reactStateTickers = new Set(positions.map(p => p.ticker));
+              // A dropped position is a LEGITIMATE sale (not a silent stale-tab
+              // drop) when this save adds a new closedTrade for it — the same
+              // invariant the server rules enforce ("positions may shrink if
+              // closedTrades grew"). The old React-state-closure test alone was
+              // fragile: a save that fires after the sale is applied to state but
+              // before it reaches the cloud (a second effect-driven save, a
+              // slightly stale view) has the sold ticker in NEITHER the outgoing
+              // array NOR the closure, while the cloud still holds it → the guard
+              // false-positive-blocked the sale (HK 1810.HK, 2026-07-13). Counting
+              // closedTrades growth per ticker fixes it without weakening the
+              // real stale-tab protection (an unrelated action adds no trade).
+              const closedCountByTicker = arr => {
+                const m = {};
+                (arr || []).forEach(t => { const k = convertOldTicker(t.ticker); m[k] = (m[k] || 0) + 1; });
+                return m;
+              };
+              const liveClosedCount = closedCountByTicker(liveDoc.data().closedTrades);
+              const outClosedCount = closedCountByTicker(dataToSave.closedTrades);
+              const hasNewSale = ticker => (outClosedCount[convertOldTicker(ticker)] || 0) > (liveClosedCount[convertOldTicker(ticker)] || 0);
               const silentlyDropped = livePositions.filter(
-                p => !outgoingTickers.has(p.ticker) && !reactStateTickers.has(p.ticker)
+                p => !outgoingTickers.has(p.ticker) && !reactStateTickers.has(p.ticker) && !hasNewSale(p.ticker)
               );
               if (silentlyDropped.length > 0) {
                 const tickerList = silentlyDropped.map(p => p.ticker).join(', ');
