@@ -428,6 +428,12 @@ Quick summary:
 
 ## Changelog
 
+### Jul 31, 2026 — v2.44: Positions tab — Weight moved next to Investi (`index.html` + `index-us.html`)
+
+Display-only. The Weight column (market value / total portfolio value, added in v2.41) sat at the far right, past P&L and %, where it was easy to miss on a narrow window. It now renders immediately right of `Investi`, same values, same `sort('value')` header. `tfoot` `colSpan` recomputed in both files so the `100%` total lands under the moved column and stays aligned with the `showPriceCols` / `showBuyDate` toggles. No second column was added — the far-right one is gone. Both files transpile clean under `@babel/standalone`.
+
+---
+
 ### Jul 8, 2026 — v2.43: priceCache freshness gate — first morning load no longer shows yesterday as "today" (`index.html` + `index-us.html`)
 
 **Symptom (Dany)**: the first load of the app in the morning often showed wrong data; a reload showed correct data. **Root cause**: the first paint rendered the persisted `priceCache` — still holding the PRIOR session's closes and `change` values every morning — as if it were today, with no freshness check. During HK hours the auto-refresh corrected the tab seconds later (and saved the fresh cache, which is why the reload looked like the fix); between 16:00 HKT and the cron nothing corrected it at all, and the browser even minted today's snapshot from the stale cache. Full trace: `wiki/morning-stale-first-paint.md`.
