@@ -6,6 +6,11 @@ firebase-credentials.json
 *firebase*.json
 hk-portfolio-v2/
 
+# Live portfolio data — public repo, NEVER commit holdings
+portfolio-tickers.json
+import-final-corrected.json
+import-v1-corrected.json
+
 # Python
 __pycache__/
 *.pyc
