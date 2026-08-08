@@ -10,11 +10,21 @@ Usage:
     python verify-daily.py hk    # checks the `portfolios` collection
     python verify-daily.py us    # checks the `us-portfolios` collection
 
-Three checks, with their thresholds:
+Six checks, with their thresholds:
 
   1. Per-ticker closingPrice drift  > 0.02 in market currency
   2. Per-ticker changePercent drift > 0.05 percentage points
   3. dailyPnL drift                 > 50 in market currency vs sum(TV change_abs * qty)
+  4. dailyPnL sanity cap            > 8% of portfolio value
+  5. Record completeness            every held position present in today's snapshot
+  6. Snapshot self-consistency      totals agree with positionsAtClose  > 1.0
+
+Checks 1-4 validate the ARITHMETIC of what the snapshot records. Checks 5-6 validate
+the RECORD ITSELF: that it contains every position held (5), and that its totals agree
+with the positions it lists (6). Neither is visible to 1-4, which iterate over
+`positions` and `continue` whenever a snapshot lookup misses — a snapshot can be
+internally consistent, pass every arithmetic check, and still omit a real holding.
+See wiki/snapshot-record-gaps.md.
 
 Ex-dividend aware (mirrors update.py): on a held ticker's ex-div day update.py folds the
 dividend into changePercent and the dailyPnL leg (total return), while TV reports only the
@@ -215,6 +225,64 @@ def verify_portfolio(user_id, data, tv, today):
             f"[{user_id}] dailyPnL sanity: {stored_pnl:+,.2f} is {abs(stored_pnl)/portfolio_value*100:.1f}% "
             f"of portfolio {portfolio_value:,.0f} — likely overcount"
         )
+
+    # Check 5: record completeness — every held position must APPEAR in today's snapshot.
+    # Checks 1-3 above iterate over `positions` and `continue` whenever the TV or snapshot
+    # lookup misses, so a position absent from the snapshot is skipped, not flagged: the
+    # snapshot stays internally consistent (pv, cap and posCount all agree with each other)
+    # while silently omitting a real holding. 2600.HK was held from 2026-07-23 and missing
+    # from 11 consecutive snapshots without tripping any check — its P&L was excluded from
+    # dailyPnL every one of those days, and one day's sign was wrong as a result.
+    # See wiki/snapshot-record-gaps.md.
+    pac = snap.get("positionsAtClose")
+    if not pac:
+        issues.append(f"[{user_id}] snapshot {today} has no positionsAtClose — cannot confirm completeness")
+    else:
+        pac_tickers = {q.get("ticker") for q in pac}
+        for p in positions:
+            ticker = p["ticker"].replace("b.HK", ".HK")
+            if p.get("entryDate") and p["entryDate"] > today:
+                continue  # future-dated entry, not yet held
+            absent = [where for where, keys in
+                      (("positionsAtClose", pac_tickers), ("closingPrices", closing_prices))
+                      if ticker not in keys]
+            if absent:
+                issues.append(
+                    f"[{user_id}] {ticker} held (entry {p.get('entryDate')}, qty {p.get('quantity')}) "
+                    f"but missing from snapshot {today}: {' + '.join(absent)} — "
+                    f"its P&L is excluded from dailyPnL"
+                )
+
+    # Check 6: snapshot self-consistency (wiki/snapshot-schema.md "Invariants").
+    # Distinct from check 5: these catch a snapshot whose totals disagree with its own
+    # positionsAtClose — the signature of a partial write or a delta-subtraction patch
+    # that skipped capitalEngaged (incidents 2026-06-10). The 2026-08-08 sweep found
+    # three historical snapshots in this state (2026-03-31, 2026-04-13, 2026-05-15);
+    # on 2026-05-15, positionCount said 16 while positionsAtClose held 13.
+    if pac:
+        pv_pac = sum(q.get("closingPrice", 0) * q.get("quantity", 0) for q in pac)
+        cap_pac = sum(q.get("entryPrice", 0) * q.get("quantity", 0) for q in pac)
+        for label, stored, expected in (
+            ("portfolioValue", snap.get("portfolioValue", 0), pv_pac),
+            ("capitalEngaged", snap.get("capitalEngaged", 0), cap_pac),
+            ("unrealizedPnL", snap.get("unrealizedPnL", 0), pv_pac - cap_pac),
+        ):
+            if abs(stored - expected) > 1.0:
+                issues.append(
+                    f"[{user_id}] snapshot {today} {label} disagrees with positionsAtClose: "
+                    f"stored={stored:,.2f} expected={expected:,.2f} diff={stored - expected:+,.2f}"
+                )
+        if snap.get("positionCount") != len(pac):
+            issues.append(
+                f"[{user_id}] snapshot {today} positionCount={snap.get('positionCount')} "
+                f"but positionsAtClose holds {len(pac)}"
+            )
+        orphan = set(closing_prices) - {q.get("ticker") for q in pac}
+        if orphan:
+            issues.append(
+                f"[{user_id}] snapshot {today} has closingPrices with no positionsAtClose entry: "
+                f"{sorted(orphan)}"
+            )
 
     return issues
 
