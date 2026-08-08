@@ -428,6 +428,18 @@ Quick summary:
 
 ## Changelog
 
+### Aug 8, 2026 — v2.45: Performance tab — entry-day rule keyed to the displayed session (`index.html` + `index-us.html`)
+
+Display-only; no Firestore write, no cron change. A position opened on a session showed, once the date rolled past that session, the stock's **whole** session move instead of the move from the entry price. It was correct throughout the session itself.
+
+Cause: `isNewToday = p.entryDate === todayStr`. The tab does not always render today — under `showLastSession` (weekend, HKEX holiday, pre-market, stale cache) it renders the last completed session, taking `currentPrice` from that session's close. The comparison stayed on the wall-clock date, so at the rollover the position stopped matching, lost its entry-price baseline, and `useTvDirect` (gated on `!isNewToday`) additionally swapped the row onto TradingView's official session `change_abs`.
+
+Fix: new `sessionDate = showLastSession ? (yesterdaySnapshot?.date || todayStr) : todayStr`, and `isNewToday` compares against it. The `previousClose` chain is reordered to one precedence shared by both files — manual override → entry session → pre-market → TV → yesterday's snapshot → current — dropping the `!isMarketClosedToday` guard (a relic of the pre-`showLastSession` behaviour that zeroed every leg on a closed day) and the "pre-market + new today → exchange close" head that contradicted the entry-day rule. `index-us.html`, which never received the v2.37 `showLastSession` work, gets `sessionDate` for this purpose so both files now agree. `index-dev.html` untouched (older, simpler movers block).
+
+Stored data was never affected: the cron applies its own entry-day rule, so the header card, calendar and the tab's tfoot TOTAL — all of which read the stored `dailyPnL` on a closed day — were right the whole time. The fixed rows now agree with that total instead of diverging from it. New `test-perf-entryday.js` (7 synthetic cases) passes on the fix and fails on the pre-fix logic; both files transpile clean under `@babel/standalone`. See `wiki/performance-tab.md` and `wiki/incidents.md` 2026-08-08.
+
+---
+
 ### Jul 31, 2026 — v2.44: Positions tab — Weight moved next to Investi (`index.html` + `index-us.html`)
 
 Display-only. The Weight column (market value / total portfolio value, added in v2.41) sat at the far right, past P&L and %, where it was easy to miss on a narrow window. It now renders immediately right of `Investi`, same values, same `sort('value')` header. `tfoot` `colSpan` recomputed in both files so the `100%` total lands under the moved column and stays aligned with the `showPriceCols` / `showBuyDate` toggles. No second column was added — the far-right one is gone. Both files transpile clean under `@babel/standalone`.

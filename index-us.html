@@ -3429,27 +3429,29 @@
 
               // Check if NYSE is in pre-market (trading day, before 9:30 AM ET)
               const preMarketActive = isPreMarketUS();
+              // The session these rows describe: today when live, otherwise the last
+              // completed trading session. entryDate must be compared against THIS, not
+              // the wall-clock date, or a position opened on the last session loses its
+              // entry-price baseline and displays the whole session's move. (HK parity.)
+              const sessionDate = (preMarketActive || isMarketClosedToday)
+                ? (yesterdaySnapshot?.date || todayStr)
+                : todayStr;
 
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker;
                 const cached = priceCache[cleanTicker];
                 const currentPrice = cached?.success ? cached.price : p.currentPrice;
-                const isNewToday = p.entryDate === todayStr;
+                const isNewToday = p.entryDate === sessionDate;
                 // Priority for previousClose:
-                // 0. Manual override (if user set it manually)
-                // 1. Pre-market + new-today: use TradingView previousClose (official session close)
-                // 2. New position today (not market closed) → use entry price
+                // 1. Manual override (if user set it manually)
+                // 2. Position entered on the DISPLAYED session → entry price (entry-day rule)
                 // 3. TradingView priceCache previousClose (official exchange close)
                 // 4. Yesterday's snapshot closingPrices (fallback)
                 // 5. Last fallback to current price
                 let previousClose;
                 if (cached?.previousCloseOverride) {
                   previousClose = cached.previousCloseOverride;
-                } else if (preMarketActive && isNewToday) {
-                  // Pre-market + position bought today: use TradingView previousClose so P&L shows
-                  // the move vs official previous session close, not 0% vs itself
-                  previousClose = cached?.previousClose || p.entryPrice;
-                } else if (isNewToday && !isMarketClosedToday) {
+                } else if (isNewToday) {
                   previousClose = p.entryPrice;
                 } else if (cached?.success && cached.previousClose) {
                   previousClose = cached.previousClose;
