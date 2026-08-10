@@ -428,6 +428,28 @@ Quick summary:
 
 ## Changelog
 
+### Aug 10, 2026 — v2.47: US History tab — "Performance vs SPY" card + record-integrity guard on both cards (`index-us.html`, `index.html`, `update-us.py`)
+
+Display + cron field; no Firestore patch, no existing snapshot touched.
+
+Mirrors v2.46 for `us-portfolios`. Same three measures, same `1M / 3M / 6M / YTD / Tout` window selector, same three-level benchmark lookup — `snapshot.spyClose` → the frozen `SPY_BACKFILL` table (124 sessions, 2026-02-10 → 08-07) → the last close before the date. `update-us.py` stamps `spyClose` through the existing `_yahoo_close_for`, which takes a plain ticker and needed no special case (the HK side needed `_yahoo_index_close` because `^HSI` would have been mangled into `^HSI.HK`). SPY is price return, dividends excluded — the same basis as the portfolio side, which books no dividend either.
+
+**US numbers**, 2026-02-10 → 08-07, 122 sessions, average engaged capital 54,884 USD: **TWR −2.98% vs SPY +11.72%, alpha −14.71 pts**, drawdown −12.25% vs −8.83%. No month beats SPY; June alone carries 5.77 of the 14.71 points.
+
+**New record-integrity guard, added to both cards.** A ticker that leaves `positionsAtClose` with no sale dated inside the interval between the two snapshots took its P&L out of `unrealizedPnL` without booking it into `realizedPnL`, so the balance-sheet delta reads the removal as a gain on a loser. 2026-07-21 lost 8 US positions that way (COIN GRAB IBM MNST MSFT MSTR NUE PYPL, −1,205.30 USD): the delta reads +1,011 where the truth is −194, i.e. +1.84% of average capital where it is −0.35%. The card names the date and tickers, prints the corrected figure, and notes the TWR is unaffected (it only chains held legs). It speaks only above 0.1% of average engaged capital, so it is lit on US (2.2%) and silent on HK (113.HK, +40 HKD, 0.004%).
+
+**Match on the interval, never a ±N-day window.** HK's 0177/1585 sold 2026-05-28 with no snapshot until 06-03 read as unexplained under a ±5-day window — a −8,822 HKD false positive in the first pass of this check. Both bounds inclusive, because a sale entered after the day's snapshot was minted carries the *previous* snapshot's date.
+
+`perf-return-on-capital.py` now takes `hk|us`, reports orphan exits, and **refuses to print the trade-level IRR** when material ones exist: those positions are in neither `closedTrades` nor `positions[]`, so neither their cost nor their proceeds is in the flow list, and it would read +84.96 %/yr on a book that lost money.
+
+Also found, not fixed (needs Dany): `APPEL` (20 sh @ 315.00, entered 2026-07-21) has never priced — close frozen at 327.96 across all 14 snapshots since, `priceProvenance.source = "missing"`, every snapshot since flagged `provisional`. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
+
+Verification: `@babel/core` transpile clean on both HTMLs; `test-bench-hsi.js` now 6 groups (adds the gapped-sale and late-entry cases a day-window would fail); both cards replayed against live Firestore, reading each frozen table out of the shipped HTML, reproduce every figure above.
+
+**Note on `2d8c409`**: that commit also carries the "P&L par semaine" month → weeks calendar view, written to `index.html` by a concurrent session while this work was editing the same file. Its message describes only the benchmark card. Its test landed separately in `e9b65a3`.
+
+---
+
 ### Aug 10, 2026 — v2.46: History tab — "Performance vs HSI" card + `hsiClose` on every snapshot (`index.html`, `update.py`)
 
 Display + cron field; no Firestore patch, no existing snapshot touched.
