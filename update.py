@@ -10,6 +10,7 @@ import os
 import ssl
 import sys
 from datetime import datetime, timezone, timedelta
+import urllib.parse
 import urllib.request
 
 # Firebase Admin SDK
@@ -156,6 +157,40 @@ def _yahoo_close_for(ticker_clean: str, target_date: str):
             dt = datetime.fromtimestamp(ts, HKT).strftime("%Y-%m-%d")
             if dt == target_date and closes[i] is not None:
                 return float(closes[i])
+    return None
+
+
+def _yahoo_index_close(symbol: str, target_date: str):
+    """Return an index's daily close for `target_date` ('YYYY-MM-DD' HKT) or None.
+
+    Separate from `_yahoo_close_for`, which mangles its argument into HK equity candidates
+    (`^HSI` would become `^HSI.HK`). Used to stamp the benchmark onto each snapshot so the
+    History tab's "Performance vs HSI" card stops depending on a hardcoded price table.
+    Failure is non-fatal: `hsiClose` is simply absent and the card falls back to its table.
+    """
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.parse.quote(symbol)}?interval=1d&range=10d")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            data = json.loads(resp.read())
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        closes = result["indicators"]["quote"][0]["close"]
+    except Exception as e:
+        print(f"  !! {symbol}: Yahoo fetch failed ({e}) — snapshot written without it")
+        return None
+
+    for i, ts in enumerate(timestamps):
+        if datetime.fromtimestamp(ts, HKT).strftime("%Y-%m-%d") == target_date and closes[i] is not None:
+            return round(float(closes[i]), 2)
+    print(f"  !! {symbol}: no Yahoo close for {target_date} — snapshot written without it")
     return None
 
 
@@ -525,8 +560,15 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     dividend_income_today = round(sum(
         dividends_today.get(p["ticker"].replace("b.HK", ".HK"), 0) * p["quantity"] for p in positions
     ), 2)
+    # Benchmark close, stamped on the snapshot so the History tab's "Performance vs HSI"
+    # card reads it from the record instead of a frozen table. Best-effort: None on a
+    # Yahoo failure, and the card falls back to HSI_BACKFILL in index.html.
+    hsi_close = _yahoo_index_close("^HSI", today)
+    if hsi_close:
+        print(f"  HSI close {today}: {hsi_close:,.2f}")
     snapshot = {
         "date": today,
+        "hsiClose": hsi_close,
         "capitalEngaged": round(capital_engaged, 2),
         "portfolioValue": round(current_value, 2),
         "unrealizedPnL": round(current_value - capital_engaged, 2),
