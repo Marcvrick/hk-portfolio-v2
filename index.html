@@ -3700,6 +3700,10 @@
 
                   // Calculate total P&L for a snapshot (unrealized + realized)
                   const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
+                  // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+                  // m.realizedPnL is net-of-fees (for the "Réalisé" stat tiles); mixing it into a
+                  // series built from gross historical snapshots put a fee-sized cliff on today's point.
+                  const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
 
                   // Find first snapshot of current month (or closest before)
                   const now = new Date();
@@ -3716,7 +3720,7 @@
                   const chartData = thisMonthSnaps.map(s => ({
                     date: s.date.substring(5),
                     pnl: s.date === todayStr
-                      ? (m.totalPnL + m.realizedPnL) - baselineTotalPnL
+                      ? (m.totalPnL + grossRealizedPnL) - baselineTotalPnL
                       : getTotalPnL(s) - baselineTotalPnL,
                   }));
 
@@ -4582,14 +4586,16 @@
                 {/* Equity Curve - Total P&L over time */}
                 {(() => {
                   const todayStr = getMarketToday();
+                  // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+                  const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
                   // Calculate total P&L for each snapshot and update today with live values
                   const pnlData = snapshots.map(s => {
                     if (s.date === todayStr) {
                       return {
                         date: s.date,
-                        totalPnL: m.totalPnL + m.realizedPnL,
+                        totalPnL: m.totalPnL + grossRealizedPnL,
                         unrealizedPnL: m.totalPnL,
-                        realizedPnL: m.realizedPnL
+                        realizedPnL: grossRealizedPnL
                       };
                     }
                     return {
@@ -4696,10 +4702,12 @@
               const todayDate = getMarketToday();
               // Use stored dailyPnL from snapshots (calculated correctly at snapshot time)
               const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
+              // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+              const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
               const sortedSnaps = [...snapshots]
                 .filter(s => isTradingDay(s.date))
                 .map(s => s.date === todayDate
-                  ? { ...s, portfolioValue: m.totalValue, unrealizedPnL: m.totalPnL, realizedPnL: m.realizedPnL }
+                  ? { ...s, portfolioValue: m.totalValue, unrealizedPnL: m.totalPnL, realizedPnL: grossRealizedPnL }
                   : s
                 )
                 .sort((a, b) => a.date.localeCompare(b.date));
