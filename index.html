@@ -4787,6 +4787,32 @@
                 return { month: `${monthNames[parseInt(mo) - 1]} ${y}`, pnl };
               });
 
+              // Calendar view: month -> its weeks. A week straddling two months is split,
+              // so each month's week cells sum exactly to that month's total.
+              const calMap = {};
+              dailyPnls.forEach(d => {
+                const mk = d.date.substring(0, 7);
+                const wk = getWeekKey(d.date);
+                if (!calMap[mk]) calMap[mk] = {};
+                if (!calMap[mk][wk]) calMap[mk][wk] = { week: wk, pnl: 0, from: d.date, to: d.date };
+                const w = calMap[mk][wk];
+                w.pnl += d.pnl;
+                if (d.date < w.from) w.from = d.date;
+                if (d.date > w.to) w.to = d.date;
+              });
+              const calendarData = Object.keys(calMap).sort().reverse().map(mk => {
+                const [y, mo] = mk.split('-');
+                const weeks = Object.values(calMap[mk])
+                  .sort((a, b) => a.from.localeCompare(b.from))
+                  .map(w => ({ ...w, days: `${parseInt(w.from.slice(8))}–${parseInt(w.to.slice(8))}` }));
+                return {
+                  key: mk,
+                  label: `${monthNames[parseInt(mo) - 1]} ${y}`,
+                  weeks,
+                  total: weeks.reduce((s, w) => s + w.pnl, 0)
+                };
+              });
+
               return (
                 <div className="space-y-4">
                   {/* Performance vs HSI — the real return when the engaged capital moves.
@@ -4836,6 +4862,30 @@
                       .filter(t => t.exitDate > first.date && t.exitDate <= last.date)
                       .reduce((a, t) => a + (t.totalFees || 0), 0);
 
+                    // Record integrity: a ticker that leaves positionsAtClose with no sale
+                    // dated inside the interval between the two snapshots. Its P&L drops out
+                    // of unrealizedPnL without ever reaching realizedPnL, so the balance-sheet
+                    // delta reads the removal as a gain (on a loser) or a loss (on a winner).
+                    // Matching on the interval, not a +/-N day window — a window mis-fires
+                    // whenever snapshots are missing (0177/1585, sold 05-28, no snapshot
+                    // until 06-03, would read as unexplained).
+                    const orphans = [];
+                    for (let i = 1; i < win.length; i++) {
+                      const before = win[i - 1].positionsAtClose || [];
+                      const after = new Set((win[i].positionsAtClose || []).map(p => p.ticker));
+                      for (const p of before) {
+                        if (after.has(p.ticker)) continue;
+                        const sold = closedTrades.some(c => c.ticker === p.ticker
+                          && win[i - 1].date <= c.exitDate && c.exitDate <= win[i].date);
+                        if (sold) continue;
+                        orphans.push({
+                          date: win[i].date, ticker: p.ticker,
+                          pnl: ((p.closingPrice || 0) - (p.entryPrice || 0)) * (p.quantity || 0),
+                        });
+                      }
+                    }
+                    const orphanPnL = orphans.reduce((a, o) => a + o.pnl, 0);
+
                     // Average engaged capital, weighted by the days each level actually held
                     let capNum = 0, capDen = 0;
                     win.forEach((s, i) => {
@@ -4848,6 +4898,8 @@
                     const avgCap = capDen ? capNum / capDen : 0;
                     const rocGross = avgCap ? (pnl / avgCap) * 100 : 0;
                     const rocNet = avgCap ? ((pnl - fees) / avgCap) * 100 : 0;
+                    // Loud only when the distortion actually moves the displayed percentage.
+                    const orphanMaterial = avgCap > 0 && Math.abs(orphanPnL) / avgCap > 0.001;
 
                     // TWR rebased to 0% at the window start, HSI rebased the same way
                     const hsi0 = hsiOn(first);
@@ -4935,6 +4987,16 @@
                             cls={alpha == null ? '' : tone(alpha)} sub="TWR − HSI" />
                         </div>
 
+                        {orphanMaterial && (
+                          <p className="text-[11px] text-red-700 bg-red-50 rounded-md px-2 py-1.5 mb-2">
+                            <strong>{orphans.length} ligne{orphans.length > 1 ? 's' : ''} sortie{orphans.length > 1 ? 's' : ''} du livre sans vente enregistrée</strong>
+                            {' '}({[...new Set(orphans.map(o => o.date))].join(', ')} — {[...new Set(orphans.map(o => o.ticker))].join(', ')}).
+                            {' '}Leur P&L de {sign(orphanPnL, 0)} HKD a quitté la courbe sans passer par le réalisé, donc le P&L période
+                            et les deux chiffres rapportés au capital moyen sont faussés d'autant. Corrigé : {sign(pnl + orphanPnL, 0)} HKD,
+                            soit {sign(avgCap ? (pnl + orphanPnL) / avgCap * 100 : 0)} %. Le TWR n'est pas touché (il ne chaîne que les lignes détenues).
+                          </p>
+                        )}
+
                         {hsiStale && (
                           <p className="text-[11px] text-amber-700 bg-amber-50 rounded-md px-2 py-1.5 mb-2">
                             Le dernier point HSI est repris de {HSI_BACKFILL_LAST} : ce snapshot n'a pas encore de <code>hsiClose</code>. L'alpha affiché est approximatif jusqu'au prochain passage du cron.
@@ -4962,7 +5024,7 @@
 
                         <p className="text-[10px] text-muted mt-2 leading-relaxed">
                           Le TWR chaîne les <code>dailyPnL</code> et six sessions n'ont pas de snapshot, donc c'est un plancher.
-                          Les chiffres rapportés au capital moyen viennent du delta de bilan et sont exacts.
+                          Les chiffres rapportés au capital moyen viennent du delta de bilan, exact tant qu'aucune ligne ne quitte le livre sans vente.
                           Le net ne compte que les frais des lignes clôturées ; les lignes encore ouvertes n'enregistrent pas leurs frais d'achat.
                         </p>
                       </div>
@@ -5036,23 +5098,30 @@
                     ) : (
                       <p className="text-muted text-xs text-center py-8">Pas assez de données</p>
                     )}
-                    {weeklyData.length > 0 && (
-                      <table className="w-full text-xs mt-3">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-2 py-1.5 text-left">Semaine</th>
-                            <th className="px-2 py-1.5 text-right">P&L</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...weeklyData].reverse().map(w => (
-                            <tr key={w.week} className="border-t border-gray-100">
-                              <td className="px-2 py-1.5 font-mono">{w.week}</td>
-                              <td className={`px-2 py-1.5 text-right font-bold ${w.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    {calendarData.length > 0 && (
+                      <div className="mt-3 space-y-3">
+                        {calendarData.map(m => (
+                          <div key={m.key}>
+                            <div className="flex justify-between items-center bg-gray-50 rounded-md px-2 py-1.5 text-xs font-semibold">
+                              <span>{m.label}</span>
+                              <span className={m.total >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                {m.total >= 0 ? '+' : ''}{fmt(m.total)}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
+                              {m.weeks.map(w => (
+                                <div key={w.week} className="border border-gray-100 rounded-md px-2 py-1.5 text-center">
+                                  <div className="text-[10px] text-muted font-mono">{w.week.split('-')[1]}</div>
+                                  <div className="text-[10px] text-muted">{w.days}</div>
+                                  <div className={`text-xs font-bold ${w.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
 

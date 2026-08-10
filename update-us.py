@@ -485,8 +485,19 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
     dividend_income_today = round(sum(
         dividends_today.get(p["ticker"], 0) * p["quantity"] for p in positions
     ), 2)
+    # Benchmark close, stamped on the snapshot so the History tab's "Performance vs SPY"
+    # card reads it from the record instead of a frozen table. Best-effort: None on a
+    # Yahoo failure, and the card falls back to SPY_BACKFILL in index-us.html. Price
+    # return, dividends excluded — the same basis as the portfolio side.
+    _spy = _yahoo_close_for("SPY", today)
+    spy_close = round(_spy, 2) if _spy is not None else None
+    if spy_close:
+        print(f"  SPY close {today}: {spy_close:,.2f}")
+    else:
+        print(f"  !! SPY: no Yahoo close for {today} — snapshot written without it")
     snapshot = {
         "date": today,
+        "spyClose": spy_close,
         "capitalEngaged": round(capital_engaged, 2),
         "portfolioValue": round(current_value, 2),
         "unrealizedPnL": round(current_value - capital_engaged, 2),

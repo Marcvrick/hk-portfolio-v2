@@ -1,14 +1,21 @@
 #!/usr/bin/env node
-// Check: the History tab's "Performance vs HSI" card.
+// Check: the History tab's benchmark card — "Performance vs HSI" (index.html) and
+// "Performance vs SPY" (index-us.html). Both files carry the same logic.
 //
-// Four things it must get right, each of which has a real failure mode:
-//   1. P&L over the window is the BALANCE-SHEET DELTA. Six sessions have no snapshot
+// Five things it must get right, each of which has a real failure mode:
+//   1. P&L over the window is the BALANCE-SHEET DELTA. Six HK sessions have no snapshot
 //      (2026-05-28..06-05), so summing dailyPnL under-reports by ~7,234 HKD.
-//   2. Average engaged capital is DAY-WEIGHTED. The capital ranged 677k..1,340k; a plain
+//   2. Average engaged capital is DAY-WEIGHTED. HK capital ranged 677k..1,340k; a plain
 //      mean over snapshots would over-weight busy weeks and under-weight quiet ones.
-//   3. TWR compounds and is capital-neutral — that is what makes it comparable to HSI.
-//   4. The HSI lookup prefers the snapshot's own hsiClose, then the frozen table, then the
-//      last close before that date (HKEX holidays; snapshots minted past the table's end).
+//   3. TWR compounds and is capital-neutral — that is what makes it comparable to an index.
+//   4. The benchmark lookup prefers the snapshot's own hsiClose/spyClose, then the frozen
+//      table, then the last close before that date (market holidays; snapshots minted past
+//      the table's end).
+//   5. A position that leaves the book with no sale in the interval is flagged. The US book
+//      lost 8 positions on 2026-07-21 with no closedTrade, moving 1,205.30 USD of P&L out of
+//      the curve without booking it. Matching on the INTERVAL and not a +/-N day window is
+//      the point: HK's 0177/1585 sold 2026-05-28 with no snapshot until 06-03 would read as
+//      unexplained under any window narrower than 6 days.
 //
 // Fixtures are synthetic — no live holdings (this repo is public).
 const assert = require('assert');
@@ -129,6 +136,68 @@ function twrOf(win) {
   // A UTC round-trip (new Date(s).toISOString()) shifts the day west of Greenwich. Dany
   // is in France or Paraguay; the Paraguay case would silently drop a session.
   assert.strictEqual(cutoffFor('6M', '2026-01-05'), '2025-07-05');
+}
+
+// ---- 6. positions that leave the book with no sale in the interval ----------
+function orphansOf(win, closedTrades) {
+  const out = [];
+  for (let i = 1; i < win.length; i++) {
+    const before = win[i - 1].positionsAtClose || [];
+    const after = new Set((win[i].positionsAtClose || []).map(p => p.ticker));
+    for (const p of before) {
+      if (after.has(p.ticker)) continue;
+      const sold = closedTrades.some(c => c.ticker === p.ticker
+        && win[i - 1].date <= c.exitDate && c.exitDate <= win[i].date);
+      if (sold) continue;
+      out.push({ date: win[i].date, ticker: p.ticker,
+        pnl: ((p.closingPrice || 0) - (p.entryPrice || 0)) * (p.quantity || 0) });
+    }
+  }
+  return out;
+}
+{
+  const pos = (t, qty, entry, close) => ({ ticker: t, quantity: qty, entryPrice: entry, closingPrice: close });
+
+  // A real sale, dated inside the interval: explained, no flag.
+  const sold = [
+    { date: '2026-05-07', positionsAtClose: [pos('AAA', 10, 100, 120), pos('BBB', 5, 50, 40)] },
+    { date: '2026-05-08', positionsAtClose: [pos('AAA', 10, 100, 121)] },
+  ];
+  assert.deepStrictEqual(orphansOf(sold, [{ ticker: 'BBB', exitDate: '2026-05-08' }]), [],
+    'a sale inside the interval explains the exit');
+
+  // The same sale, with the snapshots either side of a gap. This is the HK 0177/1585 case:
+  // sold 05-28, no snapshot until 06-03. The interval still contains the exitDate.
+  const gapped = [
+    { date: '2026-05-27', positionsAtClose: [pos('AAA', 10, 100, 120), pos('BBB', 5, 50, 40)] },
+    { date: '2026-06-03', positionsAtClose: [pos('AAA', 10, 100, 121)] },
+  ];
+  assert.deepStrictEqual(orphansOf(gapped, [{ ticker: 'BBB', exitDate: '2026-05-28' }]), [],
+    'a 6-day snapshot gap must not turn a booked sale into an orphan');
+
+  // A sale entered the same day the prior snapshot was minted, after the mint.
+  const lateEntry = [
+    { date: '2026-04-30', positionsAtClose: [pos('AAA', 10, 100, 120), pos('CCC', 100, 15, 18)] },
+    { date: '2026-05-04', positionsAtClose: [pos('AAA', 10, 100, 121)] },
+  ];
+  assert.deepStrictEqual(orphansOf(lateEntry, [{ ticker: 'CCC', exitDate: '2026-04-30' }]), [],
+    'the interval is inclusive at both ends, so a same-day-as-prior-snapshot sale counts');
+
+  // No sale anywhere: flagged, with the P&L that left the curve.
+  const vanished = [
+    { date: '2026-07-20', positionsAtClose: [pos('AAA', 10, 100, 120), pos('DDD', 30, 250, 213)] },
+    { date: '2026-07-21', positionsAtClose: [pos('AAA', 10, 100, 121)] },
+  ];
+  const orph = orphansOf(vanished, []);
+  assert.strictEqual(orph.length, 1);
+  assert.strictEqual(orph[0].ticker, 'DDD');
+  assert.ok(Math.abs(orph[0].pnl - -1110) < 1e-9,
+    'the flagged amount is the position P&L at its last snapshot: (213-250)*30');
+
+  // Materiality gate: flag only when it moves the displayed percentage.
+  const material = (pnl, avgCap) => avgCap > 0 && Math.abs(pnl) / avgCap > 0.001;
+  assert.strictEqual(material(-1205.30, 54884), true, 'US 2026-07-21: 2.2% of capital, flag it');
+  assert.strictEqual(material(40, 975906), false, 'HK two-lot exit residue: 0.004%, stay quiet');
 }
 
 console.log('test-bench-hsi: all checks passed');
