@@ -77,7 +77,7 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `patch-apr23-closes.py` | One-time fix: Apr 23 closingPrices realigned to TradingView settlement (CAS-vs-settlement drift) |
 | `patch-april-dailypnl.py` | One-time fix: align April dailyPnL fields with current totalPnL deltas |
 | `patch-all-months-dailypnl.py` | Generalization of the above across all months — reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
-| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:45 HKT** primary + **21:00 HKT backup entry** added 2026-06-10 against free-tier drift/skips) — runs `update.py` then `verify-daily.py hk` |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:35 HKT** primary [was 16:45, moved 2026-08-10] + **21:00 HKT backup entry** added 2026-06-10 against free-tier drift/skips) — runs `update.py` then `verify-daily.py hk` |
 | `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, **16:10 ET** primary + **~20:00 ET backup entry** added 2026-06-10) — runs `update-us.py` then `verify-daily.py us` |
 
 ---
@@ -255,7 +255,7 @@ This ensures:
 
 | Workflow | Script | Schedule | Collection |
 |----------|--------|----------|------------|
-| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:45 UTC (16:45 HKT) + backup 13:00 UTC (21:00 HKT) | `portfolios` |
+| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:35 UTC (16:35 HKT) + backup 13:00 UTC (21:00 HKT) | `portfolios` |
 | `daily-update-us.yml` | `update-us.py` | Mon-Fri 21:10 UTC (16:10 ET) + backup 01:00 UTC (~20:00 ET) | `us-portfolios` |
 
 Both share the same `FIREBASE_CREDENTIALS_JSON` secret. To trigger manually: GitHub > Actions > Select workflow > "Run workflow".
@@ -402,7 +402,7 @@ python -m http.server 8000
 | Fee calculation | See PRD.md (7 components) | See PRD.md |
 | Ticker format | `XXXX.HK` | `AAPL`, `MSFT` |
 | Firestore collection | `portfolios/{userId}` | `us-portfolios/{userId}` |
-| Cron schedule | 08:45 UTC (16:45 HKT) + 13:00 UTC backup | 21:10 UTC (16:10 ET) + 01:00 UTC backup |
+| Cron schedule | 08:35 UTC (16:35 HKT) + 13:00 UTC backup | 21:10 UTC (16:10 ET) + 01:00 UTC backup |
 | Currency | HKD | USD |
 
 ### Common Maintenance Tasks

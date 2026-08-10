@@ -8,9 +8,15 @@ on:
       # FIVE slots across update.py's valid window (16:10 HKT / 08:10 UTC →
       # midnight HKT / 16:00 UTC); the guard aborts anything outside it.
       # Goal: at least one of the five lands even when GitHub drops some.
-      # 16:45 HKT — 35 min after the Closing Auction ends (16:10 HKT), so
-      # TradingView Scanner has flushed post-CAS prints (16:30 was too early).
-      - cron: '45 8 * * 1-5'   # 16:45 HKT — primary
+      # 16:35 HKT — 25 min after the Closing Auction ends (16:10 HKT). Moved
+      # from 16:45 on Dany's request 2026-08-10 (close 16:00 -> CAS to 16:15
+      # -> 15min settle -> fixed by 16:30, +5min buffer). NOTE: an earlier
+      # note on this line said 16:30 was tested and found too early for
+      # TradingView Scanner's post-CAS flush — 16:35 is only 5 min past that,
+      # so it carries the same risk. Not corrective if it misses: the backup
+      # slots below still fan out and self-heal (see wiki/incidents.md
+      # 2026-08-10 for the reasoning + the backfilled runbook check).
+      - cron: '35 8 * * 1-5'   # 16:35 HKT — primary
       - cron: '0 10 * * 1-5'   # 18:00 HKT — backup 1
       - cron: '0 12 * * 1-5'   # 20:00 HKT — backup 2
       - cron: '0 13 * * 1-5'   # 21:00 HKT — backup 3
