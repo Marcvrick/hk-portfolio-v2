@@ -428,6 +428,26 @@ Quick summary:
 
 ## Changelog
 
+### Aug 10, 2026 — v2.46: History tab — "Performance vs HSI" card + `hsiClose` on every snapshot (`index.html`, `update.py`)
+
+Display + cron field; no Firestore patch, no existing snapshot touched.
+
+The engaged capital ranged 677,399 → 1,340,401 HKD over 2026-01-26 → 08-10 (×1.98), so no single denominator gives "the" return. The new first card of the **History** tab (`history_tab`) shows three, each answering a different question, over a window the user picks (`1M / 3M / 6M / YTD / Tout`):
+
+- **return on average engaged capital**, day-weighted — what the deployed money earned (+7.63% gross, +5.00% net over the full window on 975,906 average capital)
+- **TWR**, chained daily — picking quality, independent of sizing (+3.55%)
+- **alpha = TWR − HSI** — the only fair index comparison (HSI −3.09%, alpha +6.64 pts)
+
+Plus P&L in HKD, both drawdowns, and a two-line chart rebased to 0% at the window start.
+
+**HSI source, three levels**: `snapshot.hsiClose` → the frozen `HSI_BACKFILL` table (131 sessions, 2026-01-26 → 08-10) → the last close before the date (HKEX holiday, or a browser-minted snapshot past the table's end). `update.py` now stamps `hsiClose` via a new `_yahoo_index_close("^HSI", today)` — separate from `_yahoo_close_for`, which would mangle `^HSI` into `^HSI.HK` — so the table never needs extending. A Yahoo failure leaves the field `None` and is non-fatal. **A snapshot past the table's end with no `hsiClose` is flagged in the UI** rather than flat-lining the index, which would silently inflate alpha.
+
+**Two measurement rules are wired into the card.** Period P&L is the **balance-sheet delta** (`realizedPnL + unrealizedPnL` between the bounds), never the sum of `dailyPnL`: six sessions have no snapshot (2026-05-28 → 06-05) and the summed figure falls 7,234 HKD short. The TWR does chain `dailyPnL`, so it is labelled a floor in the UI. The live "today" splice uses `grossRealizedPnL`, matching the stored gross definition (v2.45.1 / `wiki/incidents.md` 2026-08-10).
+
+Verification: `@babel/core` transpile clean on `index.html` and `index-us.html`; new `test-bench-hsi.js` (5 groups, synthetic fixtures — balance-sheet delta vs summed `dailyPnL`, day-weighting, TWR compounding and size-neutrality, HSI lookup precedence, local-date-safe window cutoffs); the card's math replayed against live Firestore reproduces every figure above to the cent. `perf-return-on-capital.py` (read-only) prints the same three measures from the command line. Full method, the HSI month-by-month table, and the three measurement holes: `wiki/return-on-average-capital.md`.
+
+---
+
 ### Aug 8, 2026 — v2.45: Performance tab — entry-day rule keyed to the displayed session (`index.html` + `index-us.html`)
 
 Display-only; no Firestore write, no cron change. A position opened on a session showed, once the date rolled past that session, the stock's **whole** session move instead of the move from the entry price. It was correct throughout the session itself.
