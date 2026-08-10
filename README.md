@@ -428,6 +428,24 @@ Quick summary:
 
 ## Changelog
 
+### Aug 10, 2026 — data repair: `APPEL` → `AAPL`, 13 frozen sessions backfilled (US book)
+
+Firestore data patch, no code change. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
+
+Apple was held under the ticker `APPEL`. It resolves on neither TradingView nor Yahoo, so every cron since entry (2026-07-21) took the "missing" path and the close stayed frozen at 327.96 across all 14 snapshots. Because the price never moved day to day, the position's `dailyPnL` leg was **exactly 0 for 13 sessions** — Apple's real moves were excluded from the portfolio's daily P&L, with nothing to show it but the `provisional` flag the cron raised correctly every day.
+
+Two patches, the second repairing a seam the first created:
+- `patch-aug10-fix-appel-ticker.py` — renames to `AAPL`, backfills 07-22 → 08-07 with raw Yahoo closes (`auto_adjust=False`), `dailyPnL` add-to-stored chaining off each prior corrected close, pv/cap/unrealized/posCount recomputed from `positionsAtClose`, `realizedPnL` untouched. **Entry day left at 327.96 on purpose** — 0.22 off Yahoo's 327.74, consistent with a real fill.
+- `patch-aug10-appel-entryday-label.py` — that exemption left the **label** behind, so 07-21 still read `APPEL` and the new record-integrity check counted it as a 9th unexplained exit (correction mis-stated as −946.10 instead of −1,205.30). Rename only; asserts every numeric field is bit-identical and aborts otherwise.
+
+Effect: the position's unrealized flips **+259.20 → −33.40**, −292.60 enters the cumulative daily series, and two days flip sign (07-24 −71 → +156, 07-30 +37 → −58). The US window figures move to **TWR −3.75% vs SPY +11.72% (alpha −15.47 pts)** and a corrected P&L of **−487 USD, −0.89% of average engaged capital**. The 13 dead sessions had been flattering the result by 0.76 points.
+
+**Flagged before applying, Dany chose to proceed**: `entryPrice` 315.00 is **below Apple's whole 2026-07-21 range** (322.22–329.60), so the cost basis cannot be that day's fill. Neither patch touches it; correcting it needs the real fill price.
+
+Verified beyond each script's own `[VERIFY]` block: `APPEL` absent from all 122 snapshots and from `positions[]`, `AAPL` priced on 14 snapshots with 14 distinct closes, zero invariant violations across the whole series, and exactly one snapshot still `provisional` (2026-07-21, whose close was never reconciled).
+
+---
+
 ### Aug 10, 2026 — v2.47: US History tab — "Performance vs SPY" card + record-integrity guard on both cards (`index-us.html`, `index.html`, `update-us.py`)
 
 Display + cron field; no Firestore patch, no existing snapshot touched.
