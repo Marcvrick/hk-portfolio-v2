@@ -428,6 +428,28 @@ Quick summary:
 
 ## Changelog
 
+### Aug 10, 2026 — data repair: the 3 HK snapshots with stale totals (2026-03-31, 04-13, 05-15)
+
+Firestore data patch, no code change. Open since the 2026-08-08 Check-6 sweep. Full write-up: `wiki/snapshot-record-gaps.md`.
+
+**The diagnosis contradicted the wiki.** That page read 2026-05-15 as "the same family as 2600" — an incomplete `positionsAtClose`. It is the opposite: 1999.HK, 2013.HK and 2382.HK were **sold** that day (`closedTrades` confirms), so a 13-entry array is right. Their combined cost basis, 99,200 + 50,490 + 100,425 = **250,115.00**, is to the cent the `capitalEngaged` excess. All three snapshots turn out to be the *same* defect — `positionsAtClose` correct, top-level totals never updated, the delta-subtraction signature of 2026-06-10:
+
+| Date | What happened that day, reconciling to the cent |
+|---|---|
+| 2026-03-31 | 1167.HK bought, 14,100 @ 7.25 = **102,225.00** = the `capitalEngaged` shortfall exactly |
+| 2026-04-13 | 113.HK bought (122,000) + 3680.HK bought (52,800) + 1913.HK topped up 1,000 @ 50.30 → 2,300 @ 43.597 (+49,973.10) = **224,773.10**. Stored `capitalEngaged` was verbatim the 04-10 value; the 04-14 snapshot is clean, so the cron recovered on its own |
+| 2026-05-15 | The three sales above, **250,115.00** |
+
+`patch-aug10-fix-3-stale-totals.py` — one rule for all three, the one `wiki/recording-a-sale.md` already mandates: recompute `portfolioValue`/`capitalEngaged`/`unrealizedPnL`/`positionCount` from `positionsAtClose`, never delta-subtract; plus drop the three orphan `closingPrices` keys on 05-15. `positionsAtClose` asserted byte-identical after the write, `dailyPnL` and `realizedPnL` untouched, the other 123 snapshots asserted unchanged.
+
+**The guard that made it safe**: before recomputing, the script requires every ticker held on the prior snapshot and not sold in the interval to still be present. Recomputing totals from an *incomplete* array would bake the omission in as if it were correct — the 2600 failure mode from the other direction. All three passed.
+
+Effect on the published figures (`wiki/return-on-average-capital.md`): average engaged capital 975,906 → **973,757**, return on average capital +7.63% → **+7.65%**, and **TWR +3.55% → +3.48%** (alpha +6.64 → **+6.57 pts**) — that last one was not anticipated: correcting the 04-13 `portfolioValue` changes the denominator of the following chain link. Period P&L unchanged at +74,498; it depends only on the two window bounds.
+
+`healthcheck.py` now reports **126/126 stored totals agree**, up from 123/126.
+
+---
+
 ### Aug 10, 2026 — data repair: `APPEL` → `AAPL`, 13 frozen sessions backfilled (US book)
 
 Firestore data patch, no code change. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
