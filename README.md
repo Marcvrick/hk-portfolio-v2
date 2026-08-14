@@ -428,6 +428,14 @@ Quick summary:
 
 ## Changelog
 
+### Aug 14, 2026 — Completed Trades: "Encaissé par mois" calendar (display only)
+
+`index.html` + `index-us.html`. At the bottom of the Completed Trades tab (`activeTab === 'history'`), a month grid of realized P&L: one row per year (newest first), 12 month cells, per-cell trade count, sale proceeds (`exitPrice × quantity`) in the cell tooltip, a year subtotal and a grand total that equals the table's own TOTAL.
+
+Figures come from `closedWithCalc` grouped on `exitDate` — **net of fees**, the same definition as the P&L column above it. No snapshot-derived series is spliced in, so the gross-vs-net trap of Aug 10 does not apply here.
+
+No Firestore write, no cron change. `test-monthly-cashed.js` extracts the aggregation from both HTMLs and checks month indexing, empty months, proceeds, and "cells sum to realized". Both files transpile clean under `@babel/preset-react`. Read-only Firestore check on the HK book: 48 closed trades, 8 populated months, gross total 116,802 = the 2026-08-14 snapshot's `realizedPnL` to the cent.
+
 ### Aug 10, 2026 — data repair: the 3 HK snapshots with stale totals (2026-03-31, 04-13, 05-15)
 
 Firestore data patch, no code change. Open since the 2026-08-08 Check-6 sweep. Full write-up: `wiki/snapshot-record-gaps.md`.
