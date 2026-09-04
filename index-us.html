@@ -787,6 +787,13 @@
       const [showClosedDates, setShowClosedDates] = useState(false); // History tab: Date In/Out hidden until the Durée header is clicked
       const [benchWindow, setBenchWindow] = useState('Tout'); // History tab: window of the "Performance vs SPY" card — 1M / 3M / 6M / YTD / Tout
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
+      const [closeSubmitting, setCloseSubmitting] = useState(false); // Confirmer disabled while the close write is in flight
+      // Last failed saveData, drives the persistent red banner. Every write path in this app
+      // is optimistic: React state changes first, Firestore second, and until 2026-09-04 a
+      // failed write printed to the console and nothing else, so the UI showed a sale as
+      // done that the cloud never received (HK 2714.HK, see wiki/incidents.md). Cleared on
+      // the next successful save.
+      const [saveError, setSaveError] = useState(null); // { reason, at } | null
       // IMPORTANT: today must use getMarketToday() (ET), NOT UTC.
       // today: market-timezone date string (ET). Stored in state + auto-updated every 60s.
       // Must use ET, NOT UTC (user may be in a different timezone than the market)
@@ -952,7 +959,7 @@
         // Don't save when viewing friend's portfolio
         if (viewingFriendEmail) {
           console.log('Skipping save - viewing friend portfolio (read-only mode)');
-          return;
+          return { ok: false, reason: 'Portfolio ami en lecture seule', quiet: true };
         }
         const dataToSave = {
           version: 7,
@@ -986,7 +993,18 @@
             // and finds "nothing to restore" — then the stale array is written
             // and the cron's snapshots are wiped (HK Jun 16-24 2026 calendar
             // incident). source:'server' forces comparison against cloud truth.
-            const liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            // One retry (800 ms) before giving up: source:'server' throws on any
+            // connectivity blip (phone on a weak cell, laptop just woken), and the abort
+            // path below then silently discards the user's change. A single retry turns
+            // the common transient failure into a normal save.
+            let liveDoc;
+            try {
+              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            } catch (firstErr) {
+              console.warn('[SAVE GUARD] Server read failed, retrying once in 800ms:', firstErr);
+              await new Promise(r => setTimeout(r, 800));
+              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            }
             if (liveDoc.exists) {
               const livePositions = liveDoc.data().positions || [];
               const outgoingTickers = new Set(dataToSave.positions.map(p => p.ticker));
@@ -1034,7 +1052,7 @@
                 } catch (reloadErr) {
                   console.error('[SAVE GUARD] Reload failed:', reloadErr);
                 }
-                return false;
+                return { ok: false, reason: `Sauvegarde bloquée par le garde-fou (${tickerList})` };
               }
 
               const liveSnaps = liveDoc.data().snapshots || [];
@@ -1088,7 +1106,9 @@
             // save reconciles against the server.
             console.warn('[SAVE GUARD] Server read failed — aborting save to avoid clobbering cloud data:', guardErr);
             storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
-            return false;
+            const reason = 'Firestore injoignable (vérification pré-écriture impossible)';
+            setSaveError({ reason, at: new Date().toISOString() });
+            return { ok: false, reason };
           }
         }
         // Save to Firestore (primary)
@@ -1096,7 +1116,15 @@
         if (!saved) {
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('us-portfolio-v7', JSON.stringify(dataToSave));
+          // The localStorage copy is a forensic backup only: loadData reads it back solely
+          // when the Firestore document does not exist at all, so a failed write is lost
+          // on the next load. The banner is what makes that visible.
+          const reason = "Écriture Firestore refusée (règles de sécurité, réseau ou données invalides)";
+          setSaveError({ reason, at: new Date().toISOString() });
+          return { ok: false, reason };
         }
+        setSaveError(null);
+        return { ok: true };
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail, userId]);
 
       // Close friend dropdown on outside click
@@ -1723,7 +1751,14 @@
         saveData(positions, newClosed, transactions, priceCache, snapshots, settings);
       };
 
-      const closePosition = () => {
+      // A close is the one action where an optimistic UI is unacceptable: the row leaves
+      // the list, the trade appears in the closed-trades tab, and if the write never
+      // reached Firestore nothing said so. HK 2714.HK (2026-09-04) was closed in the app
+      // and stayed open in the cloud; the next real-time update simply put it back. So:
+      // await the write, roll the local state back when it fails, keep the modal open,
+      // and say why.
+      const closePosition = async () => {
+        if (closeSubmitting) return;
         const { position, exitPrice, exitDate, sellQuantity } = closeModal;
         const qty = parseFloat(sellQuantity) || position.quantity;
         const isPartial = qty < position.quantity;
@@ -1733,8 +1768,19 @@
           return alert(`Quantité invalide. Max: ${position.quantity}`);
         }
 
+        // Validate exit price. A blank/NaN price used to build a trade with NaN fees,
+        // which Firestore rejects outright ("Unsupported field value: NaN"), a silent
+        // failed write, indistinguishable in the UI from a recorded sale.
+        const exitPriceNum = parseFloat(exitPrice);
+        if (!isFinite(exitPriceNum) || exitPriceNum <= 0) {
+          return alert('Prix de sortie invalide.');
+        }
+        if (!exitDate) {
+          return alert('Date de sortie requise.');
+        }
+
         const buyAmount = qty * position.entryPrice;
-        const sellAmount = qty * parseFloat(exitPrice);
+        const sellAmount = qty * exitPriceNum;
         const buyFees = calcTradingFees(buyAmount, qty, true);
         const sellFees = calcTradingFees(sellAmount, qty, false);
         const trade = {
@@ -1743,7 +1789,7 @@
           name: position.name,
           quantity: qty,
           entryPrice: position.entryPrice,
-          exitPrice: parseFloat(exitPrice),
+          exitPrice: exitPriceNum,
           entryDate: position.entryDate,
           exitDate: exitDate,
           buyFees,
@@ -1767,9 +1813,27 @@
           newPos = positions.filter(p => p.id !== position.id);
         }
 
+        const prevPositions = positions;
+        const prevClosed = closedTrades;
         setClosedTrades(newClosed);
         setPositions(newPos);
-        saveData(newPos, newClosed, transactions, priceCache, snapshots, settings);
+        setCloseSubmitting(true);
+        let res;
+        try {
+          res = await saveData(newPos, newClosed, transactions, priceCache, snapshots, settings);
+        } catch (e) {
+          res = { ok: false, reason: e?.message || String(e) };
+        } finally {
+          setCloseSubmitting(false);
+        }
+        if (!res?.ok) {
+          // Fail closed: the cloud is the record, so the UI goes back to the cloud's view
+          // rather than showing a sale that was never written.
+          setPositions(prevPositions);
+          setClosedTrades(prevClosed);
+          alert(`⚠️ La clôture de ${position.ticker} n'a PAS été enregistrée.\n\n${res?.reason || 'Sauvegarde échouée'}\n\nLa position reste ouverte. Vérifiez la connexion et réessayez.`);
+          return;
+        }
         setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '', sellQuantity: '' });
       };
 
@@ -2424,7 +2488,7 @@
                     })()}
                     <div className="flex gap-3 pt-2">
                       <button onClick={() => setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '' })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-dark-text font-medium rounded-xl py-3 transition-colors">Annuler</button>
-                      <button onClick={closePosition} className="flex-1 bg-lime-accent hover:bg-lime-hover text-dark-text font-medium rounded-xl py-3 transition-colors">Confirmer</button>
+                      <button onClick={closePosition} disabled={closeSubmitting} className="flex-1 bg-lime-accent hover:bg-lime-hover text-dark-text font-medium rounded-xl py-3 transition-colors disabled:opacity-50">{closeSubmitting? 'Enregistrement...': 'Confirmer'}</button>
                     </div>
                   </div>
                 </div>
@@ -2516,6 +2580,24 @@
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* SAVE-FAILURE BANNER (2026-09-04, HK 2714.HK). Every write here is optimistic:
+                React state first, Firestore second. A failed write used to print to the
+                console and nothing else, so the app kept showing a sale the cloud never
+                received until the next load or real-time update silently put the position
+                back. This banner is the single place that makes ANY failed saveData
+                visible, whichever call site it came from. It clears on the next success. */}
+            {saveError && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl px-4 py-3 flex items-start gap-3">
+                <span className="text-red-600 shrink-0 mt-0.5"><AlertCircle size={18} /></span>
+                <div className="flex-1">
+                  <div className="text-red-800 text-sm font-semibold">Dernière sauvegarde ÉCHOUÉE, vos modifications ne sont pas enregistrées</div>
+                  <div className="text-red-700 text-xs mt-0.5">{saveError.reason} · {new Date(saveError.at).toLocaleTimeString('fr-FR')}</div>
+                  <div className="text-red-700 text-xs mt-1">Rechargez la page pour repartir de la version cloud, puis refaites l'opération.</div>
+                </div>
+                <button onClick={() => window.location.reload()} className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-lg px-3 py-1.5 transition-colors shrink-0">Recharger</button>
               </div>
             )}
 

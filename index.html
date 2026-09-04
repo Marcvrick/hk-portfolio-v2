@@ -221,7 +221,7 @@
       2027: ['2027-01-01', '2027-02-08', '2027-02-09', '2027-03-26', '2027-03-29', '2027-04-05', '2027-05-13', '2027-06-09', '2027-07-01', '2027-09-16', '2027-10-01', '2027-10-08', '2027-12-27']
     };
 
-    // Hang Seng Index daily closes — frozen history for the snapshots written before the
+    // Hang Seng Index daily closes, frozen history for the snapshots written before the
     // cron started storing `hsiClose` (update.py, 2026-08-11). Source: Yahoo ^HSI via the
     // FinMC_3 cache, pulled 2026-08-10. New snapshots carry their own `hsiClose`, so this
     // table never needs extending: the "Performance vs HSI" card reads the snapshot field
@@ -285,7 +285,7 @@
     };
 
     // Convert any Date object to YYYY-MM-DD using HKT (Asia/Hong_Kong, UTC+8, no DST).
-    // ALWAYS use this instead of toISOString().split('T')[0] — toISOString() returns UTC
+    // ALWAYS use this instead of toISOString().split('T')[0], toISOString() returns UTC
     // which is wrong for HK market dates (Mar 3 2026 corruption root cause).
     const hktDateStr = (date) => {
       const s = date.toLocaleString('en-CA', { timeZone: 'Asia/Hong_Kong' });
@@ -318,7 +318,7 @@
       const hkt = getHktNow();
       const timeInMinutes = hkt.timeInMinutes;
 
-      // Check if it's a trading day (use HKT date, not UTC — avoids Fri UTC / Sat HKT mismatch)
+      // Check if it's a trading day (use HKT date, not UTC, avoids Fri UTC / Sat HKT mismatch)
       if (!isTradingDay(hkt.date)) return false;
 
       // Morning session: 9:30 (570) - 12:00 (720)
@@ -407,8 +407,8 @@
           // Check if priceCache date is close to snapshot date (within 3 days for weekends)
           const priceCacheDate = Object.values(priceCache)[0]?.lastUpdated?.split('T')[0];
           const snapshotDate = new Date(s.date);
-          const cacheDate = priceCacheDate ? new Date(priceCacheDate) : null;
-          const daysDiff = cacheDate ? Math.abs((cacheDate - snapshotDate) / (1000 * 60 * 60 * 24)) : 999;
+          const cacheDate = priceCacheDate? new Date(priceCacheDate): null;
+          const daysDiff = cacheDate? Math.abs((cacheDate - snapshotDate) / (1000 * 60 * 60 * 24)): 999;
 
           if (daysDiff <= 3) {
             const closingPrices = {};
@@ -515,7 +515,7 @@
     };
 
     // ===== PRICE FETCHING (TradingView Scanner API) =====
-    // Bulk fetch all HKEX prices in one call — no CORS proxy needed
+    // Bulk fetch all HKEX prices in one call, no CORS proxy needed
     const fetchTradingViewPrices = async (tickers) => {
       const uniqueTickers = [...new Set(tickers.map(t => t.replace(/b\.HK$/, '.HK')))];
       // Convert "0434.HK" → "434" for TradingView filter
@@ -589,7 +589,7 @@
     // A priceCache "from today" = at least one successful entry was written on today's
     // HKT date (browser refresh or the 16:45 HKT cron). Every morning the persisted
     // cache still holds the PRIOR session's closes + change values; rendering those
-    // as "today" was the "wrong on first load" bug — see wiki/morning-stale-first-paint.md.
+    // as "today" was the "wrong on first load" bug, see wiki/morning-stale-first-paint.md.
     // Note: lastUpdated mixes UTC "Z" strings (browser) and +08:00 strings (cron), so
     // compare via Date→HKT date, never by sorting the raw strings.
     const isCacheFromToday = (cache) => {
@@ -611,7 +611,7 @@
         .filter(t => t.type === 'deposit' || t.type === 'withdrawal')
         .filter(t => !asOfDate || t.date <= asOfDate)
         .reduce((sum, t) => {
-          return t.type === 'deposit' ? sum + t.amount : sum - t.amount;
+          return t.type === 'deposit'? sum + t.amount: sum - t.amount;
         }, 0);
     };
 
@@ -626,7 +626,7 @@
       return positions.reduce((sum, p) => {
         const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
         const cachedPrice = priceCache[cleanTicker];
-        const price = cachedPrice?.success ? cachedPrice.price : p.currentPrice;
+        const price = cachedPrice?.success? cachedPrice.price: p.currentPrice;
         return sum + (p.quantity * price);
       }, 0);
     };
@@ -711,7 +711,7 @@
                 disabled={loading}
                 className="w-full bg-lime-accent hover:bg-lime-hover text-dark-text font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
               >
-                {loading ? 'Connexion...' : 'Se connecter'}
+                {loading? 'Connexion...': 'Se connecter'}
               </button>
             </form>
 
@@ -752,11 +752,11 @@
             if (currentDoc.exists) {
               const positions = currentDoc.data().positions || [];
               if (positions.length === 0) {
-                // No positions in HK collection — check if US has data
+                // No positions in HK collection, check if US has data
                 const otherDoc = await db.doc(`us-portfolios/${user.uid}`).get();
                 shouldRedirect = otherDoc.exists && (otherDoc.data().positions?.length > 0);
               } else {
-                // Has positions — check if they look like US tickers (all alphabetic = wrong market)
+                // Has positions, check if they look like US tickers (all alphabetic = wrong market)
                 const allAlpha = positions.every(p => /^[A-Za-z]+$/.test(p.ticker));
                 if (allAlpha) {
                   console.log('Detected US tickers in HK collection, redirecting...');
@@ -764,7 +764,7 @@
                 }
               }
             } else {
-              // No HK document at all — check if US has data
+              // No HK document at all, check if US has data
               const otherDoc = await db.doc(`us-portfolios/${user.uid}`).get();
               shouldRedirect = otherDoc.exists && (otherDoc.data().positions?.length > 0);
             }
@@ -870,9 +870,16 @@
       const [showBuyDate, setShowBuyDate] = useState(false); // Positions tab: Achat col hidden until the ▸ toggle on the Jours header is clicked
       const [showPrevClose, setShowPrevClose] = useState(false); // Performance tab: Prev Close col hidden until the Actuel header is clicked
       const [showClosedDates, setShowClosedDates] = useState(false); // History tab: Date In/Out hidden until the Durée header is clicked
-      const [benchWindow, setBenchWindow] = useState('Tout'); // History tab: window of the "Performance vs HSI" card — 1M / 3M / 6M / YTD / Tout
+      const [benchWindow, setBenchWindow] = useState('Tout'); // History tab: window of the "Performance vs HSI" card, 1M / 3M / 6M / YTD / Tout
       const [perfSortConfig, setPerfSortConfig] = useState({ key: 'dailyChangePercent', direction: 'desc' });
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
+      const [closeSubmitting, setCloseSubmitting] = useState(false); // Confirmer disabled while the close write is in flight
+      // Last failed saveData, drives the persistent red banner. Every write path in this app
+      // is optimistic: React state changes first, Firestore second, and until 2026-09-04 a
+      // failed write printed to the console and nothing else, so the UI showed a sale as
+      // done that the cloud never received (2714.HK, see wiki/incidents.md). Cleared on the
+      // next successful save.
+      const [saveError, setSaveError] = useState(null); // { reason, at } | null
       // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
       // today: market-timezone date string (HKT). Stored in state + auto-updated every 60s.
       // Must use HKT, NOT UTC (user may be in a different timezone than the market)
@@ -880,20 +887,21 @@
       React.useEffect(() => {
         const interval = setInterval(() => {
           const now = getMarketToday();
-          setToday(prev => prev !== now ? now : prev);
+          setToday(prev => prev !== now? now: prev);
         }, 60000);
         return () => clearInterval(interval);
       }, []);
       const [editingEntryDate, setEditingEntryDate] = useState(null);
       const [isRefreshing, setIsRefreshing] = useState(false);
       const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, ticker: '' });
+      const [refreshingTicker, setRefreshingTicker] = useState(null);
       const [lastRefresh, setLastRefresh] = useState(null);
       const [dailyGain, setDailyGain] = useState({ value: 0, percent: 0, hasYesterday: false, isWeekend: false, isLive: false });
       const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
       const [selectedSnapshotDate, setSelectedSnapshotDate] = useState(null); // For calendar day detail modal
       const [darkMode, setDarkMode] = useState(() => {
         const saved = localStorage.getItem('portfolioDarkMode');
-        return saved !== null ? JSON.parse(saved) : true;
+        return saved !== null? JSON.parse(saved): true;
       });
 
       // Apply dark mode class to body
@@ -934,14 +942,14 @@
             closedTrades: migrated.closedTrades?.length
           });
           // Update state only if data actually changed (avoid loops)
-          setPositions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.positions) ? migrated.positions : prev);
-          setClosedTrades(prev => JSON.stringify(prev) !== JSON.stringify(migrated.closedTrades) ? migrated.closedTrades : prev);
-          setTransactions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.transactions) ? migrated.transactions : prev);
-          setPriceCache(prev => JSON.stringify(prev) !== JSON.stringify(migrated.priceCache) ? migrated.priceCache : prev);
-          setSnapshots(prev => JSON.stringify(prev) !== JSON.stringify(migrated.snapshots) ? migrated.snapshots : prev);
-          setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlist) ? migrated.wishlist : prev);
-          setWishlistAlertsDismissed(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlistAlertsDismissed) ? migrated.wishlistAlertsDismissed : prev);
-          setAllowedViewers(prev => JSON.stringify(prev) !== JSON.stringify(migrated.allowedViewers) ? migrated.allowedViewers : prev);
+          setPositions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.positions)? migrated.positions: prev);
+          setClosedTrades(prev => JSON.stringify(prev) !== JSON.stringify(migrated.closedTrades)? migrated.closedTrades: prev);
+          setTransactions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.transactions)? migrated.transactions: prev);
+          setPriceCache(prev => JSON.stringify(prev) !== JSON.stringify(migrated.priceCache)? migrated.priceCache: prev);
+          setSnapshots(prev => JSON.stringify(prev) !== JSON.stringify(migrated.snapshots)? migrated.snapshots: prev);
+          setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlist)? migrated.wishlist: prev);
+          setWishlistAlertsDismissed(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlistAlertsDismissed)? migrated.wishlistAlertsDismissed: prev);
+          setAllowedViewers(prev => JSON.stringify(prev) !== JSON.stringify(migrated.allowedViewers)? migrated.allowedViewers: prev);
           // Don't update settings from remote to avoid overwriting local preferences
         });
 
@@ -1020,7 +1028,7 @@
         // Don't save when viewing friend's portfolio
         if (viewingFriendEmail) {
           console.log('Skipping save - viewing friend portfolio (read-only mode)');
-          return;
+          return { ok: false, reason: 'Portfolio ami en lecture seule', quiet: true };
         }
         const dataToSave = {
           version: 7,
@@ -1048,18 +1056,29 @@
             // that went offline (laptop asleep) before the cron ran holds a
             // stale cached doc; a plain .get() resolves from that cache, so the
             // merge guard below sees the same stale array as the outgoing save
-            // and finds "nothing to restore" — then the stale array is written
+            // and finds "nothing to restore", then the stale array is written
             // and the cron's snapshots are wiped. This is the Jun 16-24 2026
             // calendar incident: cron healthy every day (count 89→94), one
             // stale-cache browser save collapsed it to 88. source:'server'
             // forces the comparison against cloud truth.
-            const liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            // One retry (800 ms) before giving up: source:'server' throws on any
+            // connectivity blip (phone on a weak cell, laptop just woken), and the abort
+            // path below then silently discards the user's change. A single retry turns
+            // the common transient failure into a normal save.
+            let liveDoc;
+            try {
+              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            } catch (firstErr) {
+              console.warn('[SAVE GUARD] Server read failed, retrying once in 800ms:', firstErr);
+              await new Promise(r => setTimeout(r, 800));
+              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+            }
             if (liveDoc.exists) {
               const livePositions = liveDoc.data().positions || [];
               const outgoingTickers = new Set(dataToSave.positions.map(p => p.ticker));
               const reactStateTickers = new Set(positions.map(p => p.ticker));
               // A dropped position is a LEGITIMATE sale (not a silent stale-tab
-              // drop) when this save adds a new closedTrade for it — the same
+              // drop) when this save adds a new closedTrade for it, the same
               // invariant the server rules enforce ("positions may shrink if
               // closedTrades grew"). The old React-state-closure test alone was
               // fragile: a save that fires after the sale is applied to state but
@@ -1102,11 +1121,11 @@
                 } catch (reloadErr) {
                   console.error('[SAVE GUARD] Reload failed:', reloadErr);
                 }
-                return false;
+                return { ok: false, reason: `Sauvegarde bloquée par le garde-fou (${tickerList})` };
               }
 
               // SNAPSHOT MERGE GUARD (Jun 10 2026): the actual mechanism behind
-              // the "cron gap" incidents — a tab opened before the cron ran
+              // the "cron gap" incidents, a tab opened before the cron ran
               // saves its stale snapshots array via doc.set() and wipes the
               // cron's snapshots (Jun 4/5 2026: Actions runs green + verify
               // PASS, snapshots gone by Jun 9). There is no UI path that
@@ -1165,12 +1184,14 @@
           } catch (guardErr) {
             // The server read failed (offline, or permissions). We CANNOT verify
             // the save won't clobber cron / other-tab writes, so abort instead of
-            // proceeding — proceeding here is exactly what wiped the Jun 16-24
+            // proceeding, proceeding here is exactly what wiped the Jun 16-24
             // snapshots. The localStorage backup written by callers retains this
             // tab's data; the next online save reconciles against the server.
-            console.warn('[SAVE GUARD] Server read failed — aborting save to avoid clobbering cloud data:', guardErr);
+            console.warn('[SAVE GUARD] Server read failed, aborting save to avoid clobbering cloud data:', guardErr);
             storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
-            return false;
+            const reason = 'Firestore injoignable (vérification pré-écriture impossible)';
+            setSaveError({ reason, at: new Date().toISOString() });
+            return { ok: false, reason };
           }
         }
         // Save to Firestore (primary)
@@ -1178,7 +1199,15 @@
         if (!saved) {
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
+          // The localStorage copy is a forensic backup only: loadData reads it back solely
+          // when the Firestore document does not exist at all, so a failed write is lost
+          // on the next load. The banner is what makes that visible.
+          const reason = "Écriture Firestore refusée (règles de sécurité, réseau ou données invalides)";
+          setSaveError({ reason, at: new Date().toISOString() });
+          return { ok: false, reason };
         }
+        setSaveError(null);
+        return { ok: true };
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail, userId]);
 
       // ===== DATA CORRECTION: Clean up stale tracking fields, fix historical data =====
@@ -1211,7 +1240,7 @@
         const pos1361 = correctedPositions.find(p => p.ticker === '1361.HK');
         if (pos1361 && Math.abs(pos1361.entryPrice - 5.75) < 0.01) {
           correctedPositions = correctedPositions.map(p =>
-            p.ticker === '1361.HK' ? { ...p, entryPrice: 5.717 } : p
+            p.ticker === '1361.HK'? { ...p, entryPrice: 5.717 }: p
           );
           console.log('Corrected 1361.HK entry price: 5.75 → 5.717');
           needsSave = true;
@@ -1222,7 +1251,7 @@
         const feb2Snap = snapshots.find(s => s.date === '2026-02-02');
         if (feb2Snap && feb2Snap.dailyPnL !== -14650) {
           correctedSnapshots = snapshots.map(s =>
-            s.date === '2026-02-02' ? { ...s, dailyPnL: -14650 } : s
+            s.date === '2026-02-02'? { ...s, dailyPnL: -14650 }: s
           );
           console.log('Corrected Feb 2 dailyPnL: set to -14650 (was:', feb2Snap.dailyPnL, ')');
           needsSave = true;
@@ -1286,7 +1315,7 @@
 
           if (feb4Snap) {
             correctedSnapshots = correctedSnapshots.map(s =>
-              s.date === '2026-02-04' ? feb4Reconstructed : s
+              s.date === '2026-02-04'? feb4Reconstructed: s
             );
           } else {
             correctedSnapshots = [...correctedSnapshots, feb4Reconstructed].sort((a, b) => a.date.localeCompare(b.date));
@@ -1318,16 +1347,16 @@
         if (!dataLoaded || positions.length === 0 || viewingFriendEmail || viewingFriendRef.current) return;
         // Don't auto-refresh before the open (pre-open prices are stale) or on closed days.
         if (isPreMarket() || isBeforeMarketOpen() || isMarketClosed(getMarketToday())) {
-          console.log('Skipping auto-refresh — market not open');
+          console.log('Skipping auto-refresh, market not open');
           return;
         }
         // After the close: refresh ONLY while the cache still holds a prior session
         // (tab loaded in the 16:00 HKT → cron window). TradingView already serves
         // today's official close then. Once today's data is in (cron or refresh),
-        // never refetch — the 16:45 HKT cron values are authoritative (ex-div folded).
+        // never refetch, the 16:45 HKT cron values are authoritative (ex-div folded).
         // See wiki/morning-stale-first-paint.md.
         if (isAfterClose() && isCacheFromToday(priceCache)) {
-          console.log('Skipping auto-refresh — market closed, cache already from today');
+          console.log('Skipping auto-refresh, market closed, cache already from today');
           return;
         }
         // Auto-refresh prices when page loads (if no recent cache)
@@ -1392,39 +1421,39 @@
           // On weekends/holidays: show the LAST COMPLETED SESSION's P&L, not 0.
           // The data is already in yesterdaySnapshot (most recent date < today).
           // Forcing 0 here made the "Vendredi" header card read 0 while the
-          // Performance tab correctly showed the last session — the Jun 18 2026
+          // Performance tab correctly showed the last session, the Jun 18 2026
           // showLastSession fix covered the Performance tab but not this header
           // card. Mirror the beforeOpen branch (same percent basis), keep
           // isWeekend so the label stays "Vendredi" / "Marché fermé".
           const prevValue = yesterdaySnapshot?.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot?.dailyPnL ?? 0;
-          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          const prevPercent = prevValue > 0? (prevPnl / (prevValue - prevPnl)) * 100: 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: true, isHoliday: isHoliday(today), isLive: false, isPreMarket: false, isBeforeOpen: false });
         } else if (beforeOpen && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
           // Before market open (no trades today): show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
-          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          const prevPercent = prevValue > 0? (prevPnl / (prevValue - prevPnl)) * 100: 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: true });
         } else if (preMarket && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
           // Pre-market auction (9:15-9:30, no trades today): show previous session's P&L as reference
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
-          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          const prevPercent = prevValue > 0? (prevPnl / (prevValue - prevPnl)) * 100: 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: true, isBeforeOpen: false });
         } else if (!isCacheFromToday(priceCache) && !hasClosedTradesToday && yesterdaySnapshot?.dailyPnL !== undefined) {
           // STALE-CACHE GATE (see wiki/morning-stale-first-paint.md): the persisted
-          // priceCache still holds the PRIOR session — first load of the day before the
+          // priceCache still holds the PRIOR session, first load of the day before the
           // auto-refresh lands, or the 16:00 HKT → cron window. Computing "today" from
           // it displayed yesterday's move as today's. Show the last completed session
           // instead (same presentation as beforeOpen); the effect re-runs the moment
           // fresh prices arrive (priceCache is a dep) and switches to live.
           const prevValue = yesterdaySnapshot.portfolioValue || 1;
           const prevPnl = yesterdaySnapshot.dailyPnL;
-          const prevPercent = prevValue > 0 ? (prevPnl / (prevValue - prevPnl)) * 100 : 0;
+          const prevPercent = prevValue > 0? (prevPnl / (prevValue - prevPnl)) * 100: 0;
           setDailyGain({ value: prevPnl, percent: prevPercent, hasYesterday: true, isWeekend: false, isLive: false, isPreMarket: false, isBeforeOpen: true });
         } else {
-          // No snapshot yet — calculate from live price data
+          // No snapshot yet, calculate from live price data
           const yesterdayClosingPrices = yesterdaySnapshot?.closingPrices || {};
           const hasPriceData = Object.values(priceCache).some(c => c?.success);
           const marketCurrentlyOpen = isMarketOpen();
@@ -1432,7 +1461,7 @@
             const gain = positions.reduce((sum, p) => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
               const cached = priceCache[ct];
-              const curPrice = cached?.success ? cached.price : p.currentPrice;
+              const curPrice = cached?.success? cached.price: p.currentPrice;
               const isNewToday = p.entryDate === today;
               const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
               if (isNewToday) {
@@ -1443,7 +1472,7 @@
               if (hasIntradayAdd) {
                 const oldQtyGain = useTvChange
                   ? cached.change * p.qtyBeforeToday
-                  : (() => { const pc = getPrevClose(cached, ct, yesterdayClosingPrices, today, null); return pc ? (curPrice - pc) * p.qtyBeforeToday : 0; })();
+                  : (() => { const pc = getPrevClose(cached, ct, yesterdayClosingPrices, today, null); return pc? (curPrice - pc) * p.qtyBeforeToday: 0; })();
                 const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
                 return sum + oldQtyGain + newQtyGain;
               }
@@ -1482,7 +1511,7 @@
               return sum + (t.exitPrice - prevClose) * t.quantity;
             }, 0);
             const totalGain = gain + closedTodayGain;
-            const percent = prevTotal > 0 ? (totalGain / prevTotal) * 100 : 0;
+            const percent = prevTotal > 0? (totalGain / prevTotal) * 100: 0;
             setDailyGain({ value: totalGain, percent, hasYesterday: true, isWeekend: false, isLive: marketCurrentlyOpen, isPreMarket: false, isBeforeOpen: false });
           } else if (yesterdaySnapshot) {
             const gain = currentValue - yesterdaySnapshot.portfolioValue;
@@ -1505,7 +1534,7 @@
         // GUARD: Don't mint a NEW snapshot before the market has opened today.
         // Without this, opening the app from a westward timezone where HKT has just
         // rolled past midnight (e.g. Sun PT = early-Mon HKT) writes a Monday snapshot
-        // populated with the prior session's priceCache — a phantom future snapshot.
+        // populated with the prior session's priceCache, a phantom future snapshot.
         // We still ALLOW updates to an existing today snapshot (so structural edits
         // during pre-market still persist).
         if (!todaySnapshot && (isBeforeMarketOpen() || isPreMarket())) {
@@ -1514,7 +1543,7 @@
         }
 
         // GUARD (see wiki/morning-stale-first-paint.md): never MINT today's snapshot
-        // from a prior-session cache — its closingPrices would be yesterday's closes
+        // from a prior-session cache, its closingPrices would be yesterday's closes
         // and its dailyPnL yesterday's move. Worst in the 16:00 HKT → cron window,
         // where nothing corrects the wrong snapshot until the cron replaces it (or
         // never, on a day every cron run fails). Updates to an EXISTING today
@@ -1533,14 +1562,14 @@
           return;
         }
 
-        // Don't overwrite today's snapshot after market close — cron data is authoritative.
+        // Don't overwrite today's snapshot after market close, cron data is authoritative.
         // Only allow structural changes (position added/removed, trade closed).
         if (isAfterClose() && todaySnapshot?.closingPrices) {
           const structuralChange =
             todaySnapshot.positionCount !== positions.length ||
             Math.abs(todaySnapshot.realizedPnL - closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0)) > 1;
           if (!structuralChange) {
-            console.log('Skipping snapshot update — market closed, data locked');
+            console.log('Skipping snapshot update, market closed, data locked');
             return;
           }
         }
@@ -1576,7 +1605,7 @@
         const calculatedDailyPnL = positions.reduce((sum, p) => {
           const ct = p.ticker.replace(/b\.HK$/, '.HK');
           const cached = priceCache[ct];
-          const curPrice = cached?.success ? cached.price : p.currentPrice;
+          const curPrice = cached?.success? cached.price: p.currentPrice;
           const isNewToday = p.entryDate === today;
           const hasIntradayAdd = p.addedTodayDate === today && p.addedTodayQty > 0 && p.qtyBeforeToday > 0;
           if (isNewToday) {
@@ -1587,7 +1616,7 @@
           if (hasIntradayAdd) {
             const oldQtyGain = useTvChange
               ? cached.change * p.qtyBeforeToday
-              : (() => { const pc = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null); return pc ? (curPrice - pc) * p.qtyBeforeToday : 0; })();
+              : (() => { const pc = getPrevClose(cached, ct, yesterdayClosingPricesForSnapshot, today, null); return pc? (curPrice - pc) * p.qtyBeforeToday: 0; })();
             const newQtyGain = (curPrice - p.addedTodayPrice) * p.addedTodayQty;
             return sum + oldQtyGain + newQtyGain;
           }
@@ -1666,27 +1695,52 @@
           // Also save to Firestore so the snapshot with correct dailyPnL (using tracking fields) persists
           saveData(positions, closedTrades, transactions, priceCache, newSnapshots, settings);
 
-          console.log('Snapshot updated for', today, todaySnapshot ? '(replaced)' : '(new)');
+          console.log('Snapshot updated for', today, todaySnapshot? '(replaced)': '(new)');
         }
       }, [dataLoaded, positions, priceCache, transactions, closedTrades, today]);
 
       // ===== PRICE REFRESH =====
       const refreshSinglePrice = async (ticker) => {
         const cleanTicker = ticker.replace(/b\.HK$/, '.HK');
+        setRefreshingTicker(cleanTicker);
         try {
           const result = await fetchSinglePrice(cleanTicker);
           if (result.success) {
-            const newCache = { ...priceCache, [cleanTicker]: result };
+            // Same ex-dividend re-fold as the bulk Sync, otherwise a single-row
+            // refresh on an ex-div day overstates the day's loss (see refreshPrices).
+            const prev = priceCache[cleanTicker];
+            const refreshToday = getMarketToday();
+            const entry = (prev?.exDivDate === refreshToday && prev?.dividendPerShare && result.previousClose)
+              ? (() => {
+                  const div = prev.dividendPerShare;
+                  const adjChange = +(result.change + div).toFixed(4);
+                  return {
+                    ...result,
+                    change: adjChange,
+                    changePercent: +((adjChange / result.previousClose) * 100).toFixed(4),
+                    dividendPerShare: div,
+                    exDivDate: refreshToday,
+                    rawChange: result.change,
+                    rawChangePercent: result.changePercent,
+                  };
+                })()
+              : result;
+            const newCache = { ...priceCache, [cleanTicker]: entry };
             const newPositions = positions.map(p => {
               const ct = p.ticker.replace(/b\.HK$/, '.HK');
-              return ct === cleanTicker ? { ...p, currentPrice: result.price } : p;
+              return ct === cleanTicker? { ...p, currentPrice: entry.price }: p;
             });
             setPriceCache(newCache);
             setPositions(newPositions);
             saveData(newPositions, closedTrades, transactions, newCache, snapshots, settings);
+          } else {
+            alert(`Échec du rafraîchissement pour ${cleanTicker}: ${result.error || 'inconnu'}`);
           }
         } catch (e) {
           console.warn(`Failed to refresh ${cleanTicker}:`, e.message);
+          alert(`Échec du rafraîchissement pour ${cleanTicker}: ${e.message}`);
+        } finally {
+          setRefreshingTicker(null);
         }
       };
 
@@ -1719,7 +1773,7 @@
               const prev = priceCache[ticker];
               // Carry forward today's ex-dividend adjustment recorded by the cron. A fresh
               // TradingView fetch returns the raw price-only change, which on an ex-div day
-              // overstates the loss — re-fold the dividend so the daily move stays total-return.
+              // overstates the loss, re-fold the dividend so the daily move stays total-return.
               if (prev?.exDivDate === refreshToday && prev?.dividendPerShare && result.previousClose) {
                 const div = prev.dividendPerShare;
                 const adjChange = +(result.change + div).toFixed(4);
@@ -1781,7 +1835,7 @@
       // ===== CALCULATIONS =====
       const calcDays = (entryDate, exitDate = null) => {
         const start = new Date(entryDate);
-        const end = exitDate ? new Date(exitDate) : new Date();
+        const end = exitDate? new Date(exitDate): new Date();
         return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
       };
 
@@ -1789,7 +1843,7 @@
       const calcTradingFees = (amount, quantity, isBuy) => {
         const brokerage = Math.max(amount * 0.0025, 100);
         const boardLots = Math.ceil(quantity / 100); // assume 100 shares/lot
-        const depositCharge = isBuy ? Math.min(Math.max(boardLots * 5, 30), 200) : 0;
+        const depositCharge = isBuy? Math.min(Math.max(boardLots * 5, 30), 200): 0;
         const stampDuty = Math.ceil(amount * 0.001);
         const sfcLevy = amount * 0.000027;
         const afrcLevy = amount * 0.0000015;
@@ -1809,7 +1863,7 @@
           days: calcDays(t.entryDate, t.exitDate),
           grossPnl,
           fees,
-          pnl: fees > 0 ? netPnl : grossPnl,
+          pnl: fees > 0? netPnl: grossPnl,
           pnlPercent: fees > 0
             ? (netPnl / (t.entryPrice * t.quantity + (t.buyFees || 0))) * 100
             : ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100
@@ -1828,10 +1882,10 @@
 
         // P&L latent
         const totalPnL = totalValue - capitalEngaged;
-        const totalPnLPercent = capitalEngaged > 0 ? (totalPnL / capitalEngaged) * 100 : 0;
+        const totalPnLPercent = capitalEngaged > 0? (totalPnL / capitalEngaged) * 100: 0;
 
         // Return basé sur le capital engagé
-        const overallReturn = capitalEngaged > 0 ? ((totalValue - capitalEngaged) / capitalEngaged) * 100 : 0;
+        const overallReturn = capitalEngaged > 0? ((totalValue - capitalEngaged) / capitalEngaged) * 100: 0;
 
         // Dividendes (toujours depuis transactions)
         const totalDividends = calculateTotalDividends(transactions);
@@ -1851,9 +1905,9 @@
           return price < p.entryPrice;
         }).length;
         const realizedPnL = closedWithCalc.reduce((s, t) => s + t.pnl, 0);
-        const avgClosedDuration = closedWithCalc.length > 0 ? closedWithCalc.reduce((s, t) => s + t.days, 0) / closedWithCalc.length : 0;
-        const avgOpenDuration = posWithDays.length > 0 ? posWithDays.reduce((s, p) => s + p.days, 0) / posWithDays.length : 0;
-        const winRate = closedWithCalc.length > 0 ? (closedWithCalc.filter(t => t.pnl > 0).length / closedWithCalc.length) * 100 : 0;
+        const avgClosedDuration = closedWithCalc.length > 0? closedWithCalc.reduce((s, t) => s + t.days, 0) / closedWithCalc.length: 0;
+        const avgOpenDuration = posWithDays.length > 0? posWithDays.reduce((s, p) => s + p.days, 0) / posWithDays.length: 0;
+        const winRate = closedWithCalc.length > 0? (closedWithCalc.filter(t => t.pnl > 0).length / closedWithCalc.length) * 100: 0;
 
         return {
           totalInvested, totalValue, totalPnL, totalPnLPercent,
@@ -1885,13 +1939,13 @@
 
           // Track intraday addition for accurate daily P&L calculation
           // If already added today, accumulate the additions
-          const prevAddedQty = (existing.addedTodayDate === todayStr) ? (existing.addedTodayQty || 0) : 0;
-          const prevAddedCost = (existing.addedTodayDate === todayStr) ? (existing.addedTodayQty || 0) * (existing.addedTodayPrice || 0) : 0;
+          const prevAddedQty = (existing.addedTodayDate === todayStr)? (existing.addedTodayQty || 0): 0;
+          const prevAddedCost = (existing.addedTodayDate === todayStr)? (existing.addedTodayQty || 0) * (existing.addedTodayPrice || 0): 0;
           const newAddedQty = prevAddedQty + newQty;
           const newAddedPrice = (prevAddedCost + newQty * newPrice) / newAddedQty;
-          const prevQtyBeforeToday = (existing.addedTodayDate === todayStr) ? (existing.qtyBeforeToday || existing.quantity - prevAddedQty) : existing.quantity;
+          const prevQtyBeforeToday = (existing.addedTodayDate === todayStr)? (existing.qtyBeforeToday || existing.quantity - prevAddedQty): existing.quantity;
 
-          newPos = positions.map((p, i) => i === existingIndex ? {
+          newPos = positions.map((p, i) => i === existingIndex? {
             ...p,
             quantity: totalQty,
             entryPrice: Math.round(avgPrice * 1000) / 1000, // Round to 3 decimals
@@ -1900,7 +1954,7 @@
             addedTodayQty: newAddedQty,
             addedTodayPrice: Math.round(newAddedPrice * 1000) / 1000,
             qtyBeforeToday: prevQtyBeforeToday
-          } : p);
+          }: p);
         } else {
           // New position
           const pos = {
@@ -1943,13 +1997,13 @@
       };
 
       const updatePrice = (id, price) => {
-        const newPos = positions.map(p => p.id === id ? { ...p, currentPrice: parseFloat(price) || 0 } : p);
+        const newPos = positions.map(p => p.id === id? { ...p, currentPrice: parseFloat(price) || 0 }: p);
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
       };
 
       const updateEntryPrice = (id, price) => {
-        const newPos = positions.map(p => p.id === id ? { ...p, entryPrice: parseFloat(price) || p.entryPrice } : p);
+        const newPos = positions.map(p => p.id === id? { ...p, entryPrice: parseFloat(price) || p.entryPrice }: p);
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
       };
@@ -1957,14 +2011,14 @@
       const updateQuantity = (id, qty) => {
         const parsed = parseInt(qty, 10);
         if (!parsed || parsed <= 0) return;
-        const newPos = positions.map(p => p.id === id ? { ...p, quantity: parsed } : p);
+        const newPos = positions.map(p => p.id === id? { ...p, quantity: parsed }: p);
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
       };
 
       const updateEntryDate = (id, date) => {
         if (!date) return;
-        const newPos = positions.map(p => p.id === id ? { ...p, entryDate: date } : p);
+        const newPos = positions.map(p => p.id === id? { ...p, entryDate: date }: p);
         setPositions(newPos);
         saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
         setEditingEntryDate(null);
@@ -1987,13 +2041,19 @@
       // Update snapshot fields (manual correction)
       const updateSnapshot = (date, updates) => {
         const updatedSnapshots = snapshots.map(s =>
-          s.date === date ? { ...s, ...updates } : s
+          s.date === date? { ...s, ...updates }: s
         );
         setSnapshots(updatedSnapshots);
         saveData(positions, closedTrades, transactions, priceCache, updatedSnapshots, settings);
       };
 
-      const closePosition = () => {
+      // A close is the one action where an optimistic UI is unacceptable: the row leaves
+      // the list, the trade appears in Trades Clôturés, and if the write never reached
+      // Firestore nothing said so. 2714.HK (2026-09-04) was closed in the app and stayed
+      // open in the cloud; the next real-time update simply put it back. So: await the
+      // write, roll the local state back when it fails, keep the modal open, and say why.
+      const closePosition = async () => {
+        if (closeSubmitting) return;
         const { position, exitPrice, exitDate, sellQuantity } = closeModal;
         const qty = parseFloat(sellQuantity) || position.quantity;
         const isPartial = qty < position.quantity;
@@ -2003,8 +2063,19 @@
           return alert(`Quantité invalide. Max: ${position.quantity}`);
         }
 
+        // Validate exit price. A blank/NaN price used to build a trade with NaN fees,
+        // which Firestore rejects outright ("Unsupported field value: NaN"), a silent
+        // failed write, indistinguishable in the UI from a recorded sale.
+        const exitPriceNum = parseFloat(exitPrice);
+        if (!isFinite(exitPriceNum) || exitPriceNum <= 0) {
+          return alert('Prix de sortie invalide.');
+        }
+        if (!exitDate) {
+          return alert('Date de sortie requise.');
+        }
+
         const buyAmount = qty * position.entryPrice;
-        const sellAmount = qty * parseFloat(exitPrice);
+        const sellAmount = qty * exitPriceNum;
         const buyFees = calcTradingFees(buyAmount, qty, true);
         const sellFees = calcTradingFees(sellAmount, qty, false);
         const trade = {
@@ -2013,7 +2084,7 @@
           name: position.name,
           quantity: qty,
           entryPrice: position.entryPrice,
-          exitPrice: parseFloat(exitPrice),
+          exitPrice: exitPriceNum,
           entryDate: position.entryDate,
           exitDate: exitDate,
           buyFees,
@@ -2027,7 +2098,7 @@
           // Partial close: reduce quantity only. Entry price (average cost) is UNCHANGED.
           // The realized gain on the sold shares is recorded in closedTrades / realizedPnL,
           // not baked into the remaining cost basis. (Subtracting it here double-counted the
-          // gain and corrupted the entry price — see Jun 25 2026 incident.)
+          // gain and corrupted the entry price, see Jun 25 2026 incident.)
           newPos = positions.map(p => p.id === position.id
             ? { ...p, quantity: p.quantity - qty }
             : p
@@ -2037,9 +2108,27 @@
           newPos = positions.filter(p => p.id !== position.id);
         }
 
+        const prevPositions = positions;
+        const prevClosed = closedTrades;
         setClosedTrades(newClosed);
         setPositions(newPos);
-        saveData(newPos, newClosed, transactions, priceCache, snapshots, settings);
+        setCloseSubmitting(true);
+        let res;
+        try {
+          res = await saveData(newPos, newClosed, transactions, priceCache, snapshots, settings);
+        } catch (e) {
+          res = { ok: false, reason: e?.message || String(e) };
+        } finally {
+          setCloseSubmitting(false);
+        }
+        if (!res?.ok) {
+          // Fail closed: the cloud is the record, so the UI goes back to the cloud's view
+          // rather than showing a sale that was never written.
+          setPositions(prevPositions);
+          setClosedTrades(prevClosed);
+          alert(`⚠️ La clôture de ${position.ticker} n'a PAS été enregistrée.\n\n${res?.reason || 'Sauvegarde échouée'}\n\nLa position reste ouverte. Vérifiez la connexion et réessayez.`);
+          return;
+        }
         setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '', sellQuantity: '' });
       };
 
@@ -2052,7 +2141,7 @@
           amount: parseFloat(newTransaction.amount),
           date: newTransaction.date,
           notes: newTransaction.notes,
-          linkedTicker: newTransaction.type === 'dividend' ? newTransaction.linkedTicker : null
+          linkedTicker: newTransaction.type === 'dividend'? newTransaction.linkedTicker: null
         };
         const newTx = [tx, ...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
         setTransactions(newTx);
@@ -2068,7 +2157,7 @@
       };
 
       const deleteClosedTrade = (id) => {
-        if (!confirm('Supprimer ce trade clôturé ? Cette action est irréversible.')) return;
+        if (!confirm('Supprimer ce trade clôturé? Cette action est irréversible.')) return;
         const newClosed = closedTrades.filter(t => t.id !== id);
         setClosedTrades(newClosed);
         saveData(positions, newClosed, transactions, priceCache, snapshots, settings);
@@ -2132,7 +2221,7 @@
       };
 
       const updateWishlistItem = (id, updates) => {
-        const newWl = wishlist.map(w => w.id === id ? { ...w, ...updates } : w);
+        const newWl = wishlist.map(w => w.id === id? { ...w, ...updates }: w);
         setWishlist(newWl);
         saveData(positions, closedTrades, transactions, priceCache, snapshots, settings, newWl, wishlistAlertsDismissed);
         setEditingWishlistId(null);
@@ -2178,9 +2267,9 @@
           const previousClose = getPrevClose(cached, cleanTicker, yesterdayClosingPrices, todayStr, currentPrice);
           // Use TradingView's official values directly when available
           const useTvDirect = cached?.success && cached.changePercent != null && cached.change != null;
-          const dailyChange = useTvDirect ? cached.change : (currentPrice && previousClose ? currentPrice - previousClose : 0);
-          const dailyChangePercent = useTvDirect ? cached.changePercent : (previousClose ? (dailyChange / previousClose) * 100 : 0);
-          const gap = currentPrice ? ((currentPrice - w.targetPrice) / w.targetPrice) * 100 : null;
+          const dailyChange = useTvDirect? cached.change: (currentPrice && previousClose? currentPrice - previousClose: 0);
+          const dailyChangePercent = useTvDirect? cached.changePercent: (previousClose? (dailyChange / previousClose) * 100: 0);
+          const gap = currentPrice? ((currentPrice - w.targetPrice) / w.targetPrice) * 100: null;
           const targetReached = currentPrice !== null && currentPrice <= w.targetPrice;
           return {
             ...w,
@@ -2229,7 +2318,7 @@
               const doc = querySnapshot.docs[0];
               friendUserId = doc.id;
               friendData = doc.data();
-              friendData._portfolioType = collectionName === 'portfolios' ? 'HK' : 'US';
+              friendData._portfolioType = collectionName === 'portfolios'? 'HK': 'US';
               break;
             }
           }
@@ -2406,18 +2495,18 @@
             case 'value': aV = aPrice * a.quantity; bV = bPrice * b.quantity; break;
             default: aV = a[sortConfig.key]; bV = b[sortConfig.key];
           }
-          return sortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
+          return sortConfig.direction === 'asc'? (aV < bV? -1: 1): (aV > bV? -1: 1);
         });
       };
 
-      const sort = (key) => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'desc' ? 'asc' : 'desc' });
-      const sortPerf = (key) => setPerfSortConfig({ key, direction: perfSortConfig.key === key && perfSortConfig.direction === 'desc' ? 'asc' : 'desc' });
+      const sort = (key) => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'desc'? 'asc': 'desc' });
+      const sortPerf = (key) => setPerfSortConfig({ key, direction: perfSortConfig.key === key && perfSortConfig.direction === 'desc'? 'asc': 'desc' });
 
       // ===== FORMATTING =====
       const m = calculateMetrics;
       const fmt = (n, d = 0) => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
       const fmtDate = (d) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-      const fmtInvested = (n) => { const k = Math.round(n / 100) / 10; return (Number.isInteger(k) ? k.toString() : k.toFixed(1)) + 'k'; }; // 30000 → "30k", 50500 → "50.5k"
+      const fmtInvested = (n) => { const k = Math.round(n / 100) / 10; return (Number.isInteger(k)? k.toString(): k.toFixed(1)) + 'k'; }; // 30000 → "30k", 50500 → "50.5k"
 
       // ===== DATA MANAGEMENT =====
       const resetData = async () => {
@@ -2520,13 +2609,13 @@
             <div className="flex flex-wrap justify-between items-start gap-4">
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-dark-text tracking-tight">
-                  {viewingFriendEmail ? `Portfolio ${viewingFriendPortfolioType || 'HK'}` : 'Portfolio HK'}
+                  {viewingFriendEmail? `Portfolio ${viewingFriendPortfolioType || 'HK'}`: 'Portfolio HK'}
                 </h1>
                 <p className="text-xs text-muted font-mono bg-gray-100 px-2 py-0.5 rounded inline-block">{viewingFriendEmail || userEmail}</p>
                 <div className="flex items-center gap-3 mt-2">
                   {dailyGain.hasYesterday && (
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {dailyGain.percent >= 0 ? '+' : ''}{dailyGain.percent.toFixed(2)}%
+                      {dailyGain.percent >= 0? '+': ''}{dailyGain.percent.toFixed(2)}%
                     </span>
                   )}
                   <span className="text-muted text-sm">
@@ -2538,21 +2627,21 @@
                 <button
                   onClick={refreshPrices}
                   disabled={isRefreshing || isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))}
-                  title={(isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'Refresh désactivé hors séance — données cron protégées' : ''}
+                  title={(isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache)))? 'Refresh désactivé hors séance, données cron protégées': ''}
                   className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all ${(isRefreshing || isPreMarket() || isBeforeMarketOpen() || (isAfterClose() && isCacheFromToday(priceCache))) ? 'bg-gray-100 text-muted cursor-not-allowed' : 'bg-lime-accent hover:bg-lime-hover text-dark-text shadow-sm hover:shadow'}`}
                 >
-                  <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/>
-                  {isRefreshing ? `${refreshProgress.current}/${refreshProgress.total}` : 'Sync'}
+                  <RefreshCw size={16} className={isRefreshing? 'animate-spin': ''}/>
+                  {isRefreshing? `${refreshProgress.current}/${refreshProgress.total}`: 'Sync'}
                 </button>
                 <button onClick={exportData} className="bg-white border border-gray-200 hover:border-gray-300 text-dark-text font-medium px-4 py-2 rounded-full text-sm flex items-center gap-2 shadow-sm hover:shadow transition-all"><Download size={16}/> Export</button>
-                {viewingFriendEmail ? (
+                {viewingFriendEmail? (
                   <button
                     onClick={returnToOwnPortfolio}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-full text-sm flex items-center gap-2 shadow-sm hover:shadow transition-all"
                   >
                     <LogOut size={16}/> Retour
                   </button>
-                ) : savedFriends.length > 0 && (
+                ): savedFriends.length > 0 && (
                   <div className="relative" ref={friendDropdownRef}>
                     <button
                       onClick={() => {
@@ -2584,9 +2673,9 @@
                 <button
                   onClick={() => setDarkMode(!darkMode)}
                   className="bg-white border border-gray-200 hover:border-gray-300 text-dark-text p-2 rounded-full shadow-sm hover:shadow transition-all"
-                  title={darkMode ? 'Mode clair' : 'Mode sombre'}
+                  title={darkMode? 'Mode clair': 'Mode sombre'}
                 >
-                  {darkMode ? <Sun size={18}/> : <Moon size={18}/>}
+                  {darkMode? <Sun size={18}/>: <Moon size={18}/>}
                 </button>
               </div>
             </div>
@@ -2604,13 +2693,13 @@
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Latent</div>
                 <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.totalPnL >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {m.totalPnL >= 0 ? '+' : ''}{fmt(m.totalPnL)}
+                  {m.totalPnL >= 0? '+': ''}{fmt(m.totalPnL)}
                 </span>
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1">Return</div>
                 <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${m.overallReturn >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {m.overallReturn >= 0 ? '+' : ''}{m.overallReturn.toFixed(1)}%
+                  {m.overallReturn >= 0? '+': ''}{m.overallReturn.toFixed(1)}%
                 </span>
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
@@ -2621,7 +2710,7 @@
               </div>
               <div className="bg-white rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-muted text-[10px] md:text-xs uppercase tracking-wide mb-0.5 md:mb-1 flex items-center gap-1">
-                  {dailyGain.isHoliday ? 'Holiday' : dailyGain.isWeekend ? 'Vendredi' : dailyGain.isBeforeOpen ? 'Dern. séance' : dailyGain.isPreMarket ? 'Pré-ouverture' : "Aujourd'hui"}
+                  {dailyGain.isHoliday? 'Holiday': dailyGain.isWeekend? 'Vendredi': dailyGain.isBeforeOpen? 'Dern. séance': dailyGain.isPreMarket? 'Pré-ouverture': "Aujourd'hui"}
                   {dailyGain.isLive && (
                     <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-orange-500 font-medium normal-case">
                       <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
@@ -2630,7 +2719,7 @@
                   )}
                   {(dailyGain.isPreMarket || dailyGain.isBeforeOpen) && !isRefreshing && (
                     <span className="inline-flex items-center gap-0.5 text-[8px] md:text-[10px] text-gray-400 font-medium normal-case">
-                      {dailyGain.isPreMarket ? 'pré-ouv.' : 'fermé'}
+                      {dailyGain.isPreMarket? 'pré-ouv.': 'fermé'}
                     </span>
                   )}
                   {isRefreshing && (
@@ -2640,12 +2729,12 @@
                     </span>
                   )}
                 </div>
-                {dailyGain.hasYesterday ? (
+                {dailyGain.hasYesterday? (
                   <span className={`inline-flex items-center px-1 md:px-2 py-0.5 rounded-full text-[10px] md:text-sm font-semibold ${dailyGain.value >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {dailyGain.value >= 0 ? '+' : ''}{fmt(dailyGain.value)}
+                    {dailyGain.value >= 0? '+': ''}{fmt(dailyGain.value)}
                   </span>
-                ) : (
-                  <div className="text-xs md:text-lg font-bold text-muted">{dailyGain.isHoliday ? 'Holiday' : dailyGain.isWeekend ? 'Marché fermé' : '-'}</div>
+                ): (
+                  <div className="text-xs md:text-lg font-bold text-muted">{dailyGain.isHoliday? 'Holiday': dailyGain.isWeekend? 'Marché fermé': '-'}</div>
                 )}
               </div>
               <InfoTooltip text="% de trades CLÔTURÉS gagnants (prix vente > prix achat)">
@@ -2669,7 +2758,7 @@
             <div className="flex gap-2 p-1 bg-gray-100 rounded-full w-fit overflow-x-auto">
               {['portfolio', 'performance', 'history', 'wishlist', 'history_tab', 'settings'].map(t => (
                 <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${activeTab === t ? 'bg-dark-badge text-lime-accent shadow-sm' : 'text-muted hover:text-dark-text'}`}>
-                  {t === 'portfolio' ? 'Positions' : t === 'performance' ? 'Performance' : t === 'history' ? 'Completed Trades' : t === 'wishlist' ? 'Wishlist' : t === 'history_tab' ? 'History' : 'Settings'}
+                  {t === 'portfolio'? 'Positions': t === 'performance'? 'Performance': t === 'history'? 'Completed Trades': t === 'wishlist'? 'Wishlist': t === 'history_tab'? 'History': 'Settings'}
                 </button>
               ))}
             </div>
@@ -2705,7 +2794,7 @@
                       const sFees = calcTradingFees(sellAmt, sellQty, false);
                       const totalFees = Math.round((bFees + sFees) * 100) / 100;
                       const netPnl = grossPnl - totalFees;
-                      const netPct = buyAmt > 0 ? (netPnl / (buyAmt + bFees)) * 100 : 0;
+                      const netPct = buyAmt > 0? (netPnl / (buyAmt + bFees)) * 100: 0;
                       const remaining = (pos?.quantity || 0) - sellQty;
                       return (
                         <div className="bg-gray-50 rounded-2xl p-4 space-y-2">
@@ -2723,7 +2812,7 @@
                     })()}
                     <div className="flex gap-3 pt-2">
                       <button onClick={() => setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '' })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-dark-text font-medium rounded-xl py-3 transition-colors">Annuler</button>
-                      <button onClick={closePosition} className="flex-1 bg-lime-accent hover:bg-lime-hover text-dark-text font-medium rounded-xl py-3 transition-colors">Confirmer</button>
+                      <button onClick={closePosition} disabled={closeSubmitting} className="flex-1 bg-lime-accent hover:bg-lime-hover text-dark-text font-medium rounded-xl py-3 transition-colors disabled:opacity-50">{closeSubmitting? 'Enregistrement...': 'Confirmer'}</button>
                     </div>
                   </div>
                 </div>
@@ -2741,7 +2830,7 @@
                       <span className="text-4xl">🎯</span>
                       <div>
                         <h3 className="text-xl font-bold text-dark-text">Alertes Wishlist!</h3>
-                        <p className="text-sm text-muted">{alerts.length} action{alerts.length > 1 ? 's' : ''} {alerts.length > 1 ? 'ont' : 'a'} atteint le prix cible</p>
+                        <p className="text-sm text-muted">{alerts.length} action{alerts.length > 1? 's': ''} {alerts.length > 1? 'ont': 'a'} atteint le prix cible</p>
                       </div>
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -2785,7 +2874,7 @@
                     <span className="text-4xl">👀</span>
                     <div>
                       <h3 className="text-xl font-bold text-dark-text">Invitation Portfolio!</h3>
-                      <p className="text-sm text-muted">{pendingInvites.length} personne{pendingInvites.length > 1 ? 's' : ''} {pendingInvites.length > 1 ? 'ont' : 'a'} partagé {pendingInvites.length > 1 ? 'leurs' : 'son'} portfolio avec toi</p>
+                      <p className="text-sm text-muted">{pendingInvites.length} personne{pendingInvites.length > 1? 's': ''} {pendingInvites.length > 1? 'ont': 'a'} partagé {pendingInvites.length > 1? 'leurs': 'son'} portfolio avec toi</p>
                     </div>
                   </div>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -2794,7 +2883,7 @@
                         <div>
                           <span className="font-semibold text-purple-700">{invite.inviterEmail}</span>
                           <span className="text-xs text-muted ml-2 bg-purple-100 px-2 py-0.5 rounded">
-                            {invite.portfolioType === 'hk' ? '🇭🇰 HK' : '🇺🇸 US'}
+                            {invite.portfolioType === 'hk'? '🇭🇰 HK': '🇺🇸 US'}
                           </span>
                         </div>
                         <button
@@ -2818,6 +2907,24 @@
               </div>
             )}
 
+            {/* SAVE-FAILURE BANNER (2026-09-04, 2714.HK). Every write here is optimistic:
+                React state first, Firestore second. A failed write used to print to the
+                console and nothing else, so the app kept showing a sale the cloud never
+                received until the next load or real-time update silently put the position
+                back. This banner is the single place that makes ANY failed saveData
+                visible, whichever call site it came from. It clears on the next success. */}
+            {saveError && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl px-4 py-3 flex items-start gap-3">
+                <span className="text-red-600 shrink-0 mt-0.5"><AlertCircle size={18} /></span>
+                <div className="flex-1">
+                  <div className="text-red-800 text-sm font-semibold">Dernière sauvegarde ÉCHOUÉE, vos modifications ne sont pas enregistrées</div>
+                  <div className="text-red-700 text-xs mt-0.5">{saveError.reason} · {new Date(saveError.at).toLocaleTimeString('fr-FR')}</div>
+                  <div className="text-red-700 text-xs mt-1">Rechargez la page pour repartir de la version cloud, puis refaites l'opération.</div>
+                </div>
+                <button onClick={() => window.location.reload()} className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-lg px-3 py-1.5 transition-colors shrink-0">Recharger</button>
+              </div>
+            )}
+
             {/* Portfolio Tab */}
             {activeTab === 'portfolio' && (
               <div className="space-y-4">
@@ -2833,8 +2940,8 @@
                     <input type="number" step="0.01" placeholder="Prix actuel" value={newPosition.currentPrice} onChange={(e) => setNewPosition({ ...newPosition, currentPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <input type="date" value={newPosition.entryDate} onChange={(e) => setNewPosition({ ...newPosition, entryDate: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <button onClick={addPosition} disabled={positionAdded} className={`rounded px-2 py-1.5 flex items-center justify-center gap-1 transition-all duration-300 ${positionAdded ? 'bg-green-500 text-white' : 'bg-lime-accent text-dark-text'}`}>
-                      {positionAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <Plus size={14} />}
-                      {positionAdded ? 'Ajouté !' : 'Ajouter'}
+                      {positionAdded? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>: <Plus size={14} />}
+                      {positionAdded? 'Ajouté !': 'Ajouter'}
                     </button>
                   </div>
                 </div>
@@ -2848,11 +2955,11 @@
                         <th className="px-2 py-1.5 text-left cursor-pointer hover:text-dark-text" onClick={() => sort('ticker')}>Ticker</th>
                         <th className="px-2 py-1.5 text-left">Nom</th>
                         <th className="px-2 py-1.5 text-right">Investi</th>
-                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text select-none" onClick={() => sort('value')}>Weight {sortConfig.key === 'value' && (sortConfig.direction === 'desc' ? '↓' : '↑')}</th>
-                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPriceCols(v => !v)} title="Afficher / masquer Entrée et Actuel">Qté {showPriceCols ? '▾' : '▸'}</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text select-none" onClick={() => sort('value')}>Weight {sortConfig.key === 'value' && (sortConfig.direction === 'desc'? '↓': '↑')}</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPriceCols(v => !v)} title="Afficher / masquer Entrée et Actuel">Qté {showPriceCols? '▾': '▸'}</th>
                         {showPriceCols && <th className="px-2 py-1.5 text-right">Entrée</th>}
                         {showPriceCols && <th className="px-2 py-1.5 text-right">Actuel</th>}
-                        <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('days')}>Jours<span className="ml-1 cursor-pointer hover:text-lime-hover select-none" onClick={(e) => { e.stopPropagation(); setShowBuyDate(v => !v); }} title="Afficher / masquer Achat">{showBuyDate ? '▾' : '▸'}</span></th>
+                        <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('days')}>Jours<span className="ml-1 cursor-pointer hover:text-lime-hover select-none" onClick={(e) => { e.stopPropagation(); setShowBuyDate(v => !v); }} title="Afficher / masquer Achat">{showBuyDate? '▾': '▸'}</span></th>
                         {showBuyDate && <th className="px-2 py-1.5 text-center cursor-pointer hover:text-dark-text" onClick={() => sort('entryDate')}>Achat</th>}
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnl')}>P&L</th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-dark-text" onClick={() => sort('pnlPercent')}>%</th>
@@ -2863,18 +2970,18 @@
                       {(() => {
                         const totalPortfolioValue = positions.reduce((s, q) => {
                           const ct = q.ticker.replace(/b\.HK$/, '.HK');
-                          const price = priceCache[ct]?.success ? priceCache[ct].price : q.currentPrice;
+                          const price = priceCache[ct]?.success? priceCache[ct].price: q.currentPrice;
                           return s + price * q.quantity;
                         }, 0);
                         return getSorted().map((p, index) => {
                         const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                         const cached = priceCache[cleanTicker];
-                        const currentPrice = cached?.success ? cached.price : p.currentPrice;
+                        const currentPrice = cached?.success? cached.price: p.currentPrice;
                         const freshness = getPriceFreshness(cached?.lastUpdated);
                         const pnl = (currentPrice - p.entryPrice) * p.quantity;
                         const pnlP = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
                         const displayTicker = p.ticker.replace('.HK', '');
-                        const weight = totalPortfolioValue > 0 ? (currentPrice * p.quantity / totalPortfolioValue) * 100 : 0;
+                        const weight = totalPortfolioValue > 0? (currentPrice * p.quantity / totalPortfolioValue) * 100: 0;
 
                         const warnThreshold = settings.alertThreshold || 8;
                         const dangerThreshold = settings.dangerThreshold || 10;
@@ -2884,7 +2991,7 @@
                         return (
                           <tr key={p.id} className={`border-t border-gray-100 ${isDanger ? 'bg-red-50/50 row-danger' : isWarning ? 'bg-orange-50/50 row-warning' : ''}`}>
                             <td className="px-2 py-1.5 font-mono text-lime-hover">
-                              {userEmail === 'marccharnal@gmail.com' ? (
+                              {userEmail === 'marccharnal@gmail.com'? (
                                 <a
                                   href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${displayTicker.replace(/^0+/, '')}`}
                                   target="_blank"
@@ -2893,12 +3000,12 @@
                                 >
                                   {displayTicker}
                                 </a>
-                              ) : displayTicker}
+                              ): displayTicker}
                               {cached?.success && (
                                 <span className={`ml-1 inline-block w-1.5 h-1.5 rounded-full ${
-                                  freshness === 'fresh' ? 'bg-green-500' :
-                                  freshness === 'stale' ? 'bg-yellow-500' : 'bg-red-500'
-                                }`} title={`MAJ: ${cached.lastUpdated ? fmtDate(cached.lastUpdated) : 'N/A'}`}></span>
+                                  freshness === 'fresh'? 'bg-green-500':
+                                  freshness === 'stale'? 'bg-yellow-500': 'bg-red-500'
+                                }`} title={`MAJ: ${cached.lastUpdated? fmtDate(cached.lastUpdated): 'N/A'}`}></span>
                               )}
                             </td>
                             <td className="px-2 py-1.5 whitespace-nowrap" title={p.name}>{(p.name || '').slice(0, 8)}</td>
@@ -2941,7 +3048,7 @@
                             </td>
                             {showBuyDate && (
                             <td className="px-2 py-1.5 text-center text-muted cursor-pointer" onClick={() => setEditingEntryDate(p.id)}>
-                              {editingEntryDate === p.id ? (
+                              {editingEntryDate === p.id? (
                                 <input
                                   type="date"
                                   defaultValue={p.entryDate}
@@ -2951,24 +3058,24 @@
                                   className="bg-gray-50 border-0 rounded px-1 py-0.5 text-xs w-28 focus:ring-1 focus:ring-lime-accent outline-none"
                                   onClick={(e) => e.stopPropagation()}
                                 />
-                              ) : (
+                              ): (
                                 <span className="hover:text-lime-hover transition-colors" title="Cliquer pour modifier">{fmtDate(p.entryDate)}</span>
                               )}
                             </td>
                             )}
                             <td className="px-2 py-1.5 text-right">
-                              <span className={`font-semibold ${pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnl >= 0 ? '+' : ''}{fmt(pnl)}</span>
+                              <span className={`font-semibold ${pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnl >= 0? '+': ''}{fmt(pnl)}</span>
                             </td>
                             <td className="px-2 py-1.5 text-right">
                               {isDanger && <span className="text-red-500 animate-pulse mr-0.5" title="STOP LOSS">🚨</span>}
                               {isWarning && !isDanger && <span className="text-orange-400 mr-0.5" title={`Alerte -${settings.alertThreshold || 8}%`}>⚠️</span>}
-                              <span className={`font-bold ${pnlP >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnlP >= 0 ? '+' : ''}{pnlP.toFixed(1)}%</span>
+                              <span className={`font-bold ${pnlP >= 0 ? 'text-green-600' : 'text-red-600'}`}>{pnlP >= 0? '+': ''}{pnlP.toFixed(1)}%</span>
                             </td>
                             <td className="px-2 py-1.5 text-center">
                               <div className="flex items-center justify-center gap-0.5">
                                 {!viewingFriendEmail && <button onClick={() => setCloseModal({ show: true, position: {...p, currentPrice}, exitPrice: currentPrice.toString(), exitDate: today, sellQuantity: p.quantity.toString() })} className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"><CheckCircle size={14} /></button>}
                                 {!viewingFriendEmail && <button onClick={() => { if (confirm('Supprimer?')) { const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>}
-                                <button onClick={() => refreshSinglePrice(p.ticker)} className="p-1 rounded hover:bg-lime-accent/20 text-lime-hover transition-colors" title="Refresh price"><RefreshCw size={14} /></button>
+                                <button onClick={() => refreshSinglePrice(p.ticker)} disabled={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')} className="p-1 rounded hover:bg-lime-accent/20 text-lime-hover transition-colors disabled:opacity-50" title="Refresh price"><RefreshCw size={14} className={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')? 'animate-spin': ''} /></button>
                               </div>
                             </td>
                           </tr>
@@ -2985,15 +3092,15 @@
                           return s + p.quantity * price;
                         }, 0);
                         const totalPnL = totalValue - totalCost;
-                        const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
+                        const totalPnLPct = totalCost > 0? (totalPnL / totalCost) * 100: 0;
                         return (
                           <tr>
                             <td className="px-2 py-1.5" colSpan={3}>TOTAL ({positions.length} positions)</td>
                             <td className="px-2 py-1.5 text-right text-muted">100%</td>
-                            <td colSpan={showPriceCols ? 3 : 1}></td>
+                            <td colSpan={showPriceCols? 3: 1}></td>
                             <td className="px-2 py-1.5 text-center"><span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-lime-accent text-dark-text">{m.avgOpenDuration.toFixed(0)}j</span></td>
                             {showBuyDate && <td></td>}
-                            <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0 ? '+' : ''}{fmt(totalPnL)}</td>
+                            <td className={`px-2 py-1.5 text-right ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnL >= 0? '+': ''}{fmt(totalPnL)}</td>
                             <td className={`px-2 py-1.5 text-right ${totalPnLPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalPnLPct.toFixed(2)}%</td>
                             <td></td>
                           </tr>
@@ -3088,7 +3195,7 @@
                                 }}
                                 labelFormatter={(name) => {
                                   const entry = pieData.find(d => d.name === name);
-                                  const pct = entry ? ((entry.value / total) * 100).toFixed(1) : '0';
+                                  const pct = entry? ((entry.value / total) * 100).toFixed(1): '0';
                                   return `${name} · ${pct}%`;
                                 }}
                               />
@@ -3168,7 +3275,7 @@
                         </div>
                         <div className="flex-1">
                           <h3 className="text-sm font-semibold text-green-800 mb-2">
-                            Prix cible atteint! ({alerts.length} action{alerts.length > 1 ? 's' : ''})
+                            Prix cible atteint! ({alerts.length} action{alerts.length > 1? 's': ''})
                           </h3>
                           <div className="space-y-2">
                             {alerts.map(w => (
@@ -3265,7 +3372,7 @@
                           <tr key={w.id} className={rowClass}>
                             <td className="px-2 py-1.5 font-mono font-semibold">
                               {w.targetReached && <span className="mr-1">✅</span>}
-                              {userEmail === 'marccharnal@gmail.com' ? (
+                              {userEmail === 'marccharnal@gmail.com'? (
                                 <a
                                   href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${w.ticker.replace('.HK', '').replace(/^0+/, '')}`}
                                   target="_blank"
@@ -3274,19 +3381,19 @@
                                 >
                                   {w.ticker}
                                 </a>
-                              ) : (
+                              ): (
                                 <span className="text-lime-hover">{w.ticker}</span>
                               )}
                             </td>
                             <td className="px-2 py-1.5 truncate max-w-[120px]" title={w.name}>{w.name}</td>
                             <td className="px-2 py-1.5 text-right font-mono">
-                              {w.currentPrice !== null ? fmt(w.currentPrice, 2) : '—'}
+                              {w.currentPrice !== null? fmt(w.currentPrice, 2): '—'}
                             </td>
                             <td className={`px-2 py-1.5 text-right ${w.dailyChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {w.currentPrice !== null ? `${w.dailyChangePercent >= 0 ? '+' : ''}${w.dailyChangePercent.toFixed(2)}%` : '—'}
+                              {w.currentPrice !== null? `${w.dailyChangePercent >= 0 ? '+' : ''}${w.dailyChangePercent.toFixed(2)}%`: '—'}
                             </td>
                             <td className="px-2 py-1.5 text-right">
-                              {isEditing ? (
+                              {isEditing? (
                                 <input
                                   type="number"
                                   step="0.01"
@@ -3296,7 +3403,7 @@
                                   className="w-16 bg-gray-100 rounded px-1 py-0.5 text-right"
                                   autoFocus
                                 />
-                              ) : (
+                              ): (
                                 <span
                                   className="cursor-pointer hover:text-lime-hover"
                                   onClick={() => setEditingWishlistId(w.id)}
@@ -3307,12 +3414,12 @@
                               )}
                             </td>
                             <td className={`px-2 py-1.5 text-right font-semibold ${
-                              w.gap === null ? 'text-muted' :
-                              w.gap <= 0 ? 'text-green-600' :
-                              w.gap <= 5 ? 'text-orange-600' :
+                              w.gap === null? 'text-muted':
+                              w.gap <= 0? 'text-green-600':
+                              w.gap <= 5? 'text-orange-600':
                               'text-muted'
                             }`}>
-                              {w.gap !== null ? `${w.gap > 0 ? '+' : ''}${w.gap.toFixed(1)}%` : '—'}
+                              {w.gap !== null? `${w.gap > 0 ? '+' : ''}${w.gap.toFixed(1)}%`: '—'}
                             </td>
                             <td className="px-2 py-1.5 text-center text-muted">{fmtDate(w.dateAdded)}</td>
                             <td className="px-2 py-1.5 text-muted truncate max-w-[100px]" title={w.notes}>{w.notes || '—'}</td>
@@ -3349,7 +3456,7 @@
                     <div className="flex flex-wrap gap-4 text-sm">
                       <div>
                         <span className="text-muted">Total:</span>
-                        <span className="ml-2 font-semibold">{wishlist.length} action{wishlist.length > 1 ? 's' : ''}</span>
+                        <span className="ml-2 font-semibold">{wishlist.length} action{wishlist.length > 1? 's': ''}</span>
                       </div>
                       <div>
                         <span className="text-muted">Prix cible atteint:</span>
@@ -3431,7 +3538,7 @@
                         </div>
                         <div className="bg-gray-50 rounded-lg p-2">
                           <div className="text-muted">Gain brut</div>
-                          <div className="font-bold">{grossPct >= 0 ? '+' : ''}{grossPct.toFixed(2)}%</div>
+                          <div className="font-bold">{grossPct >= 0? '+': ''}{grossPct.toFixed(2)}%</div>
                         </div>
                         <div className="bg-gray-50 rounded-lg p-2">
                           <div className="text-muted">Total frais HSBC</div>
@@ -3441,13 +3548,13 @@
                         <div className={`rounded-lg p-2 ${netPnl >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
                           <div className="text-muted">Gain net</div>
                           <div className={`font-bold ${netPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {netPct >= 0 ? '+' : ''}{netPct.toFixed(2)}%
+                            {netPct >= 0? '+': ''}{netPct.toFixed(2)}%
                           </div>
                         </div>
                         <div className={`rounded-lg p-2 ${netPnl >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
                           <div className="text-muted">P&L net</div>
                           <div className={`font-bold ${netPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {netPnl >= 0 ? '+' : ''}{fmt(netPnl, 2)} HKD
+                            {netPnl >= 0? '+': ''}{fmt(netPnl, 2)} HKD
                           </div>
                         </div>
                       </div>
@@ -3541,16 +3648,16 @@
                           <td className="px-2 py-1.5 text-muted">{fmtDate(tx.date)}</td>
                           <td className="px-2 py-1.5">
                             <span className={`px-2 py-0.5 rounded text-xs ${
-                              tx.type === 'deposit' ? 'bg-lime-accent text-dark-text' :
-                              tx.type === 'withdrawal' ? 'bg-red-600' : 'bg-cyan-600'
+                              tx.type === 'deposit'? 'bg-lime-accent text-dark-text':
+                              tx.type === 'withdrawal'? 'bg-red-600': 'bg-cyan-600'
                             }`}>
-                              {tx.type === 'deposit' ? 'Dépôt' : tx.type === 'withdrawal' ? 'Retrait' : 'Dividende'}
+                              {tx.type === 'deposit'? 'Dépôt': tx.type === 'withdrawal'? 'Retrait': 'Dividende'}
                             </span>
                           </td>
                           <td className={`px-2 py-1.5 text-right font-semibold ${
-                            tx.type === 'deposit' || tx.type === 'dividend' ? 'text-green-600' : 'text-red-600'
+                            tx.type === 'deposit' || tx.type === 'dividend'? 'text-green-600': 'text-red-600'
                           }`}>
-                            {tx.type === 'withdrawal' ? '-' : '+'}{fmt(tx.amount)}
+                            {tx.type === 'withdrawal'? '-': '+'}{fmt(tx.amount)}
                           </td>
                           <td className="px-2 py-1.5 font-mono text-lime-hover hidden md:table-cell">{tx.linkedTicker || '-'}</td>
                           <td className="px-2 py-1.5 text-muted truncate max-w-32">{tx.notes || '-'}</td>
@@ -3578,7 +3685,7 @@
                         <th className="px-2 py-1.5 text-right">Qté</th>
                         <th className="px-2 py-1.5 text-right">Achat</th>
                         <th className="px-2 py-1.5 text-right">Vente</th>
-                        <th className="px-2 py-1.5 text-center bg-lime-accent/20 cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowClosedDates(v => !v)} title="Afficher / masquer Date In et Date Out">Durée {showClosedDates ? '▾' : '▸'}</th>
+                        <th className="px-2 py-1.5 text-center bg-lime-accent/20 cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowClosedDates(v => !v)} title="Afficher / masquer Date In et Date Out">Durée {showClosedDates? '▾': '▸'}</th>
                         {showClosedDates && <th className="px-2 py-1.5 text-center">Date In</th>}
                         {showClosedDates && <th className="px-2 py-1.5 text-center">Date Out</th>}
                         <th className="px-2 py-1.5 text-right">Frais</th>
@@ -3590,7 +3697,7 @@
                       {[...closedWithCalc].sort((a, b) => (b.exitDate || '').localeCompare(a.exitDate || '') || (b.id || 0) - (a.id || 0)).map((t, i) => (
                         <tr key={i} className="border-t border-gray-100">
                           <td className="px-2 py-1.5 font-mono text-lime-hover">
-                            {userEmail === 'marccharnal@gmail.com' ? (
+                            {userEmail === 'marccharnal@gmail.com'? (
                               <a
                                 href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${t.ticker.replace('.HK', '').replace(/^0+/, '')}`}
                                 target="_blank"
@@ -3599,7 +3706,7 @@
                               >
                                 {t.ticker.replace('.HK', '')}
                               </a>
-                            ) : t.ticker.replace('.HK', '')}
+                            ): t.ticker.replace('.HK', '')}
                           </td>
                           <td className="px-2 py-1.5 text-left text-muted truncate" title={t.name || ''}>{(t.name || '').slice(0, 10)}</td>
                           <td className="px-2 py-1.5 text-right">{fmt(t.quantity)}</td>
@@ -3608,12 +3715,12 @@
                           <td className="px-2 py-1.5 text-center"><span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${t.days > 120 ? 'bg-red-100 text-red-700' : t.days > 60 ? 'bg-orange-100 text-orange-700' : t.days > 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-lime-accent text-dark-text'}`}>{t.days}j</span></td>
                           {showClosedDates && <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.entryDate)}</td>}
                           {showClosedDates && <td className="px-2 py-1.5 text-center text-muted">{fmtDate(t.exitDate)}</td>}
-                          <td className="px-2 py-1.5 text-right text-muted">{t.fees > 0 ? fmt(t.fees) : '—'}</td>
-                          <td className={`px-2 py-1.5 text-right font-semibold ${t.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`} title={t.fees > 0 ? `Brut: ${fmt(t.grossPnl)} | Frais: ${fmt(t.fees)}` : ''}>
-                            {t.pnl >= 0 ? '+' : ''}{fmt(t.pnl)}
+                          <td className="px-2 py-1.5 text-right text-muted">{t.fees > 0? fmt(t.fees): '—'}</td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${t.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`} title={t.fees > 0? `Brut: ${fmt(t.grossPnl)} | Frais: ${fmt(t.fees)}`: ''}>
+                            {t.pnl >= 0? '+': ''}{fmt(t.pnl)}
                             {t.fees > 0 && <span className="text-muted text-[9px] ml-0.5">net</span>}
                           </td>
-                          <td className={`px-2 py-1.5 text-right font-bold ${t.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(1)}%</td>
+                          <td className={`px-2 py-1.5 text-right font-bold ${t.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>{t.pnlPercent >= 0? '+': ''}{t.pnlPercent.toFixed(1)}%</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3624,7 +3731,7 @@
                         {showClosedDates && <td className="px-2 py-1.5"></td>}
                         {showClosedDates && <td className="px-2 py-1.5"></td>}
                         <td className="px-2 py-1.5 text-right text-muted">{fmt(closedWithCalc.reduce((s, t) => s + (t.fees || 0), 0))}</td>
-                        <td className={`px-2 py-1.5 text-right ${m.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.realizedPnL >= 0 ? '+' : ''}{fmt(m.realizedPnL)}</td>
+                        <td className={`px-2 py-1.5 text-right ${m.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.realizedPnL >= 0? '+': ''}{fmt(m.realizedPnL)}</td>
                         <td className="px-2 py-1.5 text-right text-lime-accent">{m.winRate.toFixed(0)}%</td>
                       </tr>
                     </tfoot>
@@ -3651,9 +3758,9 @@
                   ].map(b => {
                     const group = trades.filter(t => t.days >= b.min && t.days <= b.max);
                     const wins = group.filter(t => t.win).length;
-                    const avgPnl = group.length > 0 ? group.reduce((s, t) => s + t.pnlPercent, 0) / group.length : 0;
+                    const avgPnl = group.length > 0? group.reduce((s, t) => s + t.pnlPercent, 0) / group.length: 0;
                     const totalPnl = group.reduce((s, t) => s + t.pnl, 0);
-                    return { ...b, count: group.length, wins, avgPnl, totalPnl, winRate: group.length > 0 ? (wins / group.length) * 100 : 0 };
+                    return { ...b, count: group.length, wins, avgPnl, totalPnl, winRate: group.length > 0? (wins / group.length) * 100: 0 };
                   }).filter(b => b.count > 0);
 
                   // Best bucket
@@ -3661,10 +3768,10 @@
 
                   return (
                     <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
-                      <h3 className="font-semibold mb-3">Durée vs Rendement — Analyse</h3>
+                      <h3 className="font-semibold mb-3">Durée vs Rendement, Analyse</h3>
 
                       {/* Scatter plot */}
-                      {RECHARTS_LOADED && ScatterChart ? (
+                      {RECHARTS_LOADED && ScatterChart? (
                         <ResponsiveContainer width="100%" height={280}>
                           <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -3678,8 +3785,8 @@
                                 <div className="bg-white border border-gray-200 rounded p-2 text-xs">
                                   <div className="font-bold text-lime-hover">{d.ticker}</div>
                                   <div>Durée: {d.days}j</div>
-                                  <div className={d.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}>P&L: {d.pnlPercent >= 0 ? '+' : ''}{d.pnlPercent.toFixed(1)}%</div>
-                                  <div className={d.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{d.pnl >= 0 ? '+' : ''}{fmt(d.pnl)} HKD</div>
+                                  <div className={d.pnlPercent >= 0? 'text-green-600': 'text-red-600'}>P&L: {d.pnlPercent >= 0? '+': ''}{d.pnlPercent.toFixed(1)}%</div>
+                                  <div className={d.pnl >= 0? 'text-green-600': 'text-red-600'}>{d.pnl >= 0? '+': ''}{fmt(d.pnl)} HKD</div>
                                 </div>
                               );
                             }} />
@@ -3687,7 +3794,7 @@
                             <Scatter data={trades.filter(t => !t.win)} fill="#EF4444" name="Pertes" />
                           </ScatterChart>
                         </ResponsiveContainer>
-                      ) : (
+                      ): (
                         <ChartFallback message="Scatter chart non disponible" />
                       )}
 
@@ -3710,8 +3817,8 @@
                               <td className="px-2 py-1.5 text-center">
                                 <span className={`px-2 py-0.5 rounded ${b.winRate >= 60 ? 'bg-lime-accent text-dark-text' : b.winRate >= 40 ? 'bg-yellow-600 text-black' : 'bg-red-600'}`}>{b.winRate.toFixed(0)}%</span>
                               </td>
-                              <td className={`px-2 py-1.5 text-right font-bold ${b.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.avgPnl >= 0 ? '+' : ''}{b.avgPnl.toFixed(1)}%</td>
-                              <td className={`px-2 py-1.5 text-right ${b.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.totalPnl >= 0 ? '+' : ''}{fmt(b.totalPnl)}</td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${b.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.avgPnl >= 0? '+': ''}{b.avgPnl.toFixed(1)}%</td>
+                              <td className={`px-2 py-1.5 text-right ${b.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{b.totalPnl >= 0? '+': ''}{fmt(b.totalPnl)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3719,7 +3826,7 @@
 
                       {bestBucket && (
                         <div className="mt-3 p-2 bg-lime-accent/10 rounded text-xs text-muted">
-                          <span className="text-lime-accent">★</span> Ton meilleur créneau : <strong className="text-dark-text">{bestBucket.label}</strong> — P&L moyen <strong className={bestBucket.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}>{bestBucket.avgPnl >= 0 ? '+' : ''}{bestBucket.avgPnl.toFixed(1)}%</strong>, win rate <strong>{bestBucket.winRate.toFixed(0)}%</strong> sur {bestBucket.count} trade{bestBucket.count > 1 ? 's' : ''}
+                          <span className="text-lime-accent">★</span> Ton meilleur créneau: <strong className="text-dark-text">{bestBucket.label}</strong>, P&L moyen <strong className={bestBucket.avgPnl >= 0? 'text-green-600': 'text-red-600'}>{bestBucket.avgPnl >= 0? '+': ''}{bestBucket.avgPnl.toFixed(1)}%</strong>, win rate <strong>{bestBucket.winRate.toFixed(0)}%</strong> sur {bestBucket.count} trade{bestBucket.count > 1? 's': ''}
                         </div>
                       )}
                     </div>
@@ -3733,7 +3840,7 @@
 
                   // Calculate total P&L for a snapshot (unrealized + realized)
                   const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
-                  // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+                  // Gross realized P&L (no fees), matches the cron's stored s.realizedPnL definition.
                   // m.realizedPnL is net-of-fees (for the "Réalisé" stat tiles); mixing it into a
                   // series built from gross historical snapshots put a fee-sized cliff on today's point.
                   const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
@@ -3764,32 +3871,32 @@
                   return (
                     <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
                       <h3 className="font-semibold mb-3">P&L {monthNames[now.getMonth()]} (progression depuis début de mois)</h3>
-                      {!RECHARTS_LOADED ? (
+                      {!RECHARTS_LOADED? (
                         <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
-                      ) : (
+                      ): (
                         <ResponsiveContainer width="100%" height={250}>
                           <AreaChart data={chartData}>
                             <defs>
                               <linearGradient id="colorMonthPnl" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
-                                <stop offset="95%" stopColor={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                                <stop offset="5%" stopColor={chartData[chartData.length - 1]?.pnl >= 0? '#10B981': '#EF4444'} stopOpacity={0.4} />
+                                <stop offset="95%" stopColor={chartData[chartData.length - 1]?.pnl >= 0? '#10B981': '#EF4444'} stopOpacity={0} />
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                             <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                            <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
+                            <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999? `${(v / 1000).toFixed(1)}k`: v} />
                             <Tooltip
                               contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
-                              formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' HKD', 'P&L']}
+                              formatter={(v) => [(v >= 0? '+': '') + fmt(v) + ' HKD', 'P&L']}
                             />
                             <Area
                               type="monotone"
                               dataKey="pnl"
-                              stroke={chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444'}
+                              stroke={chartData[chartData.length - 1]?.pnl >= 0? '#10B981': '#EF4444'}
                               fill="url(#colorMonthPnl)"
                               name="P&L"
                               strokeWidth={2}
-                              dot={{ fill: chartData[chartData.length - 1]?.pnl >= 0 ? '#10B981' : '#EF4444', r: 3 }}
+                              dot={{ fill: chartData[chartData.length - 1]?.pnl >= 0? '#10B981': '#EF4444', r: 3 }}
                             />
                           </AreaChart>
                         </ResponsiveContainer>
@@ -3803,15 +3910,15 @@
                   const todayStr = getMarketToday();
                   // Update today's snapshot with live capitalEngaged value
                   const liveSnapshots = snapshots.map(s =>
-                    s.date === todayStr ? { ...s, capitalEngaged: m.capitalEngaged } : s
+                    s.date === todayStr? { ...s, capitalEngaged: m.capitalEngaged }: s
                   ).sort((a, b) => a.date.localeCompare(b.date));
 
                   return (
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4 mt-4">
                   <h3 className="font-semibold mb-3">Capital Investi (évolution journalière)</h3>
-                  {!RECHARTS_LOADED ? (
+                  {!RECHARTS_LOADED? (
                     <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
-                  ) : liveSnapshots.length > 1 ? (
+                  ): liveSnapshots.length > 1? (
                     <ResponsiveContainer width="100%" height={300}>
                       <AreaChart data={liveSnapshots}>
                         <defs>
@@ -3831,7 +3938,7 @@
                         <Area type="monotone" dataKey="capitalEngaged" stroke="#8B5CF6" fill="url(#colorCapHist)" name="Capital Investi" strokeWidth={2} dot={{ fill: '#8B5CF6', r: 3 }} />
                       </AreaChart>
                     </ResponsiveContainer>
-                  ) : (
+                  ): (
                     <div className="h-48 flex flex-col items-center justify-center text-muted">
                       <p>Pas assez de snapshots pour afficher la courbe.</p>
                       <p className="text-xs mt-2">Snapshots: {liveSnapshots.length} (besoin de 2+)</p>
@@ -3842,7 +3949,7 @@
                   );
                 })()}
 
-                {/* Encaissé par mois — calendar of realized P&L, keyed on exitDate.
+                {/* Encaissé par mois, calendar of realized P&L, keyed on exitDate.
                     Built from closedWithCalc only (net of fees, same figure as the table
                     above and its TOTAL). No snapshot series is involved, so the
                     gross-vs-net splice trap of 2026-08-10 does not apply here. */}
@@ -3873,19 +3980,19 @@
                         return (
                           <div key={y} className="mb-3">
                             <div className="flex justify-between items-center bg-gray-50 rounded-md px-2 py-1.5 text-xs font-semibold">
-                              <span>{y} <span className="text-muted font-normal">• {yCount} trade{yCount > 1 ? 's' : ''}</span></span>
-                              <span className={yTotal >= 0 ? 'text-green-600' : 'text-red-600'}>{yTotal >= 0 ? '+' : ''}{fmt(yTotal)}</span>
+                              <span>{y} <span className="text-muted font-normal">• {yCount} trade{yCount > 1? 's': ''}</span></span>
+                              <span className={yTotal >= 0? 'text-green-600': 'text-red-600'}>{yTotal >= 0? '+': ''}{fmt(yTotal)}</span>
                             </div>
                             <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-12 gap-2 mt-2">
                               {cells.map((c, i) => (
                                 <div
                                   key={i}
                                   className={`border rounded-md px-1 py-1.5 text-center ${c.count === 0 ? 'border-gray-100 opacity-40' : c.pnl >= 0 ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}
-                                  title={c.count > 0 ? `${c.count} trade${c.count > 1 ? 's' : ''} • Produit de vente : ${fmt(c.proceeds)} HKD` : ''}
+                                  title={c.count > 0? `${c.count} trade${c.count > 1 ? 's' : ''} • Produit de vente : ${fmt(c.proceeds)} HKD`: ''}
                                 >
                                   <div className="text-[10px] text-muted">{monthAbbr[i]}</div>
                                   <div className={`text-xs font-bold ${c.count === 0 ? 'text-muted' : c.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {c.count === 0 ? '—' : `${c.pnl >= 0 ? '+' : ''}${fmt(c.pnl)}`}
+                                    {c.count === 0? '—': `${c.pnl >= 0 ? '+' : ''}${fmt(c.pnl)}`}
                                   </div>
                                   {c.count > 0 && <div className="text-[9px] text-muted">{c.count}t</div>}
                                 </div>
@@ -3896,7 +4003,7 @@
                       })}
                       <div className="flex justify-between items-center border-t border-gray-100 pt-2 text-xs font-bold">
                         <span>TOTAL encaissé</span>
-                        <span className={m.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}>{m.realizedPnL >= 0 ? '+' : ''}{fmt(m.realizedPnL)} HKD</span>
+                        <span className={m.realizedPnL >= 0? 'text-green-600': 'text-red-600'}>{m.realizedPnL >= 0? '+': ''}{fmt(m.realizedPnL)} HKD</span>
                       </div>
                     </div>
                   );
@@ -3927,12 +4034,12 @@
               // to show previous session's actual daily performance
               const preMarketActive = isPreMarket() || isBeforeMarketOpen();
               // A market-closed day (weekend / HKEX holiday) has no live session. Like
-              // pre-market — and like the header card, which shows "Marché fermé" rather
-              // than a bare 0 — display the LAST completed trading session instead of a
+              // pre-market, and like the header card, which shows "Marché fermé" rather
+              // than a bare 0, display the LAST completed trading session instead of a
               // misleading "Today's P&L = 0". (HKEX holiday e.g. 2026-06-19 Dragon Boat.)
               // Stale-cache case (cache still = prior session, e.g. first morning load
-              // before the auto-refresh lands): display exactly like pre-market — the
-              // last completed session, labeled as such — never yesterday's numbers
+              // before the auto-refresh lands): display exactly like pre-market, the
+              // last completed session, labeled as such, never yesterday's numbers
               // presented as "Today". See wiki/morning-stale-first-paint.md.
               const cacheIsToday = isCacheFromToday(priceCache);
               const showLastSession = preMarketActive || isMarketClosedToday || !cacheIsToday;
@@ -3942,7 +4049,7 @@
               const dayBeforeClosingPrices = dayBeforeYesterdaySnapshot?.closingPrices || {};
               // The session these rows describe: today when live, otherwise the last
               // completed trading session (the one currentPrice/previousClose read from).
-              const sessionDate = showLastSession ? (yesterdaySnapshot?.date || todayStr) : todayStr;
+              const sessionDate = showLastSession? (yesterdaySnapshot?.date || todayStr): todayStr;
 
               const moversData = positions.map(p => {
                 const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
@@ -3955,7 +4062,7 @@
                 } else if (isMarketClosedToday && lastTradingClosingPrices[cleanTicker]) {
                   currentPrice = lastTradingClosingPrices[cleanTicker];
                 } else {
-                  currentPrice = cached?.success ? cached.price : p.currentPrice;
+                  currentPrice = cached?.success? cached.price: p.currentPrice;
                 }
                 // Compare entryDate against the session actually being DISPLAYED, not the
                 // wall-clock date. Under showLastSession (weekend/holiday/pre-market/stale
@@ -3989,7 +4096,7 @@
                 // Live day: use TradingView's official values directly (never recompute %).
                 // Market-closed day (weekend/holiday): cached.change still holds the LAST
                 // session's TV change (no trading since), so the same path yields that
-                // session's per-position move — rows then sum to the last session's total
+                // session's per-position move, rows then sum to the last session's total
                 // rather than all reading 0.
                 let dailyChangePercent = 0;
                 let dailyChangeDollar = 0;
@@ -4012,7 +4119,7 @@
                       dailyChangeDollar = cached.change * p.quantity;
                     }
                   } else {
-                    dailyChangePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+                    dailyChangePercent = previousClose > 0? ((currentPrice - previousClose) / previousClose) * 100: 0;
                     if (hasIntradayAdd) {
                       const oldQtyGain = (currentPrice - previousClose) * p.qtyBeforeToday;
                       const newQtyGain = (currentPrice - p.addedTodayPrice) * p.addedTodayQty;
@@ -4023,9 +4130,9 @@
                   }
                 }
                 const marketValue = currentPrice * p.quantity;
-                const weight = totalPortfolioValue > 0 ? (marketValue / totalPortfolioValue) * 100 : 0;
+                const weight = totalPortfolioValue > 0? (marketValue / totalPortfolioValue) * 100: 0;
                 // Calculate total P&L from entry for danger/warning status
-                const totalPnlPercent = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+                const totalPnlPercent = p.entryPrice > 0? ((currentPrice - p.entryPrice) / p.entryPrice) * 100: 0;
                 const perfWarnThreshold = settings.alertThreshold || 8;
                 const perfDangerThreshold = settings.dangerThreshold || 10;
                 const isDanger = totalPnlPercent <= -perfDangerThreshold;
@@ -4050,7 +4157,7 @@
                 const ct = t.ticker.replace(/b\.HK$/, '.HK');
                 const cached = priceCache[ct];
                 const prevClose = getPrevClose(cached, ct, yesterdayClosingPrices, todayStr, t.entryPrice);
-                const dailyChangePercent = prevClose > 0 ? ((t.exitPrice - prevClose) / prevClose) * 100 : 0;
+                const dailyChangePercent = prevClose > 0? ((t.exitPrice - prevClose) / prevClose) * 100: 0;
                 const dailyChangeDollar = (t.exitPrice - prevClose) * t.quantity;
                 return { ...t, currentPrice: t.exitPrice, previousClose: prevClose, dailyChangePercent, dailyChangeDollar, marketValue: 0, weight: 0, isClosed: true };
               });
@@ -4063,7 +4170,7 @@
                   case 'weight': aV = a.weight; bV = b.weight; break;
                   default: aV = a.dailyChangePercent; bV = b.dailyChangePercent;
                 }
-                return perfSortConfig.direction === 'asc' ? (aV < bV ? -1 : 1) : (aV > bV ? -1 : 1);
+                return perfSortConfig.direction === 'asc'? (aV < bV? -1: 1): (aV > bV? -1: 1);
               });
 
               // Pre-market or a market-closed day (weekend/holiday): use the cron-stored
@@ -4076,7 +4183,7 @@
                 ? yesterdaySnapshot.dailyPnL
                 : moversDollarSum;
               const prevTotalValue = allMovers.reduce((s, p) => s + (p.previousClose * p.quantity), 0);
-              const totalDailyPercent = prevTotalValue > 0 ? (totalDailyDollar / prevTotalValue) * 100 : 0;
+              const totalDailyPercent = prevTotalValue > 0? (totalDailyDollar / prevTotalValue) * 100: 0;
               const gainersCount = allMovers.filter(p => p.dailyChangePercent > 0).length;
               const losersCount = allMovers.filter(p => p.dailyChangePercent < 0).length;
               const unchangedCount = allMovers.filter(p => p.dailyChangePercent === 0).length;
@@ -4090,11 +4197,11 @@
                 {preMarketActive && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 flex items-center gap-2">
                     <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
-                    <span className="text-blue-700 text-xs font-medium">Pre-market — Ouverture à 9h30 HKT · Données de la dernière séance</span>
+                    <span className="text-blue-700 text-xs font-medium">Pre-market, Ouverture à 9h30 HKT · Données de la dernière séance</span>
                   </div>
                 )}
 
-                {/* Market-closed banner (weekend / HKEX holiday) — clarifies the P&L shown is the last session, not today */}
+                {/* Market-closed banner (weekend / HKEX holiday), clarifies the P&L shown is the last session, not today */}
                 {isMarketClosedToday && !preMarketActive && (
                   <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
                     <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
@@ -4106,10 +4213,10 @@
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-muted text-xs">{showLastSession ? "Dernière séance P&L" : "Today's P&L"}</div>
+                      <div className="text-muted text-xs">{showLastSession? "Dernière séance P&L": "Today's P&L"}</div>
                       <div className={`text-2xl font-bold ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)} HKD
-                        <span className="text-sm ml-2">({totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%)</span>
+                        {totalDailyDollar >= 0? '+': ''}{fmt(totalDailyDollar)} HKD
+                        <span className="text-sm ml-2">({totalDailyPercent >= 0? '+': ''}{totalDailyPercent.toFixed(2)}%)</span>
                       </div>
                     </div>
                     <div className="flex gap-3 text-sm">
@@ -4141,22 +4248,22 @@
 
                 {/* Today's Movers Table */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg overflow-hidden">
-                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">{showLastSession ? "Dernière séance" : "Today's Movers"}</h3>
+                  <h3 className="font-semibold text-sm px-3 pt-3 pb-1">{showLastSession? "Dernière séance": "Today's Movers"}</h3>
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-2 py-1.5 text-left">Ticker</th>
                         <th className="px-2 py-1.5 text-left">Nom</th>
-                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPrevClose(v => !v)} title="Afficher / masquer Prev Close">Actuel {showPrevClose ? '▾' : '▸'}</th>
+                        <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => setShowPrevClose(v => !v)} title="Afficher / masquer Prev Close">Actuel {showPrevClose? '▾': '▸'}</th>
                         {showPrevClose && <th className="px-2 py-1.5 text-right">Prev Close</th>}
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('dailyChangePercent')}>
-                          % Change {perfSortConfig.key === 'dailyChangePercent' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                          % Change {perfSortConfig.key === 'dailyChangePercent' && (perfSortConfig.direction === 'desc'? '↓': '↑')}
                         </th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('dailyChangeDollar')}>
-                          Daily $ {perfSortConfig.key === 'dailyChangeDollar' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                          Daily $ {perfSortConfig.key === 'dailyChangeDollar' && (perfSortConfig.direction === 'desc'? '↓': '↑')}
                         </th>
                         <th className="px-2 py-1.5 text-right cursor-pointer hover:text-lime-hover select-none" onClick={() => sortPerf('weight')}>
-                          Weight {perfSortConfig.key === 'weight' && (perfSortConfig.direction === 'desc' ? '↓' : '↑')}
+                          Weight {perfSortConfig.key === 'weight' && (perfSortConfig.direction === 'desc'? '↓': '↑')}
                         </th>
                         <th className="px-1 py-1.5 text-center w-6"></th>
                       </tr>
@@ -4169,7 +4276,7 @@
                         return (
                         <tr key={p.id} className={`border-t border-gray-100 ${p.isDanger ? 'row-danger' : p.isWarning ? 'row-warning' : ''}`}>
                           <td className={`px-2 py-1.5 font-mono ${p.isClosed ? 'text-muted' : 'text-lime-hover'}`}>
-                            {userEmail === 'marccharnal@gmail.com' ? (
+                            {userEmail === 'marccharnal@gmail.com'? (
                               <a
                                 href={`https://www.tradingview.com/chart/b8EBWJ7k/?symbol=HKEX:${p.ticker.replace('.HK', '').replace(/^0+/, '')}`}
                                 target="_blank"
@@ -4178,8 +4285,8 @@
                               >
                                 {p.ticker.replace('.HK', '')}
                               </a>
-                            ) : p.ticker.replace('.HK', '')}
-                            {p.isClosed ? ' (sold)' : ''}
+                            ): p.ticker.replace('.HK', '')}
+                            {p.isClosed? ' (sold)': ''}
                             {p.isNewToday && <span className="ml-1 text-lime-accent text-[9px]">NEW</span>}
                             {p.isDanger && <span className="ml-1 text-red-500 animate-pulse" title="STOP LOSS">🚨</span>}
                             {cached?.exDivDate === todayStr && cached?.dividendPerShare && (
@@ -4189,8 +4296,8 @@
                           <td className="px-2 py-1.5 truncate max-w-24">{p.name}</td>
                           <td className="px-2 py-1.5 text-right">{p.currentPrice.toFixed(2)}</td>
                           {showPrevClose && (
-                          <td className="px-2 py-1.5 text-right text-muted" title={p.isNewToday ? 'Entry price (new today)' : 'Click to edit previous close'}>
-                            {!p.isClosed ? (
+                          <td className="px-2 py-1.5 text-right text-muted" title={p.isNewToday? 'Entry price (new today)': 'Click to edit previous close'}>
+                            {!p.isClosed? (
                               <input
                                 type="number"
                                 step="0.01"
@@ -4203,21 +4310,21 @@
                                 }}
                                 className="w-16 text-right bg-transparent border-0 px-1 focus:outline-none focus:ring-1 focus:ring-lime-accent"
                               />
-                            ) : (
+                            ): (
                               p.previousClose.toFixed(2)
                             )}
                             {p.isNewToday && <span className="text-lime-accent text-[9px] ml-0.5">↵</span>}
                           </td>
                           )}
                           <td className={`px-2 py-1.5 text-right font-bold ${p.dailyChangePercent > 0 ? 'text-green-600' : p.dailyChangePercent < 0 ? 'text-red-600' : 'text-muted'}`}>
-                            {p.dailyChangePercent > 0 ? '+' : ''}{p.dailyChangePercent.toFixed(2)}%
+                            {p.dailyChangePercent > 0? '+': ''}{p.dailyChangePercent.toFixed(2)}%
                           </td>
                           <td className={`px-2 py-1.5 text-right font-semibold ${p.dailyChangeDollar > 0 ? 'text-green-600' : p.dailyChangeDollar < 0 ? 'text-red-600' : 'text-muted'}`}>
-                            {p.dailyChangeDollar >= 0 ? '+' : ''}{fmt(p.dailyChangeDollar)}
+                            {p.dailyChangeDollar >= 0? '+': ''}{fmt(p.dailyChangeDollar)}
                           </td>
                           <td className="px-2 py-1.5 text-right">{p.weight.toFixed(1)}%</td>
                           <td className="px-1 py-1.5 text-center">
-                            {p.isClosed ? (
+                            {p.isClosed? (
                               !viewingFriendEmail && (
                                 <button
                                   onClick={() => deleteClosedTrade(p.id)}
@@ -4227,13 +4334,14 @@
                                   <Trash2 size={12} />
                                 </button>
                               )
-                            ) : (
+                            ): (
                               <button
                                 onClick={() => refreshSinglePrice(p.ticker)}
-                                className={`p-0.5 rounded hover:bg-gray-100 transition-colors ${hasPriceData ? 'text-muted hover:text-dark-text' : 'text-orange-500 hover:text-orange-700'}`}
-                                title={hasPriceData ? 'Rafraîchir le prix' : 'Prix non chargé - Cliquer pour charger'}
+                                disabled={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')}
+                                className={`p-0.5 rounded hover:bg-gray-100 transition-colors disabled:opacity-50 ${hasPriceData ? 'text-muted hover:text-dark-text' : 'text-orange-500 hover:text-orange-700'}`}
+                                title={hasPriceData? 'Rafraîchir le prix': 'Prix non chargé - Cliquer pour charger'}
                               >
-                                <RefreshCw size={12} />
+                                <RefreshCw size={12} className={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')? 'animate-spin': ''} />
                               </button>
                             )}
                           </td>
@@ -4242,12 +4350,12 @@
                     </tbody>
                     <tfoot className="bg-gray-50 font-bold">
                       <tr>
-                        <td className="px-2 py-1.5" colSpan={showPrevClose ? 4 : 3}>TOTAL</td>
+                        <td className="px-2 py-1.5" colSpan={showPrevClose? 4: 3}>TOTAL</td>
                         <td className={`px-2 py-1.5 text-right ${totalDailyPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {totalDailyPercent >= 0 ? '+' : ''}{totalDailyPercent.toFixed(2)}%
+                          {totalDailyPercent >= 0? '+': ''}{totalDailyPercent.toFixed(2)}%
                         </td>
                         <td className={`px-2 py-1.5 text-right ${totalDailyDollar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {totalDailyDollar >= 0 ? '+' : ''}{fmt(totalDailyDollar)}
+                          {totalDailyDollar >= 0? '+': ''}{fmt(totalDailyDollar)}
                         </td>
                         <td className="px-2 py-1.5 text-right">100%</td>
                         <td></td>
@@ -4311,7 +4419,7 @@
                   // undefined → the cell renders empty). We deliberately do NOT
                   // estimate a value by spreading the gap's total change evenly:
                   // that painted several days with the *same* fabricated number
-                  // and read as a bug (HK Jun 16-24 2026 — see wiki/incidents).
+                  // and read as a bug (HK Jun 16-24 2026, see wiki/incidents).
                   // A real gap should look like a gap; the server-source save
                   // guard now prevents snapshots from being wiped in the first place.
 
@@ -4343,15 +4451,15 @@
                     }
                     // Don't show P&L for market closed days (weekends/holidays)
                     const holiday = isHoliday(dateStr);
-                    cells.push({ day: d, date: dateStr, pnl: marketClosed ? undefined : pnlMap[dateStr], isMarketClosed: marketClosed, isHoliday: holiday, dow, weekTotal });
+                    cells.push({ day: d, date: dateStr, pnl: marketClosed? undefined: pnlMap[dateStr], isMarketClosed: marketClosed, isHoliday: holiday, dow, weekTotal });
                   }
 
                   const todayStr = getMarketToday();
                   const monthTotal = cells.filter(c => c && c.pnl !== undefined).reduce((s, c) => s + c.pnl, 0);
                   const hasData = cells.some(c => c && c.pnl !== undefined);
 
-                  const prevMonth = () => setCalendarMonth(prev => prev.month === 0 ? { year: prev.year - 1, month: 11 } : { ...prev, month: prev.month - 1 });
-                  const nextMonth = () => setCalendarMonth(prev => prev.month === 11 ? { year: prev.year + 1, month: 0 } : { ...prev, month: prev.month + 1 });
+                  const prevMonth = () => setCalendarMonth(prev => prev.month === 0? { year: prev.year - 1, month: 11 }: { ...prev, month: prev.month - 1 });
+                  const nextMonth = () => setCalendarMonth(prev => prev.month === 11? { year: prev.year + 1, month: 0 }: { ...prev, month: prev.month + 1 });
 
                   return (
                     <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
@@ -4361,7 +4469,7 @@
                           <h3 className="font-semibold">{monthNames[month]} {year}</h3>
                           {hasData && (
                             <span className={`text-sm font-bold ${monthTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {monthTotal >= 0 ? '+' : ''}{fmt(monthTotal)} HKD
+                              {monthTotal >= 0? '+': ''}{fmt(monthTotal)} HKD
                             </span>
                           )}
                         </div>
@@ -4380,39 +4488,39 @@
                           const showWeek = isSat && cell.weekTotal !== undefined;
                           let bg = 'bg-gray-50/30';
                           if (showWeek) {
-                            bg = cell.weekTotal >= 0 ? 'bg-fuchsia-100' : 'bg-pink-100';
+                            bg = cell.weekTotal >= 0? 'bg-fuchsia-100': 'bg-pink-100';
                           } else if (marketClosed) {
                             bg = 'bg-gray-100/50';
                           } else if (hasPnl) {
-                            bg = cell.pnl > 0 ? 'bg-lime-accent/30' : cell.pnl < 0 ? 'bg-red-100' : 'bg-gray-50/50';
+                            bg = cell.pnl > 0? 'bg-lime-accent/30': cell.pnl < 0? 'bg-red-100': 'bg-gray-50/50';
                           }
                           const cellSnap = snapshots.find(s => s.date === cell.date);
                           const hasSnapshot = !!cellSnap;
                           // Provisional = explicitly flagged by update.py because Yahoo couldn't confirm at least one ticker.
-                          // Old snapshots (pre-May 7 2026) don't have this field — treat as "trust the stored value".
+                          // Old snapshots (pre-May 7 2026) don't have this field, treat as "trust the stored value".
                           const isProvisional = hasSnapshot && !isToday && cellSnap.provisional === true;
                           return (
                             <div
                               key={cell.date}
                               className={`${bg} rounded p-1 text-center min-h-[44px] flex flex-col justify-center relative ${isToday ? 'ring-1 ring-blue-500' : ''} ${hasSnapshot ? 'cursor-pointer hover:ring-1 hover:ring-lime-accent' : ''}`}
                               onClick={() => hasSnapshot && setSelectedSnapshotDate(cell.date)}
-                              title={showWeek ? `Semaine: ${cell.weekTotal >= 0 ? '+' : ''}${Math.round(cell.weekTotal)} HKD` : isProvisional ? 'Provisional — sources non réconciliées (cliquez pour détails)' : hasSnapshot ? 'Cliquez pour voir le détail' : ''}
+                              title={showWeek? `Semaine: ${cell.weekTotal >= 0 ? '+' : ''}${Math.round(cell.weekTotal)} HKD`: isProvisional? 'Provisional, sources non réconciliées (cliquez pour détails)': hasSnapshot? 'Cliquez pour voir le détail': ''}
                             >
                               {isProvisional && (
                                 <span className="absolute top-0 right-0.5 text-[9px] text-amber-600 font-bold leading-none" title="Provisional">~</span>
                               )}
                               <div className={`text-[10px] ${isToday ? 'text-lime-hover font-bold' : 'text-muted'}`}>{cell.day}</div>
-                              {showWeek ? (
+                              {showWeek? (
                                 <div className={`text-[10px] font-bold ${cell.weekTotal >= 0 ? 'text-fuchsia-700' : 'text-pink-600'}`}>
-                                  {cell.weekTotal >= 0 ? '+' : ''}{Math.abs(cell.weekTotal) > 999 ? (cell.weekTotal / 1000).toFixed(1) + 'k' : Math.round(cell.weekTotal)}
+                                  {cell.weekTotal >= 0? '+': ''}{Math.abs(cell.weekTotal) > 999? (cell.weekTotal / 1000).toFixed(1) + 'k': Math.round(cell.weekTotal)}
                                 </div>
-                              ) : hasPnl ? (
+                              ): hasPnl? (
                                 <div className={`text-[10px] font-bold ${cell.pnl > 0 ? 'text-green-600' : cell.pnl < 0 ? 'text-red-600' : 'text-muted'}`}>
-                                  {cell.pnl >= 0 ? '+' : ''}{cell.pnl > 999 || cell.pnl < -999 ? (cell.pnl / 1000).toFixed(1) + 'k' : Math.round(cell.pnl)}
+                                  {cell.pnl >= 0? '+': ''}{cell.pnl > 999 || cell.pnl < -999? (cell.pnl / 1000).toFixed(1) + 'k': Math.round(cell.pnl)}
                                 </div>
-                              ) : cell.isHoliday ? (
+                              ): cell.isHoliday? (
                                 <div className="text-[8px] text-amber-600 font-medium">Holiday</div>
-                              ) : null}
+                              ): null}
                             </div>
                           );
                         })}
@@ -4434,16 +4542,16 @@
                           <div className="flex justify-between items-start">
                             <div>
                               <h3 className="font-bold text-lg">Clôture du {fmtDate(snap.date)}</h3>
-                              {/* Settled/Provisional badge — built from update.py metadata.
+                              {/* Settled/Provisional badge, built from update.py metadata.
                                   Older snapshots (before May 7 2026) lack settledAt/sources, fall through silently. */}
                               {snap.settledAt && (
                                 <div className="mt-1 flex items-center gap-2 text-[11px]">
-                                  {snap.provisional ? (
+                                  {snap.provisional? (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                                       <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
-                                      Provisional — réconciliation incomplète
+                                      Provisional, réconciliation incomplète
                                     </span>
-                                  ) : (
+                                  ): (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
                                       <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
                                       Settled · {(snap.sources || ['tradingview']).join(' + ')}
@@ -4499,7 +4607,7 @@
                           </div>
                         </div>
                         <div className="p-4">
-                          {posAtClose.length > 0 ? (
+                          {posAtClose.length > 0? (
                             <table className="w-full text-xs">
                               <thead className="bg-gray-50">
                                 <tr>
@@ -4523,10 +4631,10 @@
                                     <td className="px-2 py-1.5 text-right">{p.closingPrice?.toFixed(2)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(p.marketValue)}</td>
                                     <td className={`px-2 py-1.5 text-right font-semibold ${p.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      {p.pnl >= 0 ? '+' : ''}{fmt(p.pnl)}
+                                      {p.pnl >= 0? '+': ''}{fmt(p.pnl)}
                                     </td>
                                     <td className={`px-2 py-1.5 text-right ${p.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      {p.pnlPercent >= 0 ? '+' : ''}{p.pnlPercent?.toFixed(1)}%
+                                      {p.pnlPercent >= 0? '+': ''}{p.pnlPercent?.toFixed(1)}%
                                     </td>
                                   </tr>
                                 ))}
@@ -4536,13 +4644,13 @@
                                   <td colSpan="5" className="px-2 py-1.5">Total</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(snap.portfolioValue)}</td>
                                   <td className={`px-2 py-1.5 text-right ${snap.unrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {snap.unrealizedPnL >= 0 ? '+' : ''}{fmt(snap.unrealizedPnL)}
+                                    {snap.unrealizedPnL >= 0? '+': ''}{fmt(snap.unrealizedPnL)}
                                   </td>
                                   <td></td>
                                 </tr>
                               </tfoot>
                             </table>
-                          ) : (
+                          ): (
                             <div className="text-center text-muted py-8">
                               <p>Pas de détail des positions pour cette date.</p>
                               <p className="text-xs mt-2">Les snapshots détaillés sont enregistrés depuis aujourd'hui.</p>
@@ -4550,7 +4658,7 @@
                           )}
                           <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                             <div><span className="text-muted">Capital engagé:</span> <strong>{fmt(snap.capitalEngaged)}</strong></div>
-                            <div><span className="text-muted">P&L non-réalisé:</span> <strong className={snap.unrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}>{fmt(snap.unrealizedPnL)}</strong></div>
+                            <div><span className="text-muted">P&L non-réalisé:</span> <strong className={snap.unrealizedPnL >= 0? 'text-green-600': 'text-red-600'}>{fmt(snap.unrealizedPnL)}</strong></div>
                             <div><span className="text-muted">P&L réalisé:</span> <strong>{fmt(snap.realizedPnL)}</strong></div>
                             <div><span className="text-muted">Positions:</span> <strong>{snap.positionCount}</strong></div>
                           </div>
@@ -4559,7 +4667,7 @@
                           {(() => {
                             const sortedSnaps = [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
                             const snapIndex = sortedSnaps.findIndex(s => s.date === snap.date);
-                            const prevSnap = snapIndex > 0 ? sortedSnaps[snapIndex - 1] : null;
+                            const prevSnap = snapIndex > 0? sortedSnaps[snapIndex - 1]: null;
                             const calculatedPnL = prevSnap
                               ? (snap.unrealizedPnL - prevSnap.unrealizedPnL) + (snap.realizedPnL - prevSnap.realizedPnL)
                               : null;
@@ -4612,7 +4720,7 @@
                             return (
                               <div className="mt-4 pt-4 border-t border-gray-200 text-xs">
                                 <div className="text-muted font-semibold mb-2">🔍 Calcul du P&L (debug)</div>
-                                {prevSnap ? (
+                                {prevSnap? (
                                   <div className="bg-gray-50 rounded p-3 space-y-1 font-mono">
                                     <div>Jour précédent: <strong>{prevSnap.date}</strong></div>
                                     <div>└ Portfolio: {fmt(prevSnap.portfolioValue)} | Unrealized: {fmt(prevSnap.unrealizedPnL)} | Realized: {fmt(prevSnap.realizedPnL)}</div>
@@ -4629,15 +4737,15 @@
                                       <div className="mt-3 pt-2 border-t border-gray-300">
                                         <div className="font-semibold text-lime-hover mb-1">📊 Recalcul via closingPrices:</div>
                                         {breakdown.map((b, i) => {
-                                          const tag = b.type === 'NEW' ? '🆕' : (b.type === 'CLOSED' || b.type === 'CLOSED-INTRADAY') ? '✖ closed' : '';
+                                          const tag = b.type === 'NEW'? '🆕': (b.type === 'CLOSED' || b.type === 'CLOSED-INTRADAY')? '✖ closed': '';
                                           const prov = (snap.priceProvenance || {})[b.ticker];
-                                          const srcTag = prov?.source === 'yahoo-reconciled' ? ' · yahoo'
-                                            : prov?.source === 'tv-only' ? ' · tv-only'
-                                            : prov?.source === 'tv+yahoo' ? ' · ✓'
+                                          const srcTag = prov?.source === 'yahoo-reconciled'? ' · yahoo'
+                                            : prov?.source === 'tv-only'? ' · tv-only'
+                                            : prov?.source === 'tv+yahoo'? ' · ✓'
                                             : '';
                                           return (
                                             <div key={i} className="text-[10px]">
-                                              {b.ticker?.replace('.HK','')}: {tag} ({b.prevClose?.toFixed(2)} → {b.currClose?.toFixed(2)}) × {b.qty} = <span className={b.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>{b.pnl >= 0 ? '+' : ''}{fmt(b.pnl)}</span>
+                                              {b.ticker?.replace('.HK','')}: {tag} ({b.prevClose?.toFixed(2)} → {b.currClose?.toFixed(2)}) × {b.qty} = <span className={b.pnl >= 0? 'text-green-600': 'text-red-600'}>{b.pnl >= 0? '+': ''}{fmt(b.pnl)}</span>
                                               <span className="text-muted">{srcTag}</span>
                                             </div>
                                           );
@@ -4664,7 +4772,7 @@
 
                                     {snap.dailyPnL !== undefined && <div className="mt-2 text-lime-hover">dailyPnL stocké actuel: {fmt(snap.dailyPnL)}</div>}
                                   </div>
-                                ) : (
+                                ): (
                                   <div className="text-muted">Pas de snapshot précédent</div>
                                 )}
                               </div>
@@ -4679,7 +4787,7 @@
                 {/* Equity Curve - Total P&L over time */}
                 {(() => {
                   const todayStr = getMarketToday();
-                  // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+                  // Gross realized P&L (no fees), matches the cron's stored s.realizedPnL definition.
                   const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
                   // Calculate total P&L for each snapshot and update today with live values
                   const pnlData = snapshots.map(s => {
@@ -4699,7 +4807,7 @@
                     };
                   }).sort((a, b) => a.date.localeCompare(b.date));
 
-                  const latestPnL = pnlData.length > 0 ? pnlData[pnlData.length - 1].totalPnL : 0;
+                  const latestPnL = pnlData.length > 0? pnlData[pnlData.length - 1].totalPnL: 0;
                   const isPositive = latestPnL >= 0;
 
                   return (
@@ -4707,40 +4815,40 @@
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="font-semibold">P&L Total (Gains/Pertes cumulés)</h3>
                     <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                      {isPositive ? '+' : ''}{fmt(latestPnL)} HKD
+                      {isPositive? '+': ''}{fmt(latestPnL)} HKD
                     </span>
                   </div>
-                  {!RECHARTS_LOADED ? (
+                  {!RECHARTS_LOADED? (
                     <ChartFallback message="Rafraîchissez la page pour charger les graphiques" />
-                  ) : pnlData.length > 1 ? (
+                  ): pnlData.length > 1? (
                     <ResponsiveContainer width="100%" height={350}>
                       <AreaChart data={pnlData}>
                         <defs>
                           <linearGradient id="colorTotalPnl" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
-                            <stop offset="95%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                            <stop offset="5%" stopColor={isPositive? '#10B981': '#EF4444'} stopOpacity={0.4} />
+                            <stop offset="95%" stopColor={isPositive? '#10B981': '#EF4444'} stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                         <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
                         <YAxis
                           stroke="#9CA3AF"
-                          tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(0)}k` : v}
+                          tickFormatter={(v) => v > 999 || v < -999? `${(v / 1000).toFixed(0)}k`: v}
                         />
                         <Tooltip
                           contentStyle={{ backgroundColor: '#1F2937', border: 'none' }}
                           formatter={(v, name) => {
-                            const label = name === 'totalPnL' ? 'P&L Total' : name === 'unrealizedPnL' ? 'Latent' : 'Réalisé';
-                            return [(v >= 0 ? '+' : '') + fmt(v) + ' HKD', label];
+                            const label = name === 'totalPnL'? 'P&L Total': name === 'unrealizedPnL'? 'Latent': 'Réalisé';
+                            return [(v >= 0? '+': '') + fmt(v) + ' HKD', label];
                           }}
                         />
-                        <Legend formatter={(value) => value === 'totalPnL' ? 'P&L Total' : value === 'unrealizedPnL' ? 'Latent' : 'Réalisé'} />
-                        <Area type="monotone" dataKey="totalPnL" stroke={isPositive ? '#10B981' : '#EF4444'} fill="url(#colorTotalPnl)" name="totalPnL" strokeWidth={2} />
+                        <Legend formatter={(value) => value === 'totalPnL'? 'P&L Total': value === 'unrealizedPnL'? 'Latent': 'Réalisé'} />
+                        <Area type="monotone" dataKey="totalPnL" stroke={isPositive? '#10B981': '#EF4444'} fill="url(#colorTotalPnl)" name="totalPnL" strokeWidth={2} />
                         <Area type="monotone" dataKey="unrealizedPnL" stroke="#3B82F6" fill="none" strokeDasharray="3 3" name="unrealizedPnL" strokeWidth={1} />
                         <Area type="monotone" dataKey="realizedPnL" stroke="#8B5CF6" fill="none" strokeDasharray="3 3" name="realizedPnL" strokeWidth={1} />
                       </AreaChart>
                     </ResponsiveContainer>
-                  ) : (
+                  ): (
                     <div className="h-48 flex flex-col items-center justify-center text-muted">
                       <p>Pas assez de snapshots pour afficher la courbe.</p>
                       <p className="text-xs mt-2">Snapshots: {pnlData.length} (besoin de 2+)</p>
@@ -4753,9 +4861,9 @@
                 {/* Position Duration Charts */}
                 <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                   <h3 className="font-semibold mb-3">Durée des positions ouvertes</h3>
-                  {!RECHARTS_LOADED ? (
+                  {!RECHARTS_LOADED? (
                     <ChartFallback message="Rafraîchissez la page" />
-                  ) : (
+                  ): (
                     <ResponsiveContainer width="100%" height={400}>
                       <BarChart
                         data={getSorted().sort((a,b) => b.days - a.days).map(p => {
@@ -4778,7 +4886,7 @@
                           {getSorted().sort((a,b) => b.days - a.days).map((p, i) => {
                             const cleanTicker = p.ticker.replace(/b\.HK$/, '.HK');
                             const price = priceCache[cleanTicker]?.price || p.currentPrice;
-                            return <Cell key={i} fill={price >= p.entryPrice ? '#10B981' : '#EF4444'} />;
+                            return <Cell key={i} fill={price >= p.entryPrice? '#10B981': '#EF4444'} />;
                           })}
                         </Bar>
                       </BarChart>
@@ -4795,7 +4903,7 @@
               const todayDate = getMarketToday();
               // Use stored dailyPnL from snapshots (calculated correctly at snapshot time)
               const getTotalPnL = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
-              // Gross realized P&L (no fees) — matches the cron's stored s.realizedPnL definition.
+              // Gross realized P&L (no fees), matches the cron's stored s.realizedPnL definition.
               const grossRealizedPnL = closedTrades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) * t.quantity, 0);
               const sortedSnaps = [...snapshots]
                 .filter(s => isTradingDay(s.date))
@@ -4875,22 +4983,22 @@
 
               return (
                 <div className="space-y-4">
-                  {/* Performance vs HSI — the real return when the engaged capital moves.
+                  {/* Performance vs HSI, the real return when the engaged capital moves.
                       Three measures, three questions (wiki/return-on-average-capital.md):
-                        - return on average engaged capital : what the deployed money earned
-                        - TWR                               : picking quality, ignores sizing
-                        - alpha = TWR − HSI                 : the only fair index comparison
+                        - return on average engaged capital: what the deployed money earned
+                        - TWR: picking quality, ignores sizing
+                        - alpha = TWR − HSI: the only fair index comparison
                       TWR chains dailyPnL, and 6 sessions have no snapshot, so it is a FLOOR.
                       The capital-based figures use the balance-sheet delta and are exact. */}
                   {(() => {
                     const eq = (s) => (s.unrealizedPnL || 0) + (s.realizedPnL || 0);
                     const pad2 = (n) => String(n).padStart(2, '0');
-                    const lastDate = sortedSnaps.length ? sortedSnaps[sortedSnaps.length - 1].date : todayDate;
+                    const lastDate = sortedSnaps.length? sortedSnaps[sortedSnaps.length - 1].date: todayDate;
                     const cutoffFor = (w) => {
                       if (w === 'Tout') return '0000-00-00';
                       if (w === 'YTD') return `${lastDate.substring(0, 4)}-01-01`;
                       const [Y, M, D] = lastDate.split('-').map(Number);
-                      const d = new Date(Y, M - 1 - (w === '1M' ? 1 : w === '3M' ? 3 : 6), D);
+                      const d = new Date(Y, M - 1 - (w === '1M'? 1: w === '3M'? 3: 6), D);
                       return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
                     };
                     const win = sortedSnaps.filter(s => s.date >= cutoffFor(benchWindow));
@@ -4926,7 +5034,7 @@
                     // dated inside the interval between the two snapshots. Its P&L drops out
                     // of unrealizedPnL without ever reaching realizedPnL, so the balance-sheet
                     // delta reads the removal as a gain (on a loser) or a loss (on a winner).
-                    // Matching on the interval, not a +/-N day window — a window mis-fires
+                    // Matching on the interval, not a +/-N day window, a window mis-fires
                     // whenever snapshots are missing (0177/1585, sold 05-28, no snapshot
                     // until 06-03, would read as unexplained).
                     const orphans = [];
@@ -4955,9 +5063,9 @@
                       capNum += (s.capitalEngaged || 0) * w;
                       capDen += w;
                     });
-                    const avgCap = capDen ? capNum / capDen : 0;
-                    const rocGross = avgCap ? (pnl / avgCap) * 100 : 0;
-                    const rocNet = avgCap ? ((pnl - fees) / avgCap) * 100 : 0;
+                    const avgCap = capDen? capNum / capDen: 0;
+                    const rocGross = avgCap? (pnl / avgCap) * 100: 0;
+                    const rocNet = avgCap? ((pnl - fees) / avgCap) * 100: 0;
                     // Loud only when the distortion actually moves the displayed percentage.
                     const orphanMaterial = avgCap > 0 && Math.abs(orphanPnL) / avgCap > 0.001;
 
@@ -4973,12 +5081,12 @@
                       return {
                         date: s.date.substring(5),
                         pf: (idx - 1) * 100,
-                        hsi: (hsi0 && h) ? (h / hsi0 - 1) * 100 : null,
+                        hsi: (hsi0 && h)? (h / hsi0 - 1) * 100: null,
                       };
                     });
                     const twr = (idx - 1) * 100;
                     const hsiRet = series[series.length - 1].hsi;
-                    const alpha = hsiRet == null ? null : twr - hsiRet;
+                    const alpha = hsiRet == null? null: twr - hsiRet;
 
                     const mdd = (levels) => {
                       let peak = -Infinity, worst = 0;
@@ -4996,8 +5104,8 @@
                     // flat-line the index and silently inflate alpha. Say so instead.
                     const hsiStale = !last.hsiClose && last.date > HSI_BACKFILL_LAST;
 
-                    const sign = (v, d = 2) => (v >= 0 ? '+' : '') + v.toFixed(d);
-                    const tone = (v) => v >= 0 ? 'text-green-600' : 'text-red-600';
+                    const sign = (v, d = 2) => (v >= 0? '+': '') + v.toFixed(d);
+                    const tone = (v) => v >= 0? 'text-green-600': 'text-red-600';
                     const Tile = ({ label, value, cls, sub }) => (
                       <div className="bg-gray-50 rounded-lg px-3 py-2">
                         <div className="text-[10px] text-muted uppercase tracking-wide">{label}</div>
@@ -5011,7 +5119,7 @@
                         <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
                           <h3 className="font-semibold">
                             Performance vs HSI
-                            <InfoTooltip text="TWR = rendement pondéré par le temps, immunisé contre les apports et retraits : c'est la seule mesure comparable à un indice. Le rendement sur capital moyen engagé répond à une autre question — ce que le capital réellement déployé a rapporté.">
+                            <InfoTooltip text="TWR = rendement pondéré par le temps, immunisé contre les apports et retraits: c'est la seule mesure comparable à un indice. Le rendement sur capital moyen engagé répond à une autre question, ce que le capital réellement déployé a rapporté.">
                               <span className="text-muted text-xs ml-1 cursor-help">ⓘ</span>
                             </InfoTooltip>
                           </h3>
@@ -5040,32 +5148,32 @@
                             sub={`net ${sign(rocNet)} %`} />
                           <Tile label="TWR (plancher)" value={`${sign(twr)} %`} cls={tone(twr)}
                             sub={`drawdown ${ddPf.toFixed(1)} %`} />
-                          <Tile label="HSI" value={hsiRet == null ? '—' : `${sign(hsiRet)} %`}
-                            cls={hsiRet == null ? '' : tone(hsiRet)}
+                          <Tile label="HSI" value={hsiRet == null? '—': `${sign(hsiRet)} %`}
+                            cls={hsiRet == null? '': tone(hsiRet)}
                             sub={`drawdown ${ddHsi.toFixed(1)} %`} />
-                          <Tile label="Alpha vs HSI" value={alpha == null ? '—' : `${sign(alpha)} pts`}
-                            cls={alpha == null ? '' : tone(alpha)} sub="TWR − HSI" />
+                          <Tile label="Alpha vs HSI" value={alpha == null? '—': `${sign(alpha)} pts`}
+                            cls={alpha == null? '': tone(alpha)} sub="TWR − HSI" />
                         </div>
 
                         {orphanMaterial && (
                           <p className="text-[11px] text-red-700 bg-red-50 rounded-md px-2 py-1.5 mb-2">
-                            <strong>{orphans.length} ligne{orphans.length > 1 ? 's' : ''} sortie{orphans.length > 1 ? 's' : ''} du livre sans vente enregistrée</strong>
-                            {' '}({[...new Set(orphans.map(o => o.date))].join(', ')} — {[...new Set(orphans.map(o => o.ticker))].join(', ')}).
+                            <strong>{orphans.length} ligne{orphans.length > 1? 's': ''} sortie{orphans.length > 1? 's': ''} du livre sans vente enregistrée</strong>
+                            {' '}({[...new Set(orphans.map(o => o.date))].join(', ')}, {[...new Set(orphans.map(o => o.ticker))].join(', ')}).
                             {' '}Leur P&L de {sign(orphanPnL, 0)} HKD a quitté la courbe sans passer par le réalisé, donc le P&L période
-                            et les deux chiffres rapportés au capital moyen sont faussés d'autant. Corrigé : {sign(pnl + orphanPnL, 0)} HKD,
-                            soit {sign(avgCap ? (pnl + orphanPnL) / avgCap * 100 : 0)} %. Le TWR n'est pas touché (il ne chaîne que les lignes détenues).
+                            et les deux chiffres rapportés au capital moyen sont faussés d'autant. Corrigé: {sign(pnl + orphanPnL, 0)} HKD,
+                            soit {sign(avgCap? (pnl + orphanPnL) / avgCap * 100: 0)} %. Le TWR n'est pas touché (il ne chaîne que les lignes détenues).
                           </p>
                         )}
 
                         {hsiStale && (
                           <p className="text-[11px] text-amber-700 bg-amber-50 rounded-md px-2 py-1.5 mb-2">
-                            Le dernier point HSI est repris de {HSI_BACKFILL_LAST} : ce snapshot n'a pas encore de <code>hsiClose</code>. L'alpha affiché est approximatif jusqu'au prochain passage du cron.
+                            Le dernier point HSI est repris de {HSI_BACKFILL_LAST}: ce snapshot n'a pas encore de <code>hsiClose</code>. L'alpha affiché est approximatif jusqu'au prochain passage du cron.
                           </p>
                         )}
 
-                        {!RECHARTS_LOADED ? (
+                        {!RECHARTS_LOADED? (
                           <ChartFallback message="Recharts non chargé" />
-                        ) : (
+                        ): (
                           <ResponsiveContainer width="100%" height={280}>
                             <LineChart data={series}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
@@ -5073,9 +5181,9 @@
                               <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v.toFixed(0)}%`} />
                               <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
                               <Tooltip
-                                formatter={(v, n) => [v == null ? '—' : `${sign(v)} %`, n === 'pf' ? 'Portefeuille' : 'HSI']}
+                                formatter={(v, n) => [v == null? '—': `${sign(v)} %`, n === 'pf'? 'Portefeuille': 'HSI']}
                                 contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
-                              <Legend formatter={(v) => v === 'pf' ? 'Portefeuille (TWR)' : 'HSI'} wrapperStyle={{ fontSize: '11px' }} />
+                              <Legend formatter={(v) => v === 'pf'? 'Portefeuille (TWR)': 'HSI'} wrapperStyle={{ fontSize: '11px' }} />
                               <Line type="monotone" dataKey="pf" stroke="#2563EB" strokeWidth={2} dot={false} name="pf" />
                               <Line type="monotone" dataKey="hsi" stroke="#9CA3AF" strokeWidth={1.5} dot={false} name="hsi" connectNulls />
                             </LineChart>
@@ -5097,7 +5205,7 @@
                       date: s.date.substring(5),
                       totalPnL: (s.unrealizedPnL || 0) + (s.realizedPnL || 0)
                     }));
-                    const latestPnL = pnlData.length > 0 ? pnlData[pnlData.length - 1].totalPnL : 0;
+                    const latestPnL = pnlData.length > 0? pnlData[pnlData.length - 1].totalPnL: 0;
                     const isPositive = latestPnL >= 0;
 
                     return (
@@ -5105,28 +5213,28 @@
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="font-semibold">P&L Total</h3>
                       <span className={`text-sm font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                        {isPositive ? '+' : ''}{fmt(latestPnL)} HKD
+                        {isPositive? '+': ''}{fmt(latestPnL)} HKD
                       </span>
                     </div>
-                    {!RECHARTS_LOADED ? (
+                    {!RECHARTS_LOADED? (
                       <ChartFallback message="Recharts non chargé" />
-                    ) : pnlData.length > 1 ? (
+                    ): pnlData.length > 1? (
                       <ResponsiveContainer width="100%" height={300}>
                         <AreaChart data={pnlData}>
                           <defs>
                             <linearGradient id="colorEqPnl" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0.4} />
-                              <stop offset="95%" stopColor={isPositive ? '#10B981' : '#EF4444'} stopOpacity={0} />
+                              <stop offset="5%" stopColor={isPositive? '#10B981': '#EF4444'} stopOpacity={0.4} />
+                              <stop offset="95%" stopColor={isPositive? '#10B981': '#EF4444'} stopOpacity={0} />
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="date" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(0)}k` : v} />
-                          <Tooltip formatter={(v) => [(v >= 0 ? '+' : '') + fmt(v) + ' HKD', 'P&L Total']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
-                          <Area type="monotone" dataKey="totalPnL" stroke={isPositive ? '#10B981' : '#EF4444'} fill="url(#colorEqPnl)" name="P&L Total" strokeWidth={2} />
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999? `${(v / 1000).toFixed(0)}k`: v} />
+                          <Tooltip formatter={(v) => [(v >= 0? '+': '') + fmt(v) + ' HKD', 'P&L Total']} contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }} />
+                          <Area type="monotone" dataKey="totalPnL" stroke={isPositive? '#10B981': '#EF4444'} fill="url(#colorEqPnl)" name="P&L Total" strokeWidth={2} />
                         </AreaChart>
                       </ResponsiveContainer>
-                    ) : (
+                    ): (
                       <p className="text-muted text-xs text-center py-8">Pas assez de snapshots (besoin de 2+). Actuellement: {pnlData.length}</p>
                     )}
                   </div>
@@ -5136,26 +5244,26 @@
                   {/* Weekly P&L */}
                   <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                     <h3 className="font-semibold mb-3">P&L par semaine</h3>
-                    {RECHARTS_LOADED && weeklyData.length > 0 ? (
+                    {RECHARTS_LOADED && weeklyData.length > 0? (
                       <ResponsiveContainer width="100%" height={250}>
                         <BarChart data={weeklyData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="week" stroke="#9CA3AF" tick={{ fontSize: 9 }} />
-                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999? `${(v / 1000).toFixed(1)}k`: v} />
+                          <Tooltip content={({ active, payload, label }) => active && payload?.length? (
                             <div style={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', padding: '8px 12px', fontSize: '12px' }}>
                               <div style={{ color: 'white', fontWeight: 'bold' }}>{label}</div>
-                              <div style={{ color: payload[0].value >= 0 ? '#10B981' : '#F87171' }}>P&L : {fmt(payload[0].value)} HKD</div>
+                              <div style={{ color: payload[0].value >= 0? '#10B981': '#F87171' }}>P&L: {fmt(payload[0].value)} HKD</div>
                             </div>
-                          ) : null} />
+                          ): null} />
                           <Bar dataKey="pnl" name="P&L">
                             {weeklyData.map((d, i) => (
-                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                              <Cell key={i} fill={d.pnl >= 0? '#10B981': '#EF4444'} />
                             ))}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : (
+                    ): (
                       <p className="text-muted text-xs text-center py-8">Pas assez de données</p>
                     )}
                     {calendarData.length > 0 && (
@@ -5164,8 +5272,8 @@
                           <div key={m.key}>
                             <div className="flex justify-between items-center bg-gray-50 rounded-md px-2 py-1.5 text-xs font-semibold">
                               <span>{m.label}</span>
-                              <span className={m.total >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                {m.total >= 0 ? '+' : ''}{fmt(m.total)}
+                              <span className={m.total >= 0? 'text-green-600': 'text-red-600'}>
+                                {m.total >= 0? '+': ''}{fmt(m.total)}
                               </span>
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
@@ -5174,7 +5282,7 @@
                                   <div className="text-[10px] text-muted font-mono">{w.week.split('-')[1]}</div>
                                   <div className="text-[10px] text-muted">{w.days}</div>
                                   <div className={`text-xs font-bold ${w.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {w.pnl >= 0 ? '+' : ''}{fmt(w.pnl)}
+                                    {w.pnl >= 0? '+': ''}{fmt(w.pnl)}
                                   </div>
                                 </div>
                               ))}
@@ -5188,26 +5296,26 @@
                   {/* Monthly P&L */}
                   <div className="bg-white border border-gray-100 shadow-sm rounded-xl rounded-lg p-4">
                     <h3 className="font-semibold mb-3">P&L par mois</h3>
-                    {RECHARTS_LOADED && monthlyData.length > 0 ? (
+                    {RECHARTS_LOADED && monthlyData.length > 0? (
                       <ResponsiveContainer width="100%" height={250}>
                         <BarChart data={monthlyData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                           <XAxis dataKey="month" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999 ? `${(v / 1000).toFixed(1)}k` : v} />
-                          <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
+                          <YAxis stroke="#9CA3AF" tickFormatter={(v) => v > 999 || v < -999? `${(v / 1000).toFixed(1)}k`: v} />
+                          <Tooltip content={({ active, payload, label }) => active && payload?.length? (
                             <div style={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', padding: '8px 12px', fontSize: '12px' }}>
                               <div style={{ color: 'white', fontWeight: 'bold' }}>{label}</div>
-                              <div style={{ color: payload[0].value >= 0 ? '#10B981' : '#F87171' }}>P&L : {fmt(payload[0].value)} HKD</div>
+                              <div style={{ color: payload[0].value >= 0? '#10B981': '#F87171' }}>P&L: {fmt(payload[0].value)} HKD</div>
                             </div>
-                          ) : null} />
+                          ): null} />
                           <Bar dataKey="pnl" name="P&L">
                             {monthlyData.map((d, i) => (
-                              <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
+                              <Cell key={i} fill={d.pnl >= 0? '#10B981': '#EF4444'} />
                             ))}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : (
+                    ): (
                       <p className="text-muted text-xs text-center py-8">Pas assez de données</p>
                     )}
                     {monthlyData.length > 0 && (
@@ -5223,7 +5331,7 @@
                             <tr key={mo.month} className="border-t border-gray-100">
                               <td className="px-2 py-1.5">{mo.month}</td>
                               <td className={`px-2 py-1.5 text-right font-bold ${mo.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {mo.pnl >= 0 ? '+' : ''}{fmt(mo.pnl)}
+                                {mo.pnl >= 0? '+': ''}{fmt(mo.pnl)}
                               </td>
                             </tr>
                           ))}
@@ -5270,7 +5378,7 @@
                     </div>
 
                     {/* List of allowed viewers */}
-                    {allowedViewers.length > 0 ? (
+                    {allowedViewers.length > 0? (
                       <div className="space-y-2">
                         <p className="text-xs text-muted font-medium">Personnes autorisées:</p>
                         {allowedViewers.map(email => (
@@ -5285,7 +5393,7 @@
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    ): (
                       <p className="text-xs text-muted">Aucune personne autorisée</p>
                     )}
                   </div>
@@ -5320,7 +5428,7 @@
                       </button>
                     </div>
 
-                    {savedFriends.length > 0 ? (
+                    {savedFriends.length > 0? (
                       <div className="space-y-2">
                         <p className="text-xs text-muted font-medium">Amis enregistrés:</p>
                         {savedFriends.map(email => (
@@ -5343,7 +5451,7 @@
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    ): (
                       <p className="text-xs text-muted">Aucun ami enregistré</p>
                     )}
                   </div>
