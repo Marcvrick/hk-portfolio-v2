@@ -18,6 +18,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 from market_calendar import is_trading_day, coverage_warning, HKEX_HOLIDAYS
+from session_guard import report_prior_session_gap
 
 HKT = timezone(timedelta(hours=8))
 COLLECTION = "portfolios"
@@ -636,20 +637,32 @@ def run():
     if warn:
         print(warn)
 
+    # Can this run settle its own date? Two reasons it cannot:
+    #  - `today` is not an HKEX session;
+    #  - the CAS has not settled yet (before WINDOW_START). This also catches a
+    #    GitHub Actions run that drifted past midnight HKT: it arrives holding
+    #    the NEXT day's date and pre-open prices, and must abort rather than
+    #    write a corrupt snapshot.
+    blocked = None
     if not is_trading_day(today, "hk"):
         weekday = datetime.strptime(today, "%Y-%m-%d").strftime("%A")
         reason = "holiday" if today in HKEX_HOLIDAYS else "weekend"
-        print(f"  Skipping — {weekday} {today} is a {reason} (HKEX closed)")
-        print("=== Done: No updates ===")
-        return
+        blocked = f"{weekday} {today} is a {reason} (HKEX closed)"
+    elif os.environ.get("ALLOW_OFF_HOURS") != "1" and now_hkt.strftime("%H:%M") < WINDOW_START:
+        blocked = (f"{now_hkt.strftime('%H:%M')} HKT is before {WINDOW_START} (CAS not settled; "
+                   "a drifted run from yesterday's schedule lands here too). "
+                   "Set ALLOW_OFF_HOURS=1 to override.")
 
-    # Time-window guard: refuse to snapshot before the CAS settles. This also
-    # neutralises a GitHub Actions run that drifts past midnight HKT — it would
-    # arrive here with the NEXT day's date and pre-open prices, and abort
-    # instead of writing a corrupt snapshot.
-    if os.environ.get("ALLOW_OFF_HOURS") != "1" and now_hkt.strftime("%H:%M") < WINDOW_START:
-        print(f"  Skipping — {now_hkt.strftime('%H:%M')} HKT is before {WINDOW_START} (CAS not settled; "
-              "a drifted run from yesterday's schedule lands here too). Set ALLOW_OFF_HOURS=1 to override.")
+    if blocked:
+        print(f"  Skipping — {blocked}")
+        # Refusing to write was always right; exiting GREEN was not. A drifted
+        # run holds tomorrow's date precisely because today is over and nobody
+        # settled it, and verify-daily.py mirrors this guard and skips green
+        # too — so the loss is invisible on both sides. That silence cost
+        # 2026-08-27 / 08-28 / 08-31 here and 2026-08-27 in the US book,
+        # unnoticed for eleven days (wiki/reliability-risks.md #8).
+        if report_prior_session_gap(db, COLLECTION, "hk", today, "HKT"):
+            sys.exit(1)
         print("=== Done: No updates ===")
         return
 

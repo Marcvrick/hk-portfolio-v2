@@ -59,14 +59,16 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `index-dev.html` | Development version |
 | `update.py` | Cron script for HK TradingView prices (multi-user, holiday-aware via `market_calendar.py`, 16:10→midnight HKT validity window) |
 | `update-us.py` | Cron script for US TradingView prices (holiday-aware since 2026-06-10; previously wrote phantom snapshots on every NYSE holiday) |
-| `market_calendar.py` | Shared trading calendar (HKEX + NYSE holidays 2026-2027, `is_trading_day`, coverage warning) used by both update scripts and `verify-daily.py` so the three can never drift apart |
+| `market_calendar.py` | Shared trading calendar (HKEX + NYSE holidays 2026-2027, `is_trading_day`, `previous_trading_day`, coverage warning) used by both update scripts and `verify-daily.py` so the three can never drift apart |
+| `session_guard.py` | Shared lost-session alarm (2026-09-08). A run that cannot settle its own date asks whether the *previous* trading day has a cron-settled snapshot; if not, that session is unreachable and the caller exits 1. A browser-minted snapshot counts as missed. Empty and dormant books never alarm |
+| `test-session-guard.py` | Hermetic regression test (no credentials, no network) for `session_guard.py`, `previous_trading_day`, and the assertion that the workflow cron slots still tile the drift range from zero with no gap |
 | `patch-remove-nontrading-snapshots.py` | Reusable cleanup: deletes snapshots dated on weekends/holidays (phantom tiles corrupt week/month totals). Idempotent, `--dry-run` / `--apply` |
 | `verify-daily.py` | Post-cron self-check: per-ticker close/changePct + dailyPnL drift vs TradingView (`hk` / `us` arg). Fails the GitHub Actions run on >0.02 close, >0.05pp changePct, or >50 in dailyPnL drift |
 | `patch-snapshot-dailypnl.py` | Reusable backfill: corrects any snapshot's `dailyPnL` given `TARGET_DATE PREV_DATE` args. Use when a cron ran before a formula fix. Run: `GOOGLE_APPLICATION_CREDENTIALS=... python3 patch-snapshot-dailypnl.py 2026-05-05 2026-05-04 --dry-run` |
 | `patch-may6-2865-fix.py` | One-time fix: delete erroneous 2865.HK closed trade (fake 900-share sale from qty entry mistake); correct open position qty to 900; remove stale `addedToday*` fields |
-| `patch-may6-closes-from-yahoo.py` | One-time fix: replace 12 wrong May 6 stored closes with Yahoo's settled values; recompute `dailyPnL` (295 → 3,863 HKD), `portfolioValue`, `unrealizedPnL`, and per-ticker `priceCache.previousClose`. Root cause was the 16:30 cron capturing pre-CAS prints (1913.HK off by 1.02 HKD). Idempotent — safe to re-run. |
+| `patch-may6-closes-from-yahoo.py` | One-time fix: replace 12 wrong May 6 stored closes with Yahoo's settled values; recompute `dailyPnL` (295 → 3,863 HKD), `portfolioValue`, `unrealizedPnL`, and per-ticker `priceCache.previousClose`. Root cause was the 16:30 cron capturing pre-CAS prints (1913.HK off by 1.02 HKD). Idempotent, safe to re-run. |
 | `verify-yesterday-pnl.py` | Audits a past snapshot's stored `dailyPnL` against the cron formula (open positions session move + closed-today `(exit − prior_close) × qty`). Skips false positives from retroactive `realizedPnL` patches. Usage: `python3 verify-yesterday-pnl.py hk 2026-05-06`. |
-| `patch-may4-dailypnl.py` | One-off predecessor to `patch-snapshot-dailypnl.py` — left for reference |
+| `patch-may4-dailypnl.py` | One-off predecessor to `patch-snapshot-dailypnl.py`, left for reference |
 | `audit-month.py` | Monthly P&L audit: verifies all snapshots in any calendar month against closing-price derivation (open positions, new-position entry-day, closed-trade session move). Usage: `python3 audit-month.py 2026-03`. Drift threshold: 50 HKD. |
 | `patch-apr13-dailypnl.py` | One-time fix: Apr 13 dailyPnL −14,821 → −17,329 (closingPrices were patched post-cron in the Apr 13 incident series; dailyPnL was not realigned at the time) |
 | `patch-apr14-dailypnl.py` | One-time fix: Apr 14 dailyPnL +10,558.9 → +12,444 (1167.HK closed that day; session move (exit − prior_close) × qty was not fully captured by the cron) |
@@ -76,9 +78,9 @@ Portfolio tracker for **Hong Kong** and **US** stocks with **Firebase Firestore*
 | `patch-apr24.py` | One-time fix: Apr 24 dailyPnL 9,720→6,134, 2175.HK 3.43→3.41, phantom Apr 27 deletion |
 | `patch-apr23-closes.py` | One-time fix: Apr 23 closingPrices realigned to TradingView settlement (CAS-vs-settlement drift) |
 | `patch-april-dailypnl.py` | One-time fix: align April dailyPnL fields with current totalPnL deltas |
-| `patch-all-months-dailypnl.py` | Generalization of the above across all months — reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
-| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:35 HKT** primary [was 16:45, moved 2026-08-10] + **21:00 HKT backup entry** added 2026-06-10 against free-tier drift/skips) — runs `update.py` then `verify-daily.py hk` |
-| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, **16:10 ET** primary + **~20:00 ET backup entry** added 2026-06-10) — runs `update-us.py` then `verify-daily.py us` |
+| `patch-all-months-dailypnl.py` | Generalization of the above across all months, reconciles calendar `monthTotal` with chart endpoint after retroactive closingPrices patches |
+| `.github/workflows/daily-update-hk.yml` | GitHub Actions workflow (HK, **16:35 HKT** primary [was 16:45, moved 2026-08-10] + 4 in-window backups + **3 pre-window drift catchers** added 2026-09-08), runs `update.py` then `verify-daily.py hk` |
+| `.github/workflows/daily-update-us.yml` | GitHub Actions workflow (US, **16:10 ET** primary + 3 in-window backups + **3 pre-window drift catchers** added 2026-09-08), runs `update-us.py` then `verify-daily.py us` |
 
 ---
 
@@ -91,33 +93,33 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Feature / Fix | `index.html` (HK) | `index-us.html` (US) | Date Synced |
 |---|:---:|:---:|---|
 | Positions tab: Entrée + Actuel columns collapsed by default, toggled by clicking the **Qté** header (▸/▾); new sortable **Weight** column (position mkt value ÷ portfolio value, like the Performance tab). tfoot colSpans track the toggle; total row shows 100%. | ✅ | ✅ | 2026-06-25 |
-| Completed-trades ticker links to its TradingView chart (new tab, owner-gated). HK uses `HKEX:<code>` (leading zeros stripped); US uses the bare symbol — both reuse saved chart layout `b8EBWJ7k`. (US already had it; ported to HK.) | ✅ | ✅ | 2026-06-25 |
+| Completed-trades ticker links to its TradingView chart (new tab, owner-gated). HK uses `HKEX:<code>` (leading zeros stripped); US uses the bare symbol, both reuse saved chart layout `b8EBWJ7k`. (US already had it; ported to HK.) | ✅ | ✅ | 2026-06-25 |
 | **Partial-sale cost-basis fix:** `closePosition` no longer rewrites the remaining shares' `entryPrice` on a partial sell (was subtracting realized profit from the basis → corruption; e.g. sell 500 of 800 2359.HK @ 148.2 bought 128.7 left the 300 remaining at 96.20). Partial close now reduces `quantity` only; the realized gain stays in `closedTrades`. Matches `index-dev.html`. | ✅ | ✅ | 2026-06-25 |
 | Save guard in `saveData`: silent-drop abort (positions) + snapshot merge (restores cloud snapshots missing from a stale tab; never lets an unsettled browser snapshot replace a cron-settled one) | ✅ | ✅ | 2026-06-10 |
 | Cron hardening: shared `market_calendar.py` (HKEX+NYSE 2026-27), US holiday guard, 16:10→midnight validity window (`ALLOW_OFF_HOURS=1` override), `sys.exit(1)` on TV failure, closed-today prevClose from TV `close − change_abs` (gap-proof) | ✅ | ✅ | 2026-06-10 |
-| Workflow backup schedule entry (HK 21:00 HKT / US ~20:00 ET) — idempotent re-run covers drifted/skipped primary runs | ✅ | ✅ | 2026-06-10 |
+| Workflow backup schedule entry (HK 21:00 HKT / US ~20:00 ET), idempotent re-run covers drifted/skipped primary runs | ✅ | ✅ | 2026-06-10 |
 | Cron cross-checks TradingView vs Yahoo per held ticker; Yahoo wins beyond tolerance (HK: 0.05 HKD/0.5%, US: 0.05 USD/0.3%); snapshot stores `settledAt` / `sources` / `provisional` / `priceProvenance` | ✅ | ✅ | 2026-05-07 |
-| Cron retimed past closing-auction window — HK 16:30 → **16:45 HKT**, US 16:00 → **16:10 ET** | ✅ | ✅ | 2026-05-07 |
+| Cron retimed past closing-auction window, HK 16:30 → **16:45 HKT**, US 16:00 → **16:10 ET** | ✅ | ✅ | 2026-05-07 |
 | `~` marker on calendar tiles flagged provisional (Yahoo unreachable for ≥1 ticker) | ✅ | ✅ | 2026-05-07 |
 | Snapshot modal shows green "Settled" / amber "Provisional" pill with timestamp; per-ticker source tag (`· yahoo` / `· ✓` / `· tv-only`) in debug breakdown | ✅ | ✅ | 2026-05-07 |
-| Snapshot modal "P&L recalculé" debug breakdown now includes closed-today trades (`(exit − prior_close) × qty`) — was off by 846 HKD on May 6 (missed the 2865.HK closure leg) | ✅ | ✅ | 2026-05-07 |
+| Snapshot modal "P&L recalculé" debug breakdown now includes closed-today trades (`(exit − prior_close) × qty`), was off by 846 HKD on May 6 (missed the 2865.HK closure leg) | ✅ | ✅ | 2026-05-07 |
 | Trash icon on sold rows in Today's Movers; `deleteClosedTrade(id)` removes erroneous closed trades from Firestore | ✅ | ✅ | 2026-05-07 |
 | Editable quantity field in Positions tab; `updateQuantity(id, qty)` saves to Firestore on blur/Enter | ✅ | ✅ | 2026-05-07 |
 | Block manual Refresh button outside market hours (pre-market + after-close); add `isPreMarketUS()` helper to US file | ✅ | ✅ | 2026-05-05 |
 | Fix cron `dailyPnL` overcount: replace `realized_pnl−yesterday_realized` with `(exitPrice−prevClose)×qty` for positions closed today | ✅ | ✅ | 2026-05-06 |
 | Pre-market Performance tab: `totalDailyDollar` reads `yesterdaySnapshot.dailyPnL` directly (authoritative cron value); drop `closedLastSessionDollar` IIFE | ✅ | ✅ | 2026-05-06 |
 | Fix `verify-daily.py` Check 3 formula (was using same overcount as cron bug); add Check 4 (8% sanity cap on dailyPnL vs portfolio value) | ✅ | ✅ | 2026-05-06 |
-| Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices) — fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
+| Cron `dailyPnL` uses TV `change_abs × qty` (not yesterday's stored closingPrices), fixes calendar/Performance divergence | ✅ | ✅ | 2026-04-26 |
 | Performance tab pre-market path uses `cached.change` directly (drop `!preMarketActive` from `useTvDirect` gate) | ✅ | n/a (US already had this) | 2026-04-26 |
 | Pre-market guard against phantom future-date snapshots when opening from a westward timezone | ✅ | n/a (US already had this) | 2026-04-26 |
 | Post-cron self-check (`verify-daily.py`) wired into GitHub Actions for both markets | ✅ | ✅ | 2026-04-26 |
 | Fix HKT midnight bug: correct `entryDate` for positions added after midnight UTC (shows as next-day, breaking `isNewToday` logic) | ✅ | ✅ | 2026-04-14 |
 | Add position: green checkmark feedback (1.5s) on successful add | ✅ | ✅ | 2026-04-14 |
 | Fix pre-market P&L for new-today positions: use `cached.previousClose` instead of missing snapshot data | ✅ | ✅ | 2026-04-14 |
-| Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ | — | 2026-04-10 |
-| Fix weekTotal week 1: exclude previous-month days from sum | ✅ | — | 2026-04-10 |
-| Fix HKEX_HOLIDAYS 2026: remove incorrect `2026-04-07` (Easter Monday = Apr 6) | ✅ | — | 2026-04-10 |
-| Fix `update.py` HKEX_HOLIDAYS: same `2026-04-07` removal | ✅ | — | 2026-04-10 |
+| Fix timezone bug: `hktDateStr()` replaces `toISOString()` in calendar (weekTotal + backfill) | ✅ |, | 2026-04-10 |
+| Fix weekTotal week 1: exclude previous-month days from sum | ✅ |, | 2026-04-10 |
+| Fix HKEX_HOLIDAYS 2026: remove incorrect `2026-04-07` (Easter Monday = Apr 6) | ✅ |, | 2026-04-10 |
+| Fix `update.py` HKEX_HOLIDAYS: same `2026-04-07` removal | ✅ |, | 2026-04-10 |
 | Use TradingView's official % directly (never recompute) | ✅ | ✅ | 2026-03-05 |
 | TradingView Scanner API replaces Yahoo Finance (browser) | ✅ | ✅ | 2026-03-05 |
 | TradingView links open in edit mode (saved layout) | ✅ | ✅ | 2026-03-05 |
@@ -125,10 +127,10 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Market-timezone `today` + all HKT/ET helpers via Intl API | ✅ | ✅ | 2026-03-04 |
 | Fix stale `today` + past snapshot immutability guard | ✅ | ✅ | 2026-03-04 |
 | Post-close data protection (auto-refresh + snapshot lock) | ✅ | ✅ | 2026-02-27 |
-| Fix HKT timezone bug in isPreMarket/isMarketOpen/isAfterClose | ✅ | — | 2026-02-27 |
+| Fix HKT timezone bug in isPreMarket/isMarketOpen/isAfterClose | ✅ |, | 2026-02-27 |
 | Fix TOTAL row alignment on mobile (Positions + Performance) | ✅ | ✅ | 2026-02-24 |
-| Fix dailyGain vs Performance tab P&L discrepancy | — | ✅ | 2026-02-12 |
-| Snapshot auto-save persists to Firestore | — | ✅ | 2026-02-12 |
+| Fix dailyGain vs Performance tab P&L discrepancy |, | ✅ | 2026-02-12 |
+| Snapshot auto-save persists to Firestore |, | ✅ | 2026-02-12 |
 | Fix previousClose extraction (timestamp-based) | ✅ | ✅ | 2026-02-11 |
 | Live daily P&L for today (no stale snapshot) | ✅ | ✅ | 2026-02-11 |
 | Auto-refresh cache threshold 5 min | ✅ | ✅ | 2026-02-11 |
@@ -144,8 +146,8 @@ Both `index.html` (HK) and `index-us.html` (US) share the same core features but
 | Friend daily P&L shows friend's data | ✅ | ✅ | 2026-02-10 |
 | Empty `INITIAL_POSITIONS/TRADES/TRANSACTIONS` | ✅ | ✅ | 2026-02-10 |
 | Cloudflare Worker as primary CORS proxy | ✅ | ✅ | 2026-02-08 |
-| Dead proxy auto-migration | — | ✅ | 2026-02-08 |
-| `convertOldTicker()` strips `.HK` + whitespace | — | ✅ | 2026-02-08 |
+| Dead proxy auto-migration |, | ✅ | 2026-02-08 |
+| `convertOldTicker()` strips `.HK` + whitespace |, | ✅ | 2026-02-08 |
 
 **How to use this table:** After applying a change to one file, update this table to track which file still needs the same change. This prevents the HK/US drift that caused the 2026-02-10 incident.
 
@@ -253,12 +255,14 @@ This ensures:
 
 **Two separate cron workflows:**
 
-| Workflow | Script | Schedule | Collection |
+| Workflow | Script | Schedule (UTC, Mon-Fri) | Collection |
 |----------|--------|----------|------------|
-| `daily-update-hk.yml` | `update.py` | Mon-Fri 08:35 UTC (16:35 HKT) + backup 13:00 UTC (21:00 HKT) | `portfolios` |
-| `daily-update-us.yml` | `update-us.py` | Mon-Fri 21:10 UTC (16:10 ET) + backup 01:00 UTC (~20:00 ET) | `us-portfolios` |
+| `daily-update-hk.yml` | `update.py` | **08:35** primary (16:35 HKT) + 10:00 / 12:00 / 13:00 / 15:00 backups + **02:41 / 04:23 / 06:17 drift catchers** | `portfolios` |
+| `daily-update-us.yml` | `update-us.py` | **21:10** primary (16:10 ET) + 23:00 / 01:00 / 03:00 backups + **15:41 / 17:23 / 19:17 drift catchers** | `us-portfolios` |
 
 Both share the same `FIREBASE_CREDENTIALS_JSON` secret. To trigger manually: GitHub > Actions > Select workflow > "Run workflow".
+
+**Why three of the slots are scheduled before the market even closes.** A run only writes inside its market's valid window (16:10 → local midnight), so an undrifted drift-catcher is a deliberate no-op. It exists for the days GitHub's scheduler runs hours late: the drift is near-uniform across slots, so every slot scheduled *inside* the window shifts out of it together, and the fleet's whole tolerance is the earliest slot's headroom. That was 7h25m (HK) and 6h50m (US) and it lost four sessions in Aug 2026. The catchers tile the drift range out to 13h19m / 12h19m with no gap. `test-session-guard.py` asserts that tiling; adding a slot inside the window will not restore it.
 
 ---
 
@@ -278,9 +282,9 @@ GitHub Pages auto-deploys from `main` branch.
 **Every code change MUST be committed AND pushed to GitHub in the same session. No exceptions.**
 
 This app has THREE execution environments that ALL read from the GitHub `main` branch:
-1. **GitHub Pages** — serves `index.html` / `index-us.html` to the browser
-2. **GitHub Actions cron** — runs `update.py` / `update-us.py` at market close
-3. **Local browser** — for testing only (via `python -m http.server`)
+1. **GitHub Pages**, serves `index.html` / `index-us.html` to the browser
+2. **GitHub Actions cron**, runs `update.py` / `update-us.py` at market close
+3. **Local browser**, for testing only (via `python -m http.server`)
 
 If you edit code locally but forget to push:
 - The **local browser** sees the new code (works correctly during testing)
@@ -288,7 +292,7 @@ If you edit code locally but forget to push:
 - The **cron** still runs the OLD `update.py` (writes wrong data to Firestore)
 - The cron's wrong Firestore data then **overwrites** whatever the local browser fixed
 
-**This is exactly what caused the Mar 5 2026 incident** — code was fixed locally, tested, confirmed working, but never pushed. The cron ran the old code at 16:30 HKT, wrote wrong `closingPrices` and `changePercent` to Firestore, and the "fixed" data reverted to wrong values. The fix had to be applied THREE times before this was identified as the root cause.
+**This is exactly what caused the Mar 5 2026 incident**: code was fixed locally, tested, confirmed working, but never pushed. The cron ran the old code at 16:30 HKT, wrote wrong `closingPrices` and `changePercent` to Firestore, and the "fixed" data reverted to wrong values. The fix had to be applied THREE times before this was identified as the root cause.
 
 **Rule: `git add + git commit + git push` is ONE atomic operation. Never do one without the others.**
 
@@ -391,7 +395,7 @@ python -m http.server 8000
    - Bug fixé (ajouter dans "Known Issues / Recent Fixes")
    - Nouvelle feature (ajouter dans "Features by Tab")
 2. Mettre à jour le Changelog ci-dessous
-3. **Commit AND push immediately** — see Deployment Rule below
+3. **Commit AND push immediately**, see Deployment Rule below
 
 ### Key Business Rules (Quick Reference)
 | Rule | HK | US |
@@ -413,7 +417,7 @@ python -m http.server 8000
 
 ### Recording a Sale (position removal)
 
-Full procedure: **`wiki/recording-a-sale.md`** — 8-step checklist with common mistakes table.
+Full procedure: **`wiki/recording-a-sale.md`**, 8-step checklist with common mistakes table.
 
 **Critical rule (learnt from Jun 9 2026 incident):** the `dailyPnL` held-leg uses the prior **trading day** close (TradingView `change_abs`), NOT the prior snapshot close. These diverge whenever the cron missed days. Always fetch the correct prevClose via yfinance for gap periods. Full formula: `wiki/dailypnl-formula.md`.
 
@@ -428,35 +432,53 @@ Quick summary:
 
 ## Changelog
 
-### Sep 8, 2026 — a position may no longer leave the book unexplained (rules v2 + the first real rules test)
+### Sep 8, 2026 (b): four sessions were lost to cron drift and every run reported success
 
-`firestore.rules`, `index.html`, `index-us.html`, `deploy-firestore-rules.py`, new `rules-test/`. Prompted by 1138.HK, bought 6,000 @ 17.55 on 09-04 and present nowhere in the document — not `positions[]`, not `closedTrades[]`, not `priceCache`, not one of 147 snapshots. Repair + full diagnosis: `wiki/incidents.md` 2026-09-08.
+`session_guard.py` (new), `market_calendar.py`, `update.py`, `update-us.py`, both workflow files, `test-session-guard.py` (new). Found while auditing `settledAt` after the 1138.HK repair below. Full diagnosis: `wiki/incidents.md` 2026-09-08 (b), `wiki/reliability-risks.md` #8 and #14.
+
+**What was lost.** HK 2026-08-27, 08-28 and 08-31 have browser-minted snapshots (no `settledAt`, no `priceProvenance`, no Yahoo reconciliation). US 2026-08-27 has **no snapshot at all** and had never been recorded anywhere. Every GitHub Actions slot scheduled for those sessions started past market-local midnight, so each run computed `today` as the *next* date and hit the WINDOW_START guard.
+
+**Refusing to write was right; exiting 0 was not.** Stamping the prior session's prices under tomorrow's date would be worse than writing nothing, so the guard did its job. But `update.py` returned 0, and `verify-daily.py` mirrors the identical guard (L314) and also skipped green, so both halves of the job went quiet on exactly the runs that prove a session was lost. Twenty green runs, four lost sessions, found eleven days later by hand.
+
+**Fix 1, the skip is loud.** New shared `session_guard.py`: a run that cannot settle its own date checks whether the *previous* trading day has a cron-settled snapshot. Settled, it stays green. Not settled, that session is unreachable, so the run names it and exits 1, which makes GitHub's workflow-failure email the notification path this repo has never had. A snapshot that exists but is browser-minted counts as lost.
+
+**Fix 2, the fan-out tolerates real drift.** Every slot used to sit inside the valid window, so the fleet's tolerance was the earliest slot's headroom: 7h25m (HK), 6h50m (US, EDT), against observed drift up to 10h38m. Three slots per market now sit *before* the window (HK 02:41 / 04:23 / 06:17 UTC, US 15:41 / 17:23 / 19:17 UTC): no-ops undrifted, in-window once drift arrives. Bands tile the range with no gap to 13h19m / 12h19m. The wiki's standing advice on this line, "a second earlier schedule entry is free redundancy", was wrong: the drift shifts every slot by roughly the same amount, so another in-window slot buys nothing.
+
+**Also found: two sessions were settled and then un-settled.** HK 2026-07-17 (settled 4 times) and 2026-09-01 (twice), `verify-daily` PASS on every run, both browser-minted today. 09-01 names its writer: 16 `positionsAtClose` legs against 15 `closingPrices` keys, and only the browser mint produces that shape, since it copies a price only when `priceCache[t].success` while the cron writes a key for every position including the unpriceable `4000.HK` typo. That also clears both patch scripts previously suspected, and no such script existed in July. Tracked as `wiki/reliability-risks.md` #14, open.
+
+**Testing.** `test-session-guard.py` is hermetic (no credentials, no network): calendar edges, the gap detector, and an assertion that the workflow slots still tile the drift range from zero. Replayed on the pre-fix slot list it fails at 7h25m / 6h50m, so it discriminates. Branch wiring verified at the real call site by faking the clock inside `run()` to each drifted run and executing the real function against the live document, 12/12, including two healthy in-window cases that must pass *through* the guard and two dormant books that must never alarm.
+
+**No Firestore write.** The six affected snapshots are unverified, not known-wrong. Measured against raw Yahoo closes (`auto_adjust=False`), the `portfolioValue` error runs −0.27% to +0.37% of the book (+3,934 / +279 / +3,932 / +419 / −3,693 HKD). Re-settling them is a separate decision.
+
+### Sep 8, 2026: a position may no longer leave the book unexplained (rules v2 + the first real rules test)
+
+`firestore.rules`, `index.html`, `index-us.html`, `deploy-firestore-rules.py`, new `rules-test/`. Prompted by 1138.HK, bought 6,000 @ 17.55 on 09-04 and present nowhere in the document, not `positions[]`, not `closedTrades[]`, not `priceCache`, not one of 147 snapshots. Repair + full diagnosis: `wiki/incidents.md` 2026-09-08.
 
 **The hole.** Rules v1 let `positions` shrink by **exactly 1** with no sale and no justification of any kind, so that a manual single delete would still work. That allowance was written down as the "Residual" in `wiki/security-rules.md` on 2026-06-28, complete with an accurate description of how it would be exploited, and it was still open 72 days later when a position went missing in precisely its shape.
 
 **The fix: a receipt.** New append-only `positionDeletions[]`. `positions` may now shrink only by as much as a sale (`closedTrades` grew) or the receipts account for. The delete button and the JSON import path mint receipts via `mkDeletionReceipt()`; every other save echoes the log back unchanged.
 
-The second effect is the one that matters. Both clients build the outgoing document from an explicit field whitelist in `saveData`, so a tab running **old cached JS omits `positionDeletions` entirely** — and is then refused by the server on *every* write, including one that only adds a position. The tab that causes this bug class is by definition the tab that never loaded the latest guard; it cannot decline to be subject to the rules. Six client-side attempts (v2.31, v2.32, v2.33, the Jun 11 closedTrades guard, the Jun 27 `source:'server'` read, the Jun 27 fail-closed catch) each failed on exactly that. Expect the phone PWA and any long-lived tab to hit the red save-failure banner once until reloaded — that is the fix working. The log is empty until the first manual delete, so the lockout is dormant on day one while the position-drop protection is in force immediately.
+The second effect is the one that matters. Both clients build the outgoing document from an explicit field whitelist in `saveData`, so a tab running **old cached JS omits `positionDeletions` entirely**, and is then refused by the server on *every* write, including one that only adds a position. The tab that causes this bug class is by definition the tab that never loaded the latest guard; it cannot decline to be subject to the rules. Six client-side attempts (v2.31, v2.32, v2.33, the Jun 11 closedTrades guard, the Jun 27 `source:'server'` read, the Jun 27 fail-closed catch) each failed on exactly that. Expect the phone PWA and any long-lived tab to hit the red save-failure banner once until reloaded, that is the fix working. The log is empty until the first manual delete, so the lockout is dormant on day one while the position-drop protection is in force immediately.
 
 **Deployment order is not optional**: client code first (Pages), rules second. Reversed, the live old client is the one omitting the field.
 
-**The rules had never been tested.** `deploy-firestore-rules.py` posts to `firebaserules…:test`, and the service account has never held `firebaserules.rulesets.test` — 403 on 2026-06-28 and again today. The 9-case suite therefore never ran once, and these rules have guarded the portfolio unexercised since June. New `rules-test/` runs the real rules engine in the Firestore emulator (no cloud permission needed, needs Java): 41 cases across `portfolios` and `us-portfolios`, all green. `deploy-firestore-rules.py` also carried its own inline copy of the ruleset that had already drifted from `firestore.rules`; it now reads the file, so there is one source of truth.
+**The rules had never been tested.** `deploy-firestore-rules.py` posts to `firebaserules…:test`, and the service account has never held `firebaserules.rulesets.test`, 403 on 2026-06-28 and again today. The 9-case suite therefore never ran once, and these rules have guarded the portfolio unexercised since June. New `rules-test/` runs the real rules engine in the Firestore emulator (no cloud permission needed, needs Java): 41 cases across `portfolios` and `us-portfolios`, all green. `deploy-firestore-rules.py` also carried its own inline copy of the ruleset that had already drifted from `firestore.rules`; it now reads the file, so there is one source of truth.
 
-Also shipped: the `@firestore.transactional` fix for both crons, written 2026-08-18 and recorded as CLOSED in the wiki, which had been sitting uncommitted in the working tree ever since while GitHub ran the racy read-modify-write version. **Its first live exercise is the next scheduled run** — confirm it is green.
+Also shipped: the `@firestore.transactional` fix for both crons, written 2026-08-18 and recorded as CLOSED in the wiki, which had been sitting uncommitted in the working tree ever since while GitHub ran the racy read-modify-write version. **Its first live exercise is the next scheduled run**, confirm it is green.
 
-### Aug 14, 2026 — Completed Trades: "Encaissé par mois" calendar (display only)
+### Aug 14, 2026: Completed Trades: "Encaissé par mois" calendar (display only)
 
 `index.html` + `index-us.html`. At the bottom of the Completed Trades tab (`activeTab === 'history'`), a month grid of realized P&L: one row per year (newest first), 12 month cells, per-cell trade count, sale proceeds (`exitPrice × quantity`) in the cell tooltip, a year subtotal and a grand total that equals the table's own TOTAL.
 
-Figures come from `closedWithCalc` grouped on `exitDate` — **net of fees**, the same definition as the P&L column above it. No snapshot-derived series is spliced in, so the gross-vs-net trap of Aug 10 does not apply here.
+Figures come from `closedWithCalc` grouped on `exitDate`, **net of fees**, the same definition as the P&L column above it. No snapshot-derived series is spliced in, so the gross-vs-net trap of Aug 10 does not apply here.
 
 No Firestore write, no cron change. `test-monthly-cashed.js` extracts the aggregation from both HTMLs and checks month indexing, empty months, proceeds, and "cells sum to realized". Both files transpile clean under `@babel/preset-react`. Read-only Firestore check on the HK book: 48 closed trades, 8 populated months, gross total 116,802 = the 2026-08-14 snapshot's `realizedPnL` to the cent.
 
-### Aug 10, 2026 — data repair: the 3 HK snapshots with stale totals (2026-03-31, 04-13, 05-15)
+### Aug 10, 2026: data repair: the 3 HK snapshots with stale totals (2026-03-31, 04-13, 05-15)
 
 Firestore data patch, no code change. Open since the 2026-08-08 Check-6 sweep. Full write-up: `wiki/snapshot-record-gaps.md`.
 
-**The diagnosis contradicted the wiki.** That page read 2026-05-15 as "the same family as 2600" — an incomplete `positionsAtClose`. It is the opposite: 1999.HK, 2013.HK and 2382.HK were **sold** that day (`closedTrades` confirms), so a 13-entry array is right. Their combined cost basis, 99,200 + 50,490 + 100,425 = **250,115.00**, is to the cent the `capitalEngaged` excess. All three snapshots turn out to be the *same* defect — `positionsAtClose` correct, top-level totals never updated, the delta-subtraction signature of 2026-06-10:
+**The diagnosis contradicted the wiki.** That page read 2026-05-15 as "the same family as 2600", an incomplete `positionsAtClose`. It is the opposite: 1999.HK, 2013.HK and 2382.HK were **sold** that day (`closedTrades` confirms), so a 13-entry array is right. Their combined cost basis, 99,200 + 50,490 + 100,425 = **250,115.00**, is to the cent the `capitalEngaged` excess. All three snapshots turn out to be the *same* defect, `positionsAtClose` correct, top-level totals never updated, the delta-subtraction signature of 2026-06-10:
 
 | Date | What happened that day, reconciling to the cent |
 |---|---|
@@ -464,49 +486,49 @@ Firestore data patch, no code change. Open since the 2026-08-08 Check-6 sweep. F
 | 2026-04-13 | 113.HK bought (122,000) + 3680.HK bought (52,800) + 1913.HK topped up 1,000 @ 50.30 → 2,300 @ 43.597 (+49,973.10) = **224,773.10**. Stored `capitalEngaged` was verbatim the 04-10 value; the 04-14 snapshot is clean, so the cron recovered on its own |
 | 2026-05-15 | The three sales above, **250,115.00** |
 
-`patch-aug10-fix-3-stale-totals.py` — one rule for all three, the one `wiki/recording-a-sale.md` already mandates: recompute `portfolioValue`/`capitalEngaged`/`unrealizedPnL`/`positionCount` from `positionsAtClose`, never delta-subtract; plus drop the three orphan `closingPrices` keys on 05-15. `positionsAtClose` asserted byte-identical after the write, `dailyPnL` and `realizedPnL` untouched, the other 123 snapshots asserted unchanged.
+`patch-aug10-fix-3-stale-totals.py`, one rule for all three, the one `wiki/recording-a-sale.md` already mandates: recompute `portfolioValue`/`capitalEngaged`/`unrealizedPnL`/`positionCount` from `positionsAtClose`, never delta-subtract; plus drop the three orphan `closingPrices` keys on 05-15. `positionsAtClose` asserted byte-identical after the write, `dailyPnL` and `realizedPnL` untouched, the other 123 snapshots asserted unchanged.
 
-**The guard that made it safe**: before recomputing, the script requires every ticker held on the prior snapshot and not sold in the interval to still be present. Recomputing totals from an *incomplete* array would bake the omission in as if it were correct — the 2600 failure mode from the other direction. All three passed.
+**The guard that made it safe**: before recomputing, the script requires every ticker held on the prior snapshot and not sold in the interval to still be present. Recomputing totals from an *incomplete* array would bake the omission in as if it were correct, the 2600 failure mode from the other direction. All three passed.
 
-Effect on the published figures (`wiki/return-on-average-capital.md`): average engaged capital 975,906 → **973,757**, return on average capital +7.63% → **+7.65%**, and **TWR +3.55% → +3.48%** (alpha +6.64 → **+6.57 pts**) — that last one was not anticipated: correcting the 04-13 `portfolioValue` changes the denominator of the following chain link. Period P&L unchanged at +74,498; it depends only on the two window bounds.
+Effect on the published figures (`wiki/return-on-average-capital.md`): average engaged capital 975,906 → **973,757**, return on average capital +7.63% → **+7.65%**, and **TWR +3.55% → +3.48%** (alpha +6.64 → **+6.57 pts**), that last one was not anticipated: correcting the 04-13 `portfolioValue` changes the denominator of the following chain link. Period P&L unchanged at +74,498; it depends only on the two window bounds.
 
 `healthcheck.py` now reports **126/126 stored totals agree**, up from 123/126.
 
 ---
 
-### Aug 10, 2026 — data repair: `APPEL` → `AAPL`, 13 frozen sessions backfilled (US book)
+### Aug 10, 2026: data repair: `APPEL` → `AAPL`, 13 frozen sessions backfilled (US book)
 
 Firestore data patch, no code change. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
 
-Apple was held under the ticker `APPEL`. It resolves on neither TradingView nor Yahoo, so every cron since entry (2026-07-21) took the "missing" path and the close stayed frozen at 327.96 across all 14 snapshots. Because the price never moved day to day, the position's `dailyPnL` leg was **exactly 0 for 13 sessions** — Apple's real moves were excluded from the portfolio's daily P&L, with nothing to show it but the `provisional` flag the cron raised correctly every day.
+Apple was held under the ticker `APPEL`. It resolves on neither TradingView nor Yahoo, so every cron since entry (2026-07-21) took the "missing" path and the close stayed frozen at 327.96 across all 14 snapshots. Because the price never moved day to day, the position's `dailyPnL` leg was **exactly 0 for 13 sessions**, Apple's real moves were excluded from the portfolio's daily P&L, with nothing to show it but the `provisional` flag the cron raised correctly every day.
 
 Two patches, the second repairing a seam the first created:
-- `patch-aug10-fix-appel-ticker.py` — renames to `AAPL`, backfills 07-22 → 08-07 with raw Yahoo closes (`auto_adjust=False`), `dailyPnL` add-to-stored chaining off each prior corrected close, pv/cap/unrealized/posCount recomputed from `positionsAtClose`, `realizedPnL` untouched. **Entry day left at 327.96 on purpose** — 0.22 off Yahoo's 327.74, consistent with a real fill.
-- `patch-aug10-appel-entryday-label.py` — that exemption left the **label** behind, so 07-21 still read `APPEL` and the new record-integrity check counted it as a 9th unexplained exit (correction mis-stated as −946.10 instead of −1,205.30). Rename only; asserts every numeric field is bit-identical and aborts otherwise.
+- `patch-aug10-fix-appel-ticker.py`, renames to `AAPL`, backfills 07-22 → 08-07 with raw Yahoo closes (`auto_adjust=False`), `dailyPnL` add-to-stored chaining off each prior corrected close, pv/cap/unrealized/posCount recomputed from `positionsAtClose`, `realizedPnL` untouched. **Entry day left at 327.96 on purpose**, 0.22 off Yahoo's 327.74, consistent with a real fill.
+- `patch-aug10-appel-entryday-label.py`, that exemption left the **label** behind, so 07-21 still read `APPEL` and the new record-integrity check counted it as a 9th unexplained exit (correction mis-stated as −946.10 instead of −1,205.30). Rename only; asserts every numeric field is bit-identical and aborts otherwise.
 
 Effect: the position's unrealized flips **+259.20 → −33.40**, −292.60 enters the cumulative daily series, and two days flip sign (07-24 −71 → +156, 07-30 +37 → −58). The US window figures move to **TWR −3.75% vs SPY +11.72% (alpha −15.47 pts)** and a corrected P&L of **−487 USD, −0.89% of average engaged capital**. The 13 dead sessions had been flattering the result by 0.76 points.
 
-**Flagged before applying, Dany chose to proceed**: `entryPrice` 315.00 is **below Apple's whole 2026-07-21 range** (322.22–329.60), so the cost basis cannot be that day's fill. Neither patch touches it; correcting it needs the real fill price.
+**Flagged before applying, Dany chose to proceed**: `entryPrice` 315.00 is **below Apple's whole 2026-07-21 range** (322.22-329.60), so the cost basis cannot be that day's fill. Neither patch touches it; correcting it needs the real fill price.
 
 Verified beyond each script's own `[VERIFY]` block: `APPEL` absent from all 122 snapshots and from `positions[]`, `AAPL` priced on 14 snapshots with 14 distinct closes, zero invariant violations across the whole series, and exactly one snapshot still `provisional` (2026-07-21, whose close was never reconciled).
 
 ---
 
-### Aug 10, 2026 — v2.47: US History tab — "Performance vs SPY" card + record-integrity guard on both cards (`index-us.html`, `index.html`, `update-us.py`)
+### Aug 10, 2026: v2.47: US History tab: "Performance vs SPY" card + record-integrity guard on both cards (`index-us.html`, `index.html`, `update-us.py`)
 
 Display + cron field; no Firestore patch, no existing snapshot touched.
 
-Mirrors v2.46 for `us-portfolios`. Same three measures, same `1M / 3M / 6M / YTD / Tout` window selector, same three-level benchmark lookup — `snapshot.spyClose` → the frozen `SPY_BACKFILL` table (124 sessions, 2026-02-10 → 08-07) → the last close before the date. `update-us.py` stamps `spyClose` through the existing `_yahoo_close_for`, which takes a plain ticker and needed no special case (the HK side needed `_yahoo_index_close` because `^HSI` would have been mangled into `^HSI.HK`). SPY is price return, dividends excluded — the same basis as the portfolio side, which books no dividend either.
+Mirrors v2.46 for `us-portfolios`. Same three measures, same `1M / 3M / 6M / YTD / Tout` window selector, same three-level benchmark lookup, `snapshot.spyClose` → the frozen `SPY_BACKFILL` table (124 sessions, 2026-02-10 → 08-07) → the last close before the date. `update-us.py` stamps `spyClose` through the existing `_yahoo_close_for`, which takes a plain ticker and needed no special case (the HK side needed `_yahoo_index_close` because `^HSI` would have been mangled into `^HSI.HK`). SPY is price return, dividends excluded, the same basis as the portfolio side, which books no dividend either.
 
 **US numbers**, 2026-02-10 → 08-07, 122 sessions, average engaged capital 54,884 USD: **TWR −2.98% vs SPY +11.72%, alpha −14.71 pts**, drawdown −12.25% vs −8.83%. No month beats SPY; June alone carries 5.77 of the 14.71 points.
 
 **New record-integrity guard, added to both cards.** A ticker that leaves `positionsAtClose` with no sale dated inside the interval between the two snapshots took its P&L out of `unrealizedPnL` without booking it into `realizedPnL`, so the balance-sheet delta reads the removal as a gain on a loser. 2026-07-21 lost 8 US positions that way (COIN GRAB IBM MNST MSFT MSTR NUE PYPL, −1,205.30 USD): the delta reads +1,011 where the truth is −194, i.e. +1.84% of average capital where it is −0.35%. The card names the date and tickers, prints the corrected figure, and notes the TWR is unaffected (it only chains held legs). It speaks only above 0.1% of average engaged capital, so it is lit on US (2.2%) and silent on HK (113.HK, +40 HKD, 0.004%).
 
-**Match on the interval, never a ±N-day window.** HK's 0177/1585 sold 2026-05-28 with no snapshot until 06-03 read as unexplained under a ±5-day window — a −8,822 HKD false positive in the first pass of this check. Both bounds inclusive, because a sale entered after the day's snapshot was minted carries the *previous* snapshot's date.
+**Match on the interval, never a ±N-day window.** HK's 0177/1585 sold 2026-05-28 with no snapshot until 06-03 read as unexplained under a ±5-day window, a −8,822 HKD false positive in the first pass of this check. Both bounds inclusive, because a sale entered after the day's snapshot was minted carries the *previous* snapshot's date.
 
 `perf-return-on-capital.py` now takes `hk|us`, reports orphan exits, and **refuses to print the trade-level IRR** when material ones exist: those positions are in neither `closedTrades` nor `positions[]`, so neither their cost nor their proceeds is in the flow list, and it would read +84.96 %/yr on a book that lost money.
 
-Also found, not fixed (needs Dany): `APPEL` (20 sh @ 315.00, entered 2026-07-21) has never priced — close frozen at 327.96 across all 14 snapshots since, `priceProvenance.source = "missing"`, every snapshot since flagged `provisional`. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
+Also found, not fixed (needs Dany): `APPEL` (20 sh @ 315.00, entered 2026-07-21) has never priced, close frozen at 327.96 across all 14 snapshots since, `priceProvenance.source = "missing"`, every snapshot since flagged `provisional`. Full write-up: `wiki/incidents.md` 2026-08-10 (d).
 
 Verification: `@babel/core` transpile clean on both HTMLs; `test-bench-hsi.js` now 6 groups (adds the gapped-sale and late-entry cases a day-window would fail); both cards replayed against live Firestore, reading each frozen table out of the shipped HTML, reproduce every figure above.
 
@@ -514,52 +536,52 @@ Verification: `@babel/core` transpile clean on both HTMLs; `test-bench-hsi.js` n
 
 ---
 
-### Aug 10, 2026 — v2.46: History tab — "Performance vs HSI" card + `hsiClose` on every snapshot (`index.html`, `update.py`)
+### Aug 10, 2026: v2.46: History tab: "Performance vs HSI" card + `hsiClose` on every snapshot (`index.html`, `update.py`)
 
 Display + cron field; no Firestore patch, no existing snapshot touched.
 
 The engaged capital ranged 677,399 → 1,340,401 HKD over 2026-01-26 → 08-10 (×1.98), so no single denominator gives "the" return. The new first card of the **History** tab (`history_tab`) shows three, each answering a different question, over a window the user picks (`1M / 3M / 6M / YTD / Tout`):
 
-- **return on average engaged capital**, day-weighted — what the deployed money earned (+7.63% gross, +5.00% net over the full window on 975,906 average capital)
-- **TWR**, chained daily — picking quality, independent of sizing (+3.55%)
-- **alpha = TWR − HSI** — the only fair index comparison (HSI −3.09%, alpha +6.64 pts)
+- **return on average engaged capital**, day-weighted, what the deployed money earned (+7.63% gross, +5.00% net over the full window on 975,906 average capital)
+- **TWR**, chained daily, picking quality, independent of sizing (+3.55%)
+- **alpha = TWR − HSI**: the only fair index comparison (HSI −3.09%, alpha +6.64 pts)
 
 Plus P&L in HKD, both drawdowns, and a two-line chart rebased to 0% at the window start.
 
-**HSI source, three levels**: `snapshot.hsiClose` → the frozen `HSI_BACKFILL` table (131 sessions, 2026-01-26 → 08-10) → the last close before the date (HKEX holiday, or a browser-minted snapshot past the table's end). `update.py` now stamps `hsiClose` via a new `_yahoo_index_close("^HSI", today)` — separate from `_yahoo_close_for`, which would mangle `^HSI` into `^HSI.HK` — so the table never needs extending. A Yahoo failure leaves the field `None` and is non-fatal. **A snapshot past the table's end with no `hsiClose` is flagged in the UI** rather than flat-lining the index, which would silently inflate alpha.
+**HSI source, three levels**: `snapshot.hsiClose` → the frozen `HSI_BACKFILL` table (131 sessions, 2026-01-26 → 08-10) → the last close before the date (HKEX holiday, or a browser-minted snapshot past the table's end). `update.py` now stamps `hsiClose` via a new `_yahoo_index_close("^HSI", today)`, separate from `_yahoo_close_for`, which would mangle `^HSI` into `^HSI.HK`, so the table never needs extending. A Yahoo failure leaves the field `None` and is non-fatal. **A snapshot past the table's end with no `hsiClose` is flagged in the UI** rather than flat-lining the index, which would silently inflate alpha.
 
 **Two measurement rules are wired into the card.** Period P&L is the **balance-sheet delta** (`realizedPnL + unrealizedPnL` between the bounds), never the sum of `dailyPnL`: six sessions have no snapshot (2026-05-28 → 06-05) and the summed figure falls 7,234 HKD short. The TWR does chain `dailyPnL`, so it is labelled a floor in the UI. The live "today" splice uses `grossRealizedPnL`, matching the stored gross definition (v2.45.1 / `wiki/incidents.md` 2026-08-10).
 
-Verification: `@babel/core` transpile clean on `index.html` and `index-us.html`; new `test-bench-hsi.js` (5 groups, synthetic fixtures — balance-sheet delta vs summed `dailyPnL`, day-weighting, TWR compounding and size-neutrality, HSI lookup precedence, local-date-safe window cutoffs); the card's math replayed against live Firestore reproduces every figure above to the cent. `perf-return-on-capital.py` (read-only) prints the same three measures from the command line. Full method, the HSI month-by-month table, and the three measurement holes: `wiki/return-on-average-capital.md`.
+Verification: `@babel/core` transpile clean on `index.html` and `index-us.html`; new `test-bench-hsi.js` (5 groups, synthetic fixtures, balance-sheet delta vs summed `dailyPnL`, day-weighting, TWR compounding and size-neutrality, HSI lookup precedence, local-date-safe window cutoffs); the card's math replayed against live Firestore reproduces every figure above to the cent. `perf-return-on-capital.py` (read-only) prints the same three measures from the command line. Full method, the HSI month-by-month table, and the three measurement holes: `wiki/return-on-average-capital.md`.
 
 ---
 
-### Aug 8, 2026 — v2.45: Performance tab — entry-day rule keyed to the displayed session (`index.html` + `index-us.html`)
+### Aug 8, 2026: v2.45: Performance tab: entry-day rule keyed to the displayed session (`index.html` + `index-us.html`)
 
 Display-only; no Firestore write, no cron change. A position opened on a session showed, once the date rolled past that session, the stock's **whole** session move instead of the move from the entry price. It was correct throughout the session itself.
 
-Cause: `isNewToday = p.entryDate === todayStr`. The tab does not always render today — under `showLastSession` (weekend, HKEX holiday, pre-market, stale cache) it renders the last completed session, taking `currentPrice` from that session's close. The comparison stayed on the wall-clock date, so at the rollover the position stopped matching, lost its entry-price baseline, and `useTvDirect` (gated on `!isNewToday`) additionally swapped the row onto TradingView's official session `change_abs`.
+Cause: `isNewToday = p.entryDate === todayStr`. The tab does not always render today, under `showLastSession` (weekend, HKEX holiday, pre-market, stale cache) it renders the last completed session, taking `currentPrice` from that session's close. The comparison stayed on the wall-clock date, so at the rollover the position stopped matching, lost its entry-price baseline, and `useTvDirect` (gated on `!isNewToday`) additionally swapped the row onto TradingView's official session `change_abs`.
 
-Fix: new `sessionDate = showLastSession ? (yesterdaySnapshot?.date || todayStr) : todayStr`, and `isNewToday` compares against it. The `previousClose` chain is reordered to one precedence shared by both files — manual override → entry session → pre-market → TV → yesterday's snapshot → current — dropping the `!isMarketClosedToday` guard (a relic of the pre-`showLastSession` behaviour that zeroed every leg on a closed day) and the "pre-market + new today → exchange close" head that contradicted the entry-day rule. `index-us.html`, which never received the v2.37 `showLastSession` work, gets `sessionDate` for this purpose so both files now agree. `index-dev.html` untouched (older, simpler movers block).
+Fix: new `sessionDate = showLastSession ? (yesterdaySnapshot?.date || todayStr) : todayStr`, and `isNewToday` compares against it. The `previousClose` chain is reordered to one precedence shared by both files, manual override → entry session → pre-market → TV → yesterday's snapshot → current, dropping the `!isMarketClosedToday` guard (a relic of the pre-`showLastSession` behaviour that zeroed every leg on a closed day) and the "pre-market + new today → exchange close" head that contradicted the entry-day rule. `index-us.html`, which never received the v2.37 `showLastSession` work, gets `sessionDate` for this purpose so both files now agree. `index-dev.html` untouched (older, simpler movers block).
 
-Stored data was never affected: the cron applies its own entry-day rule, so the header card, calendar and the tab's tfoot TOTAL — all of which read the stored `dailyPnL` on a closed day — were right the whole time. The fixed rows now agree with that total instead of diverging from it. New `test-perf-entryday.js` (7 synthetic cases) passes on the fix and fails on the pre-fix logic; both files transpile clean under `@babel/standalone`. See `wiki/performance-tab.md` and `wiki/incidents.md` 2026-08-08.
-
----
-
-### Jul 31, 2026 — v2.44: Positions tab — Weight moved next to Investi (`index.html` + `index-us.html`)
-
-Display-only. The Weight column (market value / total portfolio value, added in v2.41) sat at the far right, past P&L and %, where it was easy to miss on a narrow window. It now renders immediately right of `Investi`, same values, same `sort('value')` header. `tfoot` `colSpan` recomputed in both files so the `100%` total lands under the moved column and stays aligned with the `showPriceCols` / `showBuyDate` toggles. No second column was added — the far-right one is gone. Both files transpile clean under `@babel/standalone`.
+Stored data was never affected: the cron applies its own entry-day rule, so the header card, calendar and the tab's tfoot TOTAL, all of which read the stored `dailyPnL` on a closed day, were right the whole time. The fixed rows now agree with that total instead of diverging from it. New `test-perf-entryday.js` (7 synthetic cases) passes on the fix and fails on the pre-fix logic; both files transpile clean under `@babel/standalone`. See `wiki/performance-tab.md` and `wiki/incidents.md` 2026-08-08.
 
 ---
 
-### Jul 8, 2026 — v2.43: priceCache freshness gate — first morning load no longer shows yesterday as "today" (`index.html` + `index-us.html`)
+### Jul 31, 2026: v2.44: Positions tab: Weight moved next to Investi (`index.html` + `index-us.html`)
 
-**Symptom (Dany)**: the first load of the app in the morning often showed wrong data; a reload showed correct data. **Root cause**: the first paint rendered the persisted `priceCache` — still holding the PRIOR session's closes and `change` values every morning — as if it were today, with no freshness check. During HK hours the auto-refresh corrected the tab seconds later (and saved the fresh cache, which is why the reload looked like the fix); between 16:00 HKT and the cron nothing corrected it at all, and the browser even minted today's snapshot from the stale cache. Full trace: `wiki/morning-stale-first-paint.md`.
+Display-only. The Weight column (market value / total portfolio value, added in v2.41) sat at the far right, past P&L and %, where it was easy to miss on a narrow window. It now renders immediately right of `Investi`, same values, same `sort('value')` header. `tfoot` `colSpan` recomputed in both files so the `100%` total lands under the moved column and stays aligned with the `showPriceCols` / `showBuyDate` toggles. No second column was added, the far-right one is gone. Both files transpile clean under `@babel/standalone`.
+
+---
+
+### Jul 8, 2026: v2.43: priceCache freshness gate: first morning load no longer shows yesterday as "today" (`index.html` + `index-us.html`)
+
+**Symptom (Dany)**: the first load of the app in the morning often showed wrong data; a reload showed correct data. **Root cause**: the first paint rendered the persisted `priceCache`, still holding the PRIOR session's closes and `change` values every morning, as if it were today, with no freshness check. During HK hours the auto-refresh corrected the tab seconds later (and saved the fresh cache, which is why the reload looked like the fix); between 16:00 HKT and the cron nothing corrected it at all, and the browser even minted today's snapshot from the stale cache. Full trace: `wiki/morning-stale-first-paint.md`.
 
 - **New helper `isCacheFromToday(priceCache)`** (both files): true if at least one successful cache entry was written on today's market date (HKT / ET). Compares via `Date` conversion, never raw-string sorts (`lastUpdated` mixes UTC `Z` browser strings and offset cron strings).
 - **Header `dailyGain` gate (HK)**: when the cache is not from today (and no trades were closed today), the card shows the last completed session (`yesterdaySnapshot.dailyPnL`, "Dern. séance" label) instead of computing a pseudo-live value off yesterday's `change`. Flips to live automatically when fresh prices arrive.
 - **Performance tab (HK)**: `showLastSession` now also covers the stale-cache case, so the summary card, the movers table and its title all present the last completed session consistently instead of "Today's".
-- **Auto-refresh after close (both files)**: the blanket `isAfterClose()` skip is now "skip only if the cache is already from today" — a tab loaded in the close→cron window fetches today's official close instead of sitting on yesterday's numbers. Same-day cron data is never refetched (post-settlement / ex-div values stay authoritative). The manual Sync button follows the same rule.
+- **Auto-refresh after close (both files)**: the blanket `isAfterClose()` skip is now "skip only if the cache is already from today", a tab loaded in the close→cron window fetches today's official close instead of sitting on yesterday's numbers. Same-day cron data is never refetched (post-settlement / ex-div values stay authoritative). The manual Sync button follows the same rule.
 - **Snapshot mint guard (HK)**: never CREATE today's snapshot from a prior-session cache (updates to an existing today snapshot stay allowed). The US file already had this via its `marketOpenToday` check.
 - **Header card**: small pulsing "maj" tag while a refresh is in flight.
 
@@ -567,72 +589,72 @@ Both files transpile clean under `@babel/standalone` 7.29.7; `isCacheFromToday` 
 
 ---
 
-### Jun 27, 2026 — v2.42: Save guard reads server-authoritative + calendar shows real gaps (`index.html` + `index-us.html`)
+### Jun 27, 2026: v2.42: Save guard reads server-authoritative + calendar shows real gaps (`index.html` + `index-us.html`)
 
-**Symptom**: the calendar showed the *same* daily P&L on several June days. **Root cause (from the Actions logs — not a cron outage)**: the HK cron ran and succeeded every day, snapshot count climbing 89→94 (Jun 16→24), then collapsing to 89 on the first Jun 25 run. A browser tab holding Firestore's **stale local cache** (offline/asleep since before Jun 16) overwrote the server's snapshots array. The snapshot merge guard (added Jun 10) failed to stop it because it read the live doc with a plain `.get()` — which resolves from the **same stale cache** as the outgoing save — and its catch was coded to *proceed* on read failure.
+**Symptom**: the calendar showed the *same* daily P&L on several June days. **Root cause (from the Actions logs, not a cron outage)**: the HK cron ran and succeeded every day, snapshot count climbing 89→94 (Jun 16→24), then collapsing to 89 on the first Jun 25 run. A browser tab holding Firestore's **stale local cache** (offline/asleep since before Jun 16) overwrote the server's snapshots array. The snapshot merge guard (added Jun 10) failed to stop it because it read the live doc with a plain `.get()`, which resolves from the **same stale cache** as the outgoing save, and its catch was coded to *proceed* on read failure.
 
 **Fixes**:
-- **Save guard** now reads `db.doc(...).get({ source: 'server' })` (authoritative cloud copy, never cache) and **fails closed** — aborts the save and writes the localStorage backup if the server is unreachable, instead of proceeding. This closes the clobber path for good.
-- **Calendar** no longer fabricates a value for a trading day with no snapshot: it spread the gap's total change evenly across the missing days, which is what painted the identical numbers. Missing days now render **blank** — a real gap looks like a gap.
+- **Save guard** now reads `db.doc(...).get({ source: 'server' })` (authoritative cloud copy, never cache) and **fails closed**, aborts the save and writes the localStorage backup if the server is unreachable, instead of proceeding. This closes the clobber path for good.
+- **Calendar** no longer fabricates a value for a trading day with no snapshot: it spread the gap's total change evenly across the missing days, which is what painted the identical numbers. Missing days now render **blank**, a real gap looks like a gap.
 
 **Data repair** (`patch-jun-gap-backfill.py`): rebuilt the phantom Jun 15 + inserted real settled snapshots for Jun 16/17/18/22/23/24 from Yahoo closes (dailyPnL on the proper prevTradingDay chain, Jun 19 holiday respected). Validated: recomputed Jun 25 = −6322, exactly matching the stored cron value. Both HTMLs transpile clean under `@babel/standalone` 7.29.7. See `wiki/incidents.md` + `wiki/reliability-risks.md` (#1) for the full write-up.
 
 ---
 
-### Jun 25, 2026 — v2.41: Positions tab — collapsible price columns + Weight column (`index.html` + `index-us.html`)
+### Jun 25, 2026: v2.41: Positions tab: collapsible price columns + Weight column (`index.html` + `index-us.html`)
 
 The Positions table now hides **Entrée** and **Actuel** by default; clicking the **Qté** header toggles them on/off (▸/▾ indicator). A new **Weight** column (position market value ÷ total portfolio value, sortable, mirroring the Performance tab) is always shown, so the default view is less crowded (net −1 column vs before). The tbody map is wrapped in an IIFE that computes `totalPortfolioValue` once; the tfoot `colSpan` adapts to the toggle and the total row shows 100%. Both files transpile clean under `@babel/standalone`.
 
 ---
 
-### Jun 25, 2026 — v2.40: Chart link on the Completed Trades ticker (`index.html`)
+### Jun 25, 2026: v2.40: Chart link on the Completed Trades ticker (`index.html`)
 
-The HK Completed Trades tab now links each ticker to its TradingView chart, opening in a new tab — the US file already had this (`index-us.html`). HK builds the symbol as `HKEX:<code>` with leading zeros stripped (`0700.HK` → `HKEX:700`); US uses the bare symbol. Owner-gated (`userEmail === 'marccharnal@gmail.com'`), reusing the same saved chart layout (`b8EBWJ7k`).
+The HK Completed Trades tab now links each ticker to its TradingView chart, opening in a new tab, the US file already had this (`index-us.html`). HK builds the symbol as `HKEX:<code>` with leading zeros stripped (`0700.HK` → `HKEX:700`); US uses the bare symbol. Owner-gated (`userEmail === 'marccharnal@gmail.com'`), reusing the same saved chart layout (`b8EBWJ7k`).
 
 ---
 
-### Jun 25, 2026 — v2.39: Partial-sale cost-basis corruption fix (`index.html` + `index-us.html`)
+### Jun 25, 2026: v2.39: Partial-sale cost-basis corruption fix (`index.html` + `index-us.html`)
 
-`closePosition`'s partial-close branch rewrote the **remaining** shares' `entryPrice` by subtracting the realized profit from their cost basis (`newEntryPrice = (remainingCost − profit) / remainingQty`). Selling 500 of 800 2359.HK shares @ 148.2 (bought @ 128.7) left the 300 remaining shares showing entryPrice **96.20** instead of 128.7. The realized gain is already booked in `closedTrades`, so this double-counted it — overstating total P&L by the profit and corrupting the displayed basis.
+`closePosition`'s partial-close branch rewrote the **remaining** shares' `entryPrice` by subtracting the realized profit from their cost basis (`newEntryPrice = (remainingCost − profit) / remainingQty`). Selling 500 of 800 2359.HK shares @ 148.2 (bought @ 128.7) left the 300 remaining shares showing entryPrice **96.20** instead of 128.7. The realized gain is already booked in `closedTrades`, so this double-counted it, overstating total P&L by the profit and corrupting the displayed basis.
 
-- **Fix (both files):** the partial-close branch now reduces `quantity` only; `entryPrice` is untouched. This is exactly the logic `index-dev.html` already carried — the corrected version was never ported into the two production files.
+- **Fix (both files):** the partial-close branch now reduces `quantity` only; `entryPrice` is untouched. This is exactly the logic `index-dev.html` already carried, the corrected version was never ported into the two production files.
 - **Data repair:** `patch-jun25-fix-2359-basis.py` reset 2359.HK to 128.7 (qty 300) and corrected the 2026-06-25 in-app snapshot: leg `entryPrice` 96.2 → 128.7, leg `pnl` 14,880 → 5,130, `capitalEngaged` 756,319.1 → 766,069.1, `unrealizedPnL` −152,730.1 → −162,480.1. `portfolioValue` / `dailyPnL` / `realizedPnL` / `closingPrices` were not affected by the bug and were left untouched. Verified by re-read.
 
 ---
 
-### Jun 18, 2026 — v2.38: US ex-dividend parity (`update-us.py` + `index-us.html`)
+### Jun 18, 2026: v2.38: US ex-dividend parity (`update-us.py` + `index-us.html`)
 
 Ports the HK ex-div feature (`be66e99`) to the US pipeline: on an ex-div day the daily move now reads as a total return, not a raw price gap-down loss.
 
 - **`update-us.py`:** `_yahoo_dividend_for()` + `fetch_dividends_today()` (Yahoo ex-date lookup; also tries the dash share-class form, e.g. `BRK.B` → `BRK-B`). Ex-div days fold the dividend into `priceCache.change`/`changePercent` and the `dailyPnL` leg, keeping the real `previousClose`; `priceCache` gains `dividendPerShare`/`exDivDate`/`rawChange`; the snapshot gains `dividendsToday`/`dividendIncomeToday`.
 - **`index-us.html`:** `refreshPrices` carries the cron's ex-div adjustment over a fresh raw TradingView fetch (same day); the movers table shows the 💰 div badge + total-return tooltip.
-- **`verify-daily.py`** already covers US — its ex-div re-fold (`fb55a79`) reads `exDivDate`/`dividendPerShare` from `priceCache`, which the US cron now writes.
+- **`verify-daily.py`** already covers US, its ex-div re-fold (`fb55a79`) reads `exDivDate`/`dividendPerShare` from `priceCache`, which the US cron now writes.
 
 **Validated:** `_yahoo_dividend_for` resolves real US ex-dates (KO 2026-06-15 $0.53, MSFT 2026-05-21 $0.91); `index-us.html` re-transpiles clean under `@babel/standalone` 7.29.7.
 
 ---
 
-### Jun 18, 2026 — v2.37: Performance tab shows last session on market-closed days (was HKD 0)
+### Jun 18, 2026: v2.37: Performance tab shows last session on market-closed days (was HKD 0)
 
-**Symptom:** on the **2026-06-19 Dragon Boat holiday** the HK Performance tab showed **"Today's P&L: HKD 0"** while the header card showed "Marché fermé" — the tab looked disconnected.
+**Symptom:** on the **2026-06-19 Dragon Boat holiday** the HK Performance tab showed **"Today's P&L: HKD 0"** while the header card showed "Marché fermé", the tab looked disconnected.
 
-**Root cause:** `getMarketToday()` returns the closed day, so `isMarketClosedToday` gated every per-position daily leg to 0, and since it is not pre-market `totalDailyDollar` fell through to `moversDollarSum = 0`. (Long-standing — every weekend showed 0 too; the mid-week holiday made it obvious.)
+**Root cause:** `getMarketToday()` returns the closed day, so `isMarketClosedToday` gated every per-position daily leg to 0, and since it is not pre-market `totalDailyDollar` fell through to `moversDollarSum = 0`. (Long-standing, every weekend showed 0 too; the mid-week holiday made it obvious.)
 
-**Fix (`0d6039a`):** new `showLastSession = preMarketActive || isMarketClosedToday` routes closed days through the same "last completed session" path as pre-market. Per-position moves come from the stable `cached.change` (no trading since the last session); the total uses that session's cron-stored `dailyPnL` (authoritative — matches header + calendar). Adds a "Marché fermé" banner and the "Dernière séance P&L" label. The US tab already showed the last session on closed days (it never gated the per-position change), so no US change was needed. Validated: re-transpiles clean under `@babel/standalone` 7.29.7; on 2026-06-19 the total reads the Jun 18 `dailyPnL` −15,001.54 instead of 0.
+**Fix (`0d6039a`):** new `showLastSession = preMarketActive || isMarketClosedToday` routes closed days through the same "last completed session" path as pre-market. Per-position moves come from the stable `cached.change` (no trading since the last session); the total uses that session's cron-stored `dailyPnL` (authoritative, matches header + calendar). Adds a "Marché fermé" banner and the "Dernière séance P&L" label. The US tab already showed the last session on closed days (it never gated the per-position change), so no US change was needed. Validated: re-transpiles clean under `@babel/standalone` 7.29.7; on 2026-06-19 the total reads the Jun 18 `dailyPnL` −15,001.54 instead of 0.
 
 ---
 
-### Jun 18, 2026 — v2.36: `verify-daily` made ex-dividend aware (stop false-red runs)
+### Jun 18, 2026: v2.36: `verify-daily` made ex-dividend aware (stop false-red runs)
 
 **Symptom:** Dany reported the Performance tab "seems disconnected". GitHub Actions also showed today's HK runs going **red**.
 
-**Diagnosis — the data was correct, the verify gate was wrong.** A live Firestore read showed all three "today's P&L" paths reconciling (header `dailyGain`, Performance movers, snapshot `dailyPnL` all ≈ −15,002) and the new ex-div fold (`be66e99`) working on 300.HK (Haier, ex-div 4.367 HKD: raw −5.55% → total-return −0.65%). But `be66e99` folded the dividend into `update.py` (`priceCache.changePercent` + the `dailyPnL` leg) and `index.html` **without updating `verify-daily.py`**, which still compared against raw TradingView:
+**Diagnosis, the data was correct, the verify gate was wrong.** A live Firestore read showed all three "today's P&L" paths reconciling (header `dailyGain`, Performance movers, snapshot `dailyPnL` all ≈ −15,002) and the new ex-div fold (`be66e99`) working on 300.HK (Haier, ex-div 4.367 HKD: raw −5.55% → total-return −0.65%). But `be66e99` folded the dividend into `update.py` (`priceCache.changePercent` + the `dailyPnL` leg) and `index.html` **without updating `verify-daily.py`**, which still compared against raw TradingView:
 - Check 2: `300.HK changePercent drift: stored −0.6536% vs TV −5.5524% (+4.90pp)`
 - Check 3: `dailyPnL drift +873.46` = exactly the dividend income (4.367 × 200 qty)
 
-update.py writes the snapshot **before** verify-daily runs, so the snapshot was correct; only the post-check failed — but a false red erodes the one channel that flags real failures.
+update.py writes the snapshot **before** verify-daily runs, so the snapshot was correct; only the post-check failed, but a false red erodes the one channel that flags real failures.
 
-**Contributing factor (no code fix):** GitHub dropped the 16:45 HKT primary cron slot and drifted the backups (the v2.34 fan-out weakness); the app served yesterday's `priceCache` from ~16:00→20:12 HKT — the likely window the Performance tab looked "disconnected".
+**Contributing factor (no code fix):** GitHub dropped the 16:45 HKT primary cron slot and drifted the backups (the v2.34 fan-out weakness); the app served yesterday's `priceCache` from ~16:00→20:12 HKT, the likely window the Performance tab looked "disconnected".
 
 **Fix (`fb55a79`):** `verify-daily.py` Checks 2 + 3 re-fold the dividend (from `priceCache.exDivDate`/`dividendPerShare`) before comparing, mirroring update.py. Activates only when those fields are present, so the US pipeline (no ex-div fold yet) is unaffected. Validated: patched `verify_portfolio` returns 0 issues for 2026-06-18 against a fresh 3717-ticker TV pull.
 
@@ -640,11 +662,11 @@ update.py writes the snapshot **before** verify-daily runs, so the snapshot was 
 
 ---
 
-### Jun 17, 2026 — v2.35: pin `@babel/standalone` to 7.29.7 — Babel 8 broke in-browser JSX, blank page
+### Jun 17, 2026: v2.35: pin `@babel/standalone` to 7.29.7: Babel 8 broke in-browser JSX, blank page
 
-**Symptom:** the app loaded to a **completely white screen** — no login form, nothing rendered — on `index.html` and `index-us.html`. No code had changed since Jun 15 (last commit was v2.34); the site simply stopped working overnight.
+**Symptom:** the app loaded to a **completely white screen**, no login form, nothing rendered, on `index.html` and `index-us.html`. No code had changed since Jun 15 (last commit was v2.34); the site simply stopped working overnight.
 
-**Root cause — unpinned CDN dependency served a new major version.** All three HTMLs included Babel with **no version pin**:
+**Root cause, unpinned CDN dependency served a new major version.** All three HTMLs included Babel with **no version pin**:
 
 ```html
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>

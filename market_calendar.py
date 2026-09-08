@@ -21,7 +21,7 @@ treat that as a loud warning (not silence), so the operator extends the table
 before phantom holiday snapshots reappear.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 COVERAGE_END = "2027-12-31"
 
@@ -95,3 +95,20 @@ def coverage_warning(date_str: str) -> str | None:
             "Holidays will be treated as trading days (phantom snapshots!). Extend the table."
         )
     return None
+
+
+def previous_trading_day(date_str: str, market: str) -> str:
+    """The last trading day strictly before `date_str` (YYYY-MM-DD, market-local).
+
+    Used by the updaters to name the session a drifted run has just lost: a run
+    that arrives holding tomorrow's date is telling you that today is over and
+    nobody settled it. The longest closure in either table is four days (HKEX
+    Lunar New Year 2027), so 15 steps back always terminates inside coverage.
+    """
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    for _ in range(15):
+        d -= timedelta(days=1)
+        candidate = d.strftime("%Y-%m-%d")
+        if is_trading_day(candidate, market):
+            return candidate
+    raise ValueError(f"no trading day within 15 days before {date_str} ({market})")

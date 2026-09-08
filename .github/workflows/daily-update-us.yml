@@ -14,6 +14,20 @@ on:
     - cron: '0 23 * * 1-5'    # 18:00 EST / 19:00 EDT — backup 1 (same UTC day)
     - cron: '0 1 * * 2-6'     # 20:00 EST / 21:00 EDT — backup 2 (next UTC day)
     - cron: '0 3 * * 2-6'     # 22:00 EST / 23:00 EDT — backup 3 (last before midnight ET)
+    #
+    # DRIFT CATCHERS (2026-09-08, reliability-risks.md #8 reopened).
+    # Same exposure as HK, and it has already fired here: on 2026-08-27 every
+    # US slot drifted past midnight ET and this book has NO snapshot for that
+    # session at all. All four slots above sit inside the valid window, so the
+    # fleet only tolerates the primary's headroom (6h50m EDT / 7h50m EST).
+    # These three are scheduled BEFORE the window: no-ops undrifted (refused by
+    # WINDOW_START, and now they check the prior session before exiting),
+    # in-window once drift arrives. Bands quoted for EDT, EST is 1h more
+    # generous; with the primary they tile [0, 12h19m] EDT with no gap.
+    # Off-hour minutes deliberately: GitHub's scheduler queues worst on the hour.
+    - cron: '17 19 * * 1-5'   # 15:17 EDT undrifted — in-window for 53m–8h43m drift
+    - cron: '23 17 * * 1-5'   # 13:23 EDT undrifted — in-window for 2h47m–10h37m drift
+    - cron: '41 15 * * 1-5'   # 11:41 EDT undrifted — in-window for 4h29m–12h19m drift
   workflow_dispatch:
 jobs:
   update:

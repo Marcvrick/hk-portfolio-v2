@@ -21,6 +21,26 @@ on:
       - cron: '0 12 * * 1-5'   # 20:00 HKT — backup 2
       - cron: '0 13 * * 1-5'   # 21:00 HKT — backup 3
       - cron: '0 15 * * 1-5'   # 23:00 HKT — backup 4 (last before midnight HKT)
+      #
+      # DRIFT CATCHERS (2026-09-08, reliability-risks.md #8 reopened).
+      # The five slots above are all scheduled INSIDE the valid window, so the
+      # fleet only tolerates as much drift as its earliest slot has headroom:
+      # 16:00 UTC − 08:35 UTC = 7h25m. Observed drift blew past that on three
+      # sessions and lost them outright — every slot shifted by roughly the
+      # SAME amount each time (uniform backlog, not per-slot jitter), so extra
+      # in-window slots buy nothing:
+      #   2026-08-27  all 5 slots +9h10m .. +10h38m  -> session lost
+      #   2026-08-28  all 5 slots +9h47m .. +10h19m  -> session lost (landed Sat)
+      #   2026-08-31  all 5 slots +5h31m .. +7h45m   -> session lost
+      # These three are scheduled BEFORE the window on purpose: undrifted they
+      # are no-ops (refused by WINDOW_START, and now they check the prior
+      # session before exiting), drifted they land inside it. Each covers a
+      # 7h50m-wide drift band; together with the primary they tile [0, 13h19m]
+      # with no gap, nearly doubling the tolerated drift.
+      # Off-hour minutes deliberately: GitHub's scheduler queues worst on the hour.
+      - cron: '17 6 * * 1-5'   # 14:17 HKT undrifted — in-window for 1h53m–9h43m drift
+      - cron: '23 4 * * 1-5'   # 12:23 HKT undrifted — in-window for 3h47m–11h37m drift
+      - cron: '41 2 * * 1-5'   # 10:41 HKT undrifted — in-window for 5h29m–13h19m drift
     workflow_dispatch:
 jobs:
     update:

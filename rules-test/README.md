@@ -1,4 +1,4 @@
-# rules-test — exercising `firestore.rules` for real
+# rules-test: exercising `firestore.rules` for real
 
 ```bash
 cd rules-test
@@ -13,7 +13,7 @@ from the file it was meant to deploy.
 ## Why the emulator and not the API
 
 `deploy-firestore-rules.py` posts to `firebaserules.googleapis.com/…:test`, and the
-admin service account does not hold `firebaserules.rulesets.test` — a 403 that was
+admin service account does not hold `firebaserules.rulesets.test`, a 403 that was
 first recorded on 2026-06-28 and re-confirmed 2026-09-08. The project's rules test
 has therefore never actually run against anything. The emulator needs no cloud
 permissions, so this one does.
@@ -21,7 +21,7 @@ permissions, so this one does.
 ## What the matrix pins
 
 The whole matrix runs twice, once per book (`portfolios` and `us-portfolios`), and
-writes with `setDoc` rather than `updateDoc` — the app saves via a full-document
+writes with `setDoc` rather than `updateDoc`, the app saves via a full-document
 `set()` replace, which is the reason this bug class exists at all.
 
 - **Everyday use keeps working**: add a position, full sale, partial sale, add a
@@ -34,7 +34,7 @@ writes with `setDoc` rather than `updateDoc` — the app saves via a full-docume
   and the old ruleset allowed it unconditionally.
 - **Old cached JS fails closed**: a client that omits `positionDeletions` is refused
   on *every* write, including one that only adds a position. This is the property no
-  client-side guard could ever have — the offending tab runs old code, so it never
+  client-side guard could ever have, the offending tab runs old code, so it never
   loads the guard, but it cannot escape the server.
 - **No regression** on the invariants that were already live: `closedTrades` and
   `snapshots` append-only, multi-position reverts refused.

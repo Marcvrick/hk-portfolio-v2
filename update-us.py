@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 ET = ZoneInfo("America/New_York")
 
 from market_calendar import is_trading_day, coverage_warning, NYSE_HOLIDAYS
+from session_guard import report_prior_session_gap
 
 COLLECTION = "us-portfolios"
 
@@ -568,18 +569,28 @@ def run():
     # NEW (Jun 10 2026): the US cron previously had NO holiday guard at all —
     # every NYSE holiday wrote a phantom snapshot duplicating the prior
     # session's change_abs as a fresh dailyPnL tile.
+    # Can this run settle its own date? Either `today` is not an NYSE session,
+    # or the closing cross has not settled yet (before WINDOW_START) — which is
+    # also where a run drifted past midnight ET lands, holding the NEXT day's
+    # date, and must abort rather than stamp it on the prior session's prices.
+    blocked = None
     if not is_trading_day(today, "us"):
         weekday = datetime.strptime(today, "%Y-%m-%d").strftime("%A")
         reason = "holiday" if today in NYSE_HOLIDAYS else "weekend"
-        print(f"  Skipping — {weekday} {today} is a {reason} (NYSE closed)")
-        print("=== Done: No updates ===")
-        return
+        blocked = f"{weekday} {today} is a {reason} (NYSE closed)"
+    elif os.environ.get("ALLOW_OFF_HOURS") != "1" and now_et.strftime("%H:%M") < WINDOW_START:
+        blocked = (f"{now_et.strftime('%H:%M')} ET is before {WINDOW_START} (close not settled; "
+                   "a drifted run from yesterday's schedule lands here too). "
+                   "Set ALLOW_OFF_HOURS=1 to override.")
 
-    # Time-window guard: no snapshots before the closing cross settles, and a
-    # run drifted past midnight ET aborts instead of stamping the wrong date.
-    if os.environ.get("ALLOW_OFF_HOURS") != "1" and now_et.strftime("%H:%M") < WINDOW_START:
-        print(f"  Skipping — {now_et.strftime('%H:%M')} ET is before {WINDOW_START} (close not settled; "
-              "a drifted run from yesterday's schedule lands here too). Set ALLOW_OFF_HOURS=1 to override.")
+    if blocked:
+        print(f"  Skipping — {blocked}")
+        # Same silence as the HK cron, and it hit here first: on 2026-08-27
+        # every US slot drifted past midnight ET and this book has no snapshot
+        # for that session at all. Green runs, no snapshot, nothing said.
+        # See wiki/reliability-risks.md #8.
+        if report_prior_session_gap(db, COLLECTION, "us", today, "ET"):
+            sys.exit(1)
         print("=== Done: No updates ===")
         return
 
