@@ -37,68 +37,30 @@ FRIEND_EMAIL = 'friend@example.com'
 SCOPES = ['https://www.googleapis.com/auth/firebase', 'https://www.googleapis.com/auth/cloud-platform']
 APPLY = '--apply' in sys.argv
 
-NEW_RULES = r"""rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    function owner(userId) {
-      return request.auth != null && request.auth.uid == userId;
-    }
-
-    // Content protection for portfolio updates. res = existing doc, req = incoming.
-    // closedTrades & snapshots may NEVER shrink (no browser path legitimately
-    // removes one). positions may grow, stay, shrink by exactly 1 (manual single
-    // delete), or shrink by any amount only when a closedTrade was added (a sale).
-    // A stale tab reverting to an older state drops several positions with no new
-    // trade -> rejected here, on the server, regardless of the client's code version.
-    function safePortfolioUpdate() {
-      let res = resource.data;
-      let req = request.resource.data;
-      return req.get('closedTrades', []).size() >= res.get('closedTrades', []).size()
-          && req.get('snapshots', []).size() >= res.get('snapshots', []).size()
-          && (
-               req.get('positions', []).size() >= res.get('positions', []).size()
-               || req.get('closedTrades', []).size() > res.get('closedTrades', []).size()
-               || res.get('positions', []).size() - req.get('positions', []).size() == 1
-             );
-    }
-
-    match /portfolios/{userId} {
-      allow read: if owner(userId)
-                  || (request.auth != null
-                      && request.auth.token.email in resource.data.allowedViewers);
-      allow create: if owner(userId);
-      allow update: if owner(userId) && safePortfolioUpdate();
-      // whole-document delete: default deny
-    }
-
-    match /us-portfolios/{userId} {
-      allow read: if owner(userId)
-                  || (request.auth != null
-                      && request.auth.token.email in resource.data.allowedViewers);
-      allow create: if owner(userId);
-      allow update: if owner(userId) && safePortfolioUpdate();
-    }
-
-    match /viewerInvites/{inviteId} {
-      allow create: if request.auth != null;
-      allow read, update: if request.auth != null
-                          && request.auth.token.email == resource.data.inviteeEmail;
-    }
-  }
-}
-"""
+# The rules are READ FROM firestore.rules, never restated here. This script used to
+# carry its own inline copy of the ruleset, which silently drifted from the file it
+# was supposed to deploy (caught 2026-09-08: the file had the positionDeletions
+# receipt, this string still had the old unconditional shrink-by-1 allowance, so the
+# test suite would have green-lit a ruleset nobody had reviewed). One source of
+# truth: the file sitting next to this script.
+RULES_FILE = 'firestore.rules'
+with open(RULES_FILE) as fh:
+    NEW_RULES = fh.read()
 
 creds = service_account.Credentials.from_service_account_file(CRED, scopes=SCOPES)
 creds.refresh(gt.Request())
 H = {'Authorization': f'Bearer {creds.token}', 'Content-Type': 'application/json'}
 
-def doc(npos, nclosed, nsnap, viewers=None):
+def doc(npos, nclosed, nsnap, viewers=None, ndel=None):
+    """ndel=None models a client that omits positionDeletions entirely (old cached
+    JS building the outgoing document from its own field whitelist)."""
     d = {
         'positions': [{} for _ in range(npos)],
         'closedTrades': [{} for _ in range(nclosed)],
         'snapshots': [{} for _ in range(nsnap)],
     }
+    if ndel is not None:
+        d['positionDeletions'] = [{} for _ in range(ndel)]
     if viewers is not None:
         d['allowedViewers'] = viewers
     return d
@@ -119,20 +81,34 @@ def tc(name, expectation, method, existing, incoming=None, auth_uid=OWNER_UID, e
     case['__name__'] = name
     return case
 
-# baseline existing doc: 12 positions, 32 closed, 96 snapshots
-BASE = doc(12, 32, 96, viewers=[])
+# Baseline existing doc: 12 positions, 32 closed, 96 snapshots, 3 delete receipts.
+BASE = doc(12, 32, 96, viewers=[], ndel=3)
+# A book that has never had a manual delete, to prove the bootstrap case: with an
+# empty receipt log the drop is still refused, so no seeding is needed.
+BASE0 = doc(12, 32, 96, viewers=[], ndel=0)
 cases = [
-    tc('owner add position (+1 pos)', 'ALLOW', 'update', BASE, doc(13, 32, 96)),
-    tc('owner full sale (-1 pos, +1 trade)', 'ALLOW', 'update', BASE, doc(11, 33, 96)),
-    tc('owner partial sale (same pos, +1 trade)', 'ALLOW', 'update', BASE, doc(12, 33, 96)),
-    tc('owner single manual delete (-1 pos, same trade)', 'ALLOW', 'update', BASE, doc(11, 32, 96)),
-    tc('owner add snapshot (+1 snap)', 'ALLOW', 'update', BASE, doc(12, 32, 97)),
-    tc('STALE revert: -2 pos no trade', 'DENY', 'update', BASE, doc(10, 32, 96)),
-    tc('STALE wipe closedTrade (-1 trade)', 'DENY', 'update', BASE, doc(12, 31, 96)),
-    tc('STALE wipe snapshots (-5 snap)', 'DENY', 'update', BASE, doc(12, 32, 91)),
+    tc('owner add position (+1 pos)', 'ALLOW', 'update', BASE, doc(13, 32, 96, ndel=3)),
+    tc('owner full sale (-1 pos, +1 trade)', 'ALLOW', 'update', BASE, doc(11, 33, 96, ndel=3)),
+    tc('owner partial sale (same pos, +1 trade)', 'ALLOW', 'update', BASE, doc(12, 33, 96, ndel=3)),
+    tc('owner add snapshot (+1 snap)', 'ALLOW', 'update', BASE, doc(12, 32, 97, ndel=3)),
+    tc('owner idle re-save (nothing moves)', 'ALLOW', 'update', BASE, doc(12, 32, 96, ndel=3)),
+    # --- the manual delete now needs a receipt (2026-09-08) ---
+    tc('manual delete WITH receipt (-1 pos, +1 receipt)', 'ALLOW', 'update', BASE, doc(11, 32, 96, ndel=4)),
+    tc('manual delete of 2 WITH 2 receipts', 'ALLOW', 'update', BASE, doc(10, 32, 96, ndel=5)),
+    tc('THE 1138 BUG: -1 pos, no trade, NO receipt', 'DENY', 'update', BASE, doc(11, 32, 96, ndel=3)),
+    tc('THE 1138 BUG on a never-deleted book', 'DENY', 'update', BASE0, doc(11, 32, 96, ndel=0)),
+    tc('delete 2 with only 1 receipt', 'DENY', 'update', BASE, doc(10, 32, 96, ndel=4)),
+    # --- old cached JS: omits the field entirely, so its every write must fail ---
+    tc('OLD CODE omits positionDeletions (idle save)', 'DENY', 'update', BASE, doc(12, 32, 96)),
+    tc('OLD CODE omits positionDeletions (drops a position)', 'DENY', 'update', BASE, doc(11, 32, 96)),
+    tc('STALE tab rewinds the receipt log (-1 receipt)', 'DENY', 'update', BASE, doc(12, 32, 96, ndel=2)),
+    # --- the invariants that were already live ---
+    tc('STALE revert: -2 pos no trade', 'DENY', 'update', BASE, doc(10, 32, 96, ndel=3)),
+    tc('STALE wipe closedTrade (-1 trade)', 'DENY', 'update', BASE, doc(12, 31, 96, ndel=3)),
+    tc('STALE wipe snapshots (-5 snap)', 'DENY', 'update', BASE, doc(12, 32, 91, ndel=3)),
     tc('friend read (allowedViewers)', 'ALLOW', 'get',
-       doc(12, 32, 96, viewers=[FRIEND_EMAIL]), auth_uid='someoneElse', email=FRIEND_EMAIL),
-    tc('stranger write', 'DENY', 'update', BASE, doc(13, 32, 96),
+       doc(12, 32, 96, viewers=[FRIEND_EMAIL], ndel=3), auth_uid='someoneElse', email=FRIEND_EMAIL),
+    tc('stranger write', 'DENY', 'update', BASE, doc(13, 32, 96, ndel=3),
        auth_uid='strangerUid', email='stranger@x.com'),
 ]
 

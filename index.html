@@ -444,9 +444,29 @@
         settings,
         wishlist,
         wishlistAlertsDismissed,
-        allowedViewers
+        allowedViewers,
+        // Append-only receipt log for manual position deletes. The Security Rules
+        // require a receipt for any position that leaves the book without a sale,
+        // so this array MUST survive every load -> save round trip. Dropping it
+        // here would make the server reject every write from this client.
+        positionDeletions: data.positionDeletions || []
       };
     };
+
+    // A receipt proving a position left the book on purpose. The Security Rules
+    // count these: positions may only shrink by as many entries as a sale or a batch
+    // of receipts accounts for. `reason` records which UI path minted it, so the log
+    // doubles as the forensic trail this project never had when a position vanished.
+    const mkDeletionReceipt = (p, reason) => ({
+      id: `${p.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      positionId: p.id ?? null,
+      ticker: p.ticker ?? null,
+      quantity: p.quantity ?? null,
+      entryPrice: p.entryPrice ?? null,
+      entryDate: p.entryDate ?? null,
+      reason,
+      deletedAt: new Date().toISOString()
+    });
 
     // ===== FIREBASE STORAGE =====
     // Dynamic path based on authenticated user
@@ -844,6 +864,7 @@
       const [wishlist, setWishlist] = useState([]);
       const [wishlistAlertsDismissed, setWishlistAlertsDismissed] = useState({}); // { tickerId: true } for dismissed alerts
       const [allowedViewers, setAllowedViewers] = useState([]); // emails allowed to view this portfolio
+      const [positionDeletions, setPositionDeletions] = useState([]); // append-only receipts for manual deletes (see firestore.rules)
       const [savedFriends, setSavedFriends] = useState([]); // friend emails we can view
       const [viewingFriendEmail, setViewingFriendEmail] = useState(null); // email of friend's portfolio being viewed
       const [viewingFriendPortfolioType, setViewingFriendPortfolioType] = useState(null); // 'HK' or 'US'
@@ -950,6 +971,7 @@
           setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlist)? migrated.wishlist: prev);
           setWishlistAlertsDismissed(prev => JSON.stringify(prev) !== JSON.stringify(migrated.wishlistAlertsDismissed)? migrated.wishlistAlertsDismissed: prev);
           setAllowedViewers(prev => JSON.stringify(prev) !== JSON.stringify(migrated.allowedViewers)? migrated.allowedViewers: prev);
+          setPositionDeletions(prev => JSON.stringify(prev) !== JSON.stringify(migrated.positionDeletions)? migrated.positionDeletions: prev);
           // Don't update settings from remote to avoid overwriting local preferences
         });
 
@@ -977,6 +999,7 @@
             setWishlist(data.wishlist || []);
             setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
             setAllowedViewers(data.allowedViewers || []);
+            setPositionDeletions(data.positionDeletions || []);
             setSavedFriends(data.savedFriends || []);
           } else {
             // No Firestore data - try to migrate from localStorage
@@ -995,7 +1018,8 @@
                 snapshots: data.snapshots,
                 settings: data.settings,
                 wishlist: data.wishlist || [],
-                wishlistAlertsDismissed: data.wishlistAlertsDismissed || {}
+                wishlistAlertsDismissed: data.wishlistAlertsDismissed || {},
+                positionDeletions: data.positionDeletions || []
               });
               console.log('Migrated localStorage data to Firestore');
               setPositions(data.positions || INITIAL_POSITIONS);
@@ -1007,6 +1031,7 @@
               setWishlist(data.wishlist || []);
               setWishlistAlertsDismissed(data.wishlistAlertsDismissed || {});
               setAllowedViewers(data.allowedViewers || []);
+              setPositionDeletions(data.positionDeletions || []);
             } else {
               console.warn('No data found, using defaults');
               setPositions(INITIAL_POSITIONS);
@@ -1030,6 +1055,15 @@
           console.log('Skipping save - viewing friend portfolio (read-only mode)');
           return { ok: false, reason: 'Portfolio ami en lecture seule', quiet: true };
         }
+        // MANUAL-DELETE RECEIPT (2026-09-08, see firestore.rules safePortfolioUpdate).
+        // The server now requires every position that leaves the book to be explained
+        // by either a sale (closedTrades grew) or a receipt appended here. Only the
+        // delete and import paths pass opts.deletions; every other save echoes it back
+        // unchanged. Echoing is mandatory, not cosmetic: the log is append-only at the
+        // server, so a save that drops or shortens it is rejected outright.
+        const nextDeletions = opts.deletions?.length
+          ? [...positionDeletions, ...opts.deletions]
+          : positionDeletions;
         const dataToSave = {
           version: 7,
           positions: newPos ?? positions,
@@ -1041,6 +1075,7 @@
           wishlist: newWishlist ?? wishlist,
           wishlistAlertsDismissed: newWishlistAlerts ?? wishlistAlertsDismissed,
           allowedViewers: newAllowedViewers ?? allowedViewers,
+          positionDeletions: nextDeletions,
           savedFriends,
           ownerEmail: userEmail // For friend portfolio lookup
         };
@@ -1180,6 +1215,23 @@
                 dataToSave.closedTrades = mergedClosed;
                 setClosedTrades(mergedClosed);
               }
+
+              // positionDeletions MERGE (2026-09-08): the log is append-only at the
+              // server, so a tab a little behind (a delete made on the phone since
+              // this tab loaded) would have its next save rejected outright. Top the
+              // log back up from the cloud instead. This costs no protection: the
+              // rule that matters is that a position leaving the book needs a
+              // receipt, and merging only ever ADDS receipts for deletes that
+              // already happened, never for the drop being attempted now.
+              const liveDeletions = liveDoc.data().positionDeletions || [];
+              const outDelIds = new Set((dataToSave.positionDeletions || []).map(d => d.id));
+              const missingDeletions = liveDeletions.filter(d => !outDelIds.has(d.id));
+              if (missingDeletions.length > 0) {
+                const mergedDeletions = [...(dataToSave.positionDeletions || []), ...missingDeletions];
+                console.warn(`[SAVE GUARD] positionDeletions merge: restored ${missingDeletions.length} cloud receipt(s) missing from this tab.`);
+                dataToSave.positionDeletions = mergedDeletions;
+                setPositionDeletions(mergedDeletions);
+              }
             }
           } catch (guardErr) {
             // The server read failed (offline, or permissions). We CANNOT verify
@@ -1207,8 +1259,13 @@
           return { ok: false, reason };
         }
         setSaveError(null);
+        // Only advance the receipt log in React state once the server has ACCEPTED
+        // it. Advancing optimistically would leave this tab holding a receipt the
+        // cloud never got, and the next save would then claim a delete allowance it
+        // has not earned.
+        if (opts.deletions?.length) setPositionDeletions(dataToSave.positionDeletions);
         return { ok: true };
-      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, savedFriends, viewingFriendEmail, userId]);
+      }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, positionDeletions, savedFriends, viewingFriendEmail, userId]);
 
       // ===== DATA CORRECTION: Clean up stale tracking fields, fix historical data =====
       useEffect(() => {
@@ -2556,7 +2613,14 @@
               setPriceCache(migrated.priceCache);
               setSnapshots(migrated.snapshots);
               setSettings(migrated.settings);
-              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings, undefined, undefined, undefined, { skipGuard: true });
+              // An import is an explicit whole-state replace, so it may legitimately
+              // drop positions with no sale behind them. Mint a receipt for each one
+              // or the server refuses the write (and the import would look like it
+              // worked while the cloud kept the old book). Receipts are minted from
+              // what is actually leaving, never blindly.
+              const keptIds = new Set(migrated.positions.map(p => p.id));
+              const dropped = positions.filter(p => !keptIds.has(p.id));
+              saveData(migrated.positions, migrated.closedTrades, migrated.transactions, migrated.priceCache, migrated.snapshots, migrated.settings, undefined, undefined, undefined, { skipGuard: true, deletions: dropped.map(p => mkDeletionReceipt(p, 'import-replace')) });
               alert('Import réussi!');
             }
           } catch (err) {
@@ -3074,7 +3138,7 @@
                             <td className="px-2 py-1.5 text-center">
                               <div className="flex items-center justify-center gap-0.5">
                                 {!viewingFriendEmail && <button onClick={() => setCloseModal({ show: true, position: {...p, currentPrice}, exitPrice: currentPrice.toString(), exitDate: today, sellQuantity: p.quantity.toString() })} className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"><CheckCircle size={14} /></button>}
-                                {!viewingFriendEmail && <button onClick={() => { if (confirm('Supprimer?')) { const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>}
+                                {!viewingFriendEmail && <button onClick={() => { if (confirm('Supprimer?')) { const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings, undefined, undefined, undefined, { deletions: [mkDeletionReceipt(p, 'manual-delete')] }); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>}
                                 <button onClick={() => refreshSinglePrice(p.ticker)} disabled={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')} className="p-1 rounded hover:bg-lime-accent/20 text-lime-hover transition-colors disabled:opacity-50" title="Refresh price"><RefreshCw size={14} className={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')? 'animate-spin': ''} /></button>
                               </div>
                             </td>

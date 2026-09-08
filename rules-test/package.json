@@ -1,0 +1,14 @@
+{
+  "name": "hk-portfolio-rules-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Emulator test for firestore.rules. The admin service account lacks firebaserules.rulesets.test (403), so this is the only way to exercise the real rules engine.",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project demo-hk-portfolio \"node test-rules.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase-tools": "^13.0.0"
+  }
+}

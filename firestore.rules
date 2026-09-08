@@ -19,20 +19,49 @@ service cloud.firestore {
     }
 
     // res = existing doc, req = incoming doc.
+    //
     // closedTrades & snapshots may NEVER shrink (no browser path legitimately
-    // removes one). positions may grow, stay, shrink by exactly 1 (a manual
-    // single delete), or shrink by any amount ONLY when a closedTrade was added
-    // (a real sale). A stale tab reverting to an old state drops several
-    // positions with no new trade -> rejected here, on the server.
+    // removes one).
+    //
+    // positions may grow, stay, or shrink -- but every departure must be
+    // EXPLAINED, by one of exactly two receipts:
+    //   * a sale        -> closedTrades grew, or
+    //   * a manual delete -> positionDeletions grew by at least as many entries
+    //                        as positions lost.
+    // positionDeletions is itself append-only, so a client cannot mint the
+    // receipt by rewinding the log.
+    //
+    // WHY THE RECEIPT (2026-09-08, 1138.HK): the previous version allowed a
+    // shrink by EXACTLY 1 with no receipt at all, to leave room for a manual
+    // single delete. That unconditional allowance was the last remaining
+    // data-loss hole (it was recorded as the "Residual" in wiki/security-rules.md)
+    // and it has the exact shape of a stale tab reverting a freshly added
+    // position: positions 15 -> 14, no new trade. Requiring the delete to carry
+    // a receipt keeps the legitimate action working and closes the hole.
+    //
+    // SECOND EFFECT, the important one: positionDeletions is a field OLD client
+    // code does not know about. Both HTML clients build the outgoing document
+    // from an explicit field whitelist, so a tab running old cached JS DROPS the
+    // field on its full-document set() -> reqDel (0) < resDel -> the whole write
+    // is rejected by the append-only clause. The stale/old-code tab is precisely
+    // the client every prior client-side guard could never reach (it never loads
+    // the guard). Once this log holds one entry, that client is locked out at the
+    // server, whatever JS it is running.
     function safePortfolioUpdate() {
       let res = resource.data;
       let req = request.resource.data;
-      return req.get('closedTrades', []).size() >= res.get('closedTrades', []).size()
+      let resClosed = res.get('closedTrades', []).size();
+      let reqClosed = req.get('closedTrades', []).size();
+      let resDel = res.get('positionDeletions', []).size();
+      let reqDel = req.get('positionDeletions', []).size();
+      let posDrop = res.get('positions', []).size() - req.get('positions', []).size();
+      return reqClosed >= resClosed
           && req.get('snapshots', []).size() >= res.get('snapshots', []).size()
+          && reqDel >= resDel
           && (
-               req.get('positions', []).size() >= res.get('positions', []).size()
-               || req.get('closedTrades', []).size() > res.get('closedTrades', []).size()
-               || res.get('positions', []).size() - req.get('positions', []).size() == 1
+               posDrop <= 0                    // grew or unchanged
+               || reqClosed > resClosed        // a real sale explains the departure
+               || posDrop <= reqDel - resDel   // a manual delete receipt explains it
              );
     }
 

@@ -428,6 +428,22 @@ Quick summary:
 
 ## Changelog
 
+### Sep 8, 2026 — a position may no longer leave the book unexplained (rules v2 + the first real rules test)
+
+`firestore.rules`, `index.html`, `index-us.html`, `deploy-firestore-rules.py`, new `rules-test/`. Prompted by 1138.HK, bought 6,000 @ 17.55 on 09-04 and present nowhere in the document — not `positions[]`, not `closedTrades[]`, not `priceCache`, not one of 147 snapshots. Repair + full diagnosis: `wiki/incidents.md` 2026-09-08.
+
+**The hole.** Rules v1 let `positions` shrink by **exactly 1** with no sale and no justification of any kind, so that a manual single delete would still work. That allowance was written down as the "Residual" in `wiki/security-rules.md` on 2026-06-28, complete with an accurate description of how it would be exploited, and it was still open 72 days later when a position went missing in precisely its shape.
+
+**The fix: a receipt.** New append-only `positionDeletions[]`. `positions` may now shrink only by as much as a sale (`closedTrades` grew) or the receipts account for. The delete button and the JSON import path mint receipts via `mkDeletionReceipt()`; every other save echoes the log back unchanged.
+
+The second effect is the one that matters. Both clients build the outgoing document from an explicit field whitelist in `saveData`, so a tab running **old cached JS omits `positionDeletions` entirely** — and is then refused by the server on *every* write, including one that only adds a position. The tab that causes this bug class is by definition the tab that never loaded the latest guard; it cannot decline to be subject to the rules. Six client-side attempts (v2.31, v2.32, v2.33, the Jun 11 closedTrades guard, the Jun 27 `source:'server'` read, the Jun 27 fail-closed catch) each failed on exactly that. Expect the phone PWA and any long-lived tab to hit the red save-failure banner once until reloaded — that is the fix working. The log is empty until the first manual delete, so the lockout is dormant on day one while the position-drop protection is in force immediately.
+
+**Deployment order is not optional**: client code first (Pages), rules second. Reversed, the live old client is the one omitting the field.
+
+**The rules had never been tested.** `deploy-firestore-rules.py` posts to `firebaserules…:test`, and the service account has never held `firebaserules.rulesets.test` — 403 on 2026-06-28 and again today. The 9-case suite therefore never ran once, and these rules have guarded the portfolio unexercised since June. New `rules-test/` runs the real rules engine in the Firestore emulator (no cloud permission needed, needs Java): 41 cases across `portfolios` and `us-portfolios`, all green. `deploy-firestore-rules.py` also carried its own inline copy of the ruleset that had already drifted from `firestore.rules`; it now reads the file, so there is one source of truth.
+
+Also shipped: the `@firestore.transactional` fix for both crons, written 2026-08-18 and recorded as CLOSED in the wiki, which had been sitting uncommitted in the working tree ever since while GitHub ran the racy read-modify-write version. **Its first live exercise is the next scheduled run** — confirm it is green.
+
 ### Aug 14, 2026 — Completed Trades: "Encaissé par mois" calendar (display only)
 
 `index.html` + `index-us.html`. At the bottom of the Completed Trades tab (`activeTab === 'history'`), a month grid of realized P&L: one row per year (newest first), 12 month cells, per-cell trade count, sale proceeds (`exitPrice × quantity`) in the cell tooltip, a year subtotal and a grand total that equals the table's own TOTAL.

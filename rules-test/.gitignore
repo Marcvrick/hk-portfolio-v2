@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+firestore-debug.log
+firebase-debug.log
+
+# The repo-root .gitignore has a blanket `*firebase*.json` (it exists to keep the
+# service-account key out of this public repo). This emulator config holds no
+# secrets and must be tracked, so re-include it explicitly.
+!firebase.json
