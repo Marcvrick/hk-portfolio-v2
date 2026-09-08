@@ -359,11 +359,18 @@ def reconcile_with_yahoo(tv_prices: dict, positions: list, target_date: str) -> 
 #     }
 
 
-def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
-    """Update a single user's portfolio using TradingView prices."""
+@firestore.transactional
+def update_portfolio(transaction, doc_ref, user_id: str, today: str, tv_prices: dict):
+    """Update a single user's portfolio using TradingView prices.
+
+    Runs as a Firestore transaction: the read and write of `doc_ref` are atomic,
+    so a browser save landing between our read and write aborts and retries this
+    whole function against the fresh doc instead of being silently overwritten
+    (reliability-risks.md finding #11).
+    """
     print(f"\n--- Updating portfolio for user: {user_id} ---")
 
-    doc = doc_ref.get()
+    doc = doc_ref.get(transaction=transaction)
     if not doc.exists:
         print(f"  Document not found, skipping")
         return False
@@ -611,7 +618,7 @@ def update_portfolio(db, doc_ref, user_id: str, today: str, tv_prices: dict):
         "lastUpdated": firestore.SERVER_TIMESTAMP,
     }
 
-    doc_ref.update(update_data)
+    transaction.update(doc_ref, update_data)
     print(f"  Saved to Firestore ({len(snapshots)} snapshots)")
     return True
 
@@ -661,7 +668,7 @@ def run():
     for doc in docs:
         user_id = doc.id
         doc_ref = collection_ref.document(user_id)
-        if update_portfolio(db, doc_ref, user_id, today, tv_prices):
+        if update_portfolio(db.transaction(), doc_ref, user_id, today, tv_prices):
             updated_count += 1
 
     print(f"\n=== Done: Updated {updated_count} portfolio(s) ===")
