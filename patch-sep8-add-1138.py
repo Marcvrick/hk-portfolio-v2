@@ -82,6 +82,19 @@ new_position = {
 new_positions = positions + [new_position]
 
 # 2. priceCache
+#
+# !! NEVER stamp `lastUpdated` with now() here. !!
+# This entry carries the 2026-09-07 close, so it must be stamped with the 09-07
+# session, not with the moment the patch runs. The app's freshness gate
+# (`isCacheFromToday`, wiki/morning-stale-first-paint.md) only compares the DATE on
+# `lastUpdated` before rendering an entry as today's price — a stale price under a
+# fresh timestamp defeats it exactly. The first version of this script used
+# datetime.now(), and the app then showed 1138 at 17.33 / -0.91% on a day it closed
+# 17.99 / +3.81%. Fixed by patch-sep8-1138-pricecache.py.
+#
+# The rule: a priceCache entry's `lastUpdated` must never be newer than the session
+# its price came from. Stamp the price's own session, or fetch the price for the
+# session you want to stamp. Never mix the two.
 prev = prior_trading_close('2026-09-07')
 latest = CLOSES['2026-09-07']
 change = round(latest - prev, 4)
@@ -89,7 +102,8 @@ price_cache = dict(doc.get('priceCache', {}))
 price_cache[TICKER] = {
     'success': True, 'price': latest, 'previousClose': prev,
     'change': change, 'changePercent': round(change / prev * 100, 4),
-    'currency': 'HKD', 'lastUpdated': datetime.now(HKT).isoformat(),
+    'currency': 'HKD',
+    'lastUpdated': datetime(2026, 9, 7, 16, 10, tzinfo=HKT).isoformat(),
 }
 
 def make_leg(close):
