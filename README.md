@@ -448,7 +448,25 @@ Quick summary:
 
 **Testing.** `test-session-guard.py` is hermetic (no credentials, no network): calendar edges, the gap detector, and an assertion that the workflow slots still tile the drift range from zero. Replayed on the pre-fix slot list it fails at 7h25m / 6h50m, so it discriminates. Branch wiring verified at the real call site by faking the clock inside `run()` to each drifted run and executing the real function against the live document, 12/12, including two healthy in-window cases that must pass *through* the guard and two dormant books that must never alarm.
 
-**No Firestore write.** The six affected snapshots are unverified, not known-wrong. Measured against raw Yahoo closes (`auto_adjust=False`), the `portfolioValue` error runs −0.27% to +0.37% of the book (+3,934 / +279 / +3,932 / +419 / −3,693 HKD). Re-settling them is a separate decision.
+**Data repair, same session** (`patch-sep8-resettle-unverified.py`, dry-run → confirmed → `--apply` → independent verify, both apps closed). Seven snapshots re-settled from raw Yahoo closes (`auto_adjust=False`):
+
+| date | book | portfolioValue | dailyPnL |
+|---|---|---|---|
+| 2026-07-17 | HK | 1,063,827 → **1,067,761** | −30,335 → **−26,401** |
+| 2026-08-27 | HK | 1,235,804 → **1,236,083** | −8,630 → **−8,351** |
+| 2026-08-28 | HK | 1,168,601 → **1,172,533** | −2,088 → **+6,062** |
+| 2026-08-31 | HK | 1,270,124 → **1,270,543** | −5,301 → **−4,882** |
+| 2026-09-01 | HK | 1,376,075 → **1,372,382** | −15,668 → **−19,361** |
+| 2026-09-02 | HK | 1,369,592 → **1,368,312** | −3,270 → **−4,070** |
+| 2026-08-27 | US | *(inserted)* → **37,045.35** | *(inserted)* → **−132.95** |
+
+`capitalEngaged`, `positionCount` and `realizedPnL` are unchanged on all seven, recomputed from `positionsAtClose` rather than delta-adjusted.
+
+**Phase 0 refuses to write unless it can reproduce the cron.** The same computation is replayed on cron-settled control dates, screened by rule (the date *and* its prior trading day both settled and non-provisional) rather than hand-picked: 10/10 reproduced to the cent. Its first run refused, failing 2026-09-03 by exactly −1,280, which is how a **seventh** date surfaced: 2026-09-02 is cron-settled but `provisional`, because China Life was still under the `4000.HK` typo when that cron ran, so its close was frozen at the 30.30 fill against a real 29.98. Every sweep in this repo looks for a *missing* `settledAt`, so nothing could see it (`wiki/reliability-risks.md` #15, open).
+
+**2026-08-28 was a green session.** 1361.HK went ex-dividend 0.222 on 19,000 shares that day. A browser-minted snapshot records the price gap and none of the +4,218 in cash, so the stored −2,088 was really +6,062.
+
+Verified independently, not by the script's own block: each `dailyPnL` recomputed from first principles using only stored values, **drift 0.00 on all seven**; `healthcheck.py` HK 147/147 and US 142/142 totals agree with detail, and the US session-coverage warning no longer lists 2026-08-27. The US insert corroborates from outside the repair: 37,178.30 → 37,045.35 → 37,202.50 reproduces the cron's own stored 08-28 `dailyPnL` of +157.15 exactly.
 
 ### Sep 8, 2026: a position may no longer leave the book unexplained (rules v2 + the first real rules test)
 
