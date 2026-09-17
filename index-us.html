@@ -809,6 +809,7 @@
       const [benchWindow, setBenchWindow] = useState('Tout'); // History tab: window of the "Performance vs SPY" card — 1M / 3M / 6M / YTD / Tout
       const [closeModal, setCloseModal] = useState({ show: false, position: null, exitPrice: '', exitDate: getMarketToday(), sellQuantity: '' });
       const [closeSubmitting, setCloseSubmitting] = useState(false); // Confirmer disabled while the close write is in flight
+      const [addSubmitting, setAddSubmitting] = useState(false); // Ajouter disabled while the add write is in flight
       // Last failed saveData, drives the persistent red banner. Every write path in this app
       // is optimistic: React state changes first, Firestore second, and until 2026-09-04 a
       // failed write printed to the console and nothing else, so the UI showed a sale as
@@ -1688,6 +1689,7 @@
 
       // ===== POSITION ACTIONS =====
       const addPosition = async () => {
+        if (addSubmitting) return;
         if (!newPosition.ticker || !newPosition.quantity || !newPosition.entryPrice) return alert('Remplir Ticker, Qté et Prix');
         // US tickers - trim, uppercase, strip .HK if accidentally added
         let ticker = newPosition.ticker.trim().replace(/\.HK$/i, '').toUpperCase();
@@ -1725,24 +1727,45 @@
           newPos = [...positions, pos];
         }
 
+        // Optimistic local update, but the "done" signal (positionAdded / form clear)
+        // no longer fires until saveData actually resolves. Before 2026-09-17 this
+        // block set positionAdded on a fixed 1.5s timer decoupled from the real async
+        // write (which does a server-read guard, sometimes with an 800ms retry, before
+        // the actual commit) — a refresh inside that window silently dropped the add
+        // with no error, no rollback, no banner (0177.HK, HK book, see wiki/incidents.md).
+        // Same fail-closed shape as closePosition's 2026-09-04 fix (2714.HK).
+        const prevPositions = positions;
         setPositions(newPos);
+        setAddSubmitting(true);
+        let res;
+        try {
+          // IMPORTANT: await to ensure position is saved before auto-fetch overwrites priceCache
+          res = await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
+        } catch (e) {
+          res = { ok: false, reason: e?.message || String(e) };
+        } finally {
+          setAddSubmitting(false);
+        }
+        if (!res?.ok) {
+          setPositions(prevPositions);
+          alert(`⚠️ ${ticker} n'a PAS été enregistré.\n\n${res?.reason || 'Sauvegarde échouée'}\n\nLe formulaire est conservé, réessayez.`);
+          return;
+        }
+
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
         setPositionAdded(true);
         setTimeout(() => setPositionAdded(false), 1500);
-        // IMPORTANT: await to ensure position is saved before auto-fetch overwrites priceCache
-        try {
-          await saveData(newPos, closedTrades, transactions, priceCache, snapshots, settings);
-        } catch (e) {
-          console.error('Failed to save position to Firestore:', e);
-        }
 
-        // Auto-fetch price for new position via TradingView
+        // Auto-fetch price for new position via TradingView. Best-effort: the position
+        // itself is already confirmed persisted above, so a failure here only leaves
+        // the display price stale until the next cron or visit — awaited (not
+        // fire-and-forget) so it isn't silently truncated by an immediate refresh.
         try {
           const result = await fetchSinglePrice(ticker);
           if (result.success) {
             const newCache = { ...priceCache, [ticker]: result };
             setPriceCache(newCache);
-            saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
+            await saveData(newPos, closedTrades, transactions, newCache, snapshots, settings);
             console.log(`Auto-fetched price for ${ticker}: ${result.price}`);
           }
         } catch (e) {
@@ -2679,9 +2702,9 @@
                     <input type="number" step="0.01" placeholder="Prix entrée" value={newPosition.entryPrice} onChange={(e) => setNewPosition({ ...newPosition, entryPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <input type="number" step="0.01" placeholder="Prix actuel" value={newPosition.currentPrice} onChange={(e) => setNewPosition({ ...newPosition, currentPrice: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
                     <input type="date" value={newPosition.entryDate} onChange={(e) => setNewPosition({ ...newPosition, entryDate: e.target.value })} className="bg-gray-50 rounded px-2 py-1.5" />
-                    <button onClick={addPosition} disabled={positionAdded} className={`rounded px-2 py-1.5 flex items-center justify-center gap-1 transition-all duration-300 ${positionAdded ? 'bg-green-500 text-white' : 'bg-lime-accent text-dark-text'}`}>
+                    <button onClick={addPosition} disabled={addSubmitting || positionAdded} className={`rounded px-2 py-1.5 flex items-center justify-center gap-1 transition-all duration-300 disabled:opacity-50 ${positionAdded ? 'bg-green-500 text-white' : 'bg-lime-accent text-dark-text'}`}>
                       {positionAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <Plus size={14} />}
-                      {positionAdded ? 'Ajouté !' : 'Ajouter'}</button>
+                      {addSubmitting ? 'Enregistrement...' : (positionAdded ? 'Ajouté !' : 'Ajouter')}</button>
                   </div>
                 </div>
                 )}
