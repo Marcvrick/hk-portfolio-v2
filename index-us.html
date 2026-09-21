@@ -2059,7 +2059,14 @@
       };
 
       // ===== SNAPSHOT =====
-      // MERGE, never replace (2026-09-21). This button built an 8-field object and
+      // DEAD CODE, deliberately kept and hardened. recordSnapshot has NO call site in this
+      // file and never has: `git log -S"onClick={recordSnapshot}"` returns nothing, so it
+      // has been unreachable since the original Firebase v2 commit (c22b0da). It is the
+      // second dead function found here by an audit rather than by a test, after
+      // subscribeToUpdates (wiki/reliability-risks.md #1). Hardened rather than deleted so
+      // that wiring it to a button later cannot reintroduce what it used to do.
+      //
+      // MERGE, never replace (2026-09-21). It built an 8-field object and
       // SUBSTITUTED it for whatever was stored for today, so one click threw away
       // closingPrices, positionsAtClose, dailyPnL, settledAt, sources, provisional,
       // priceProvenance and spyClose. That is the browser-minted shape

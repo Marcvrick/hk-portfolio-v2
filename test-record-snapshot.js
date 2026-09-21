@@ -1,7 +1,11 @@
-// Check the "Snapshot" button (recordSnapshot): it must MERGE into the stored snapshot,
-// and must refuse a day the cron already settled.
+// Check recordSnapshot: it must MERGE into the stored snapshot, and must refuse a day the
+// cron already settled.
 //
-// WHY (wiki/reliability-risks.md #14 and #15). The button used to substitute an 8-field
+// recordSnapshot is DEAD CODE, with no call site in either HTML and none in their history.
+// This suite exists anyway, because the function is one onClick away from live and the
+// behaviour below is the whole reason it would be safe to wire.
+//
+// WHY (wiki/reliability-risks.md #14 and #15). It used to substitute an 8-field
 // object for whatever was stored for today, dropping closingPrices, positionsAtClose,
 // dailyPnL and settledAt — a browser-minted snapshot, produced on purpose by a button.
 // The obvious fix, a plain merge, is worse on a cron-settled day: it keeps settledAt while
