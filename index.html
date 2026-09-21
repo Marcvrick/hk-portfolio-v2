@@ -472,20 +472,48 @@
     // Dynamic path based on authenticated user
     const getPortfolioDoc = (userId) => `portfolios/${userId}`;
 
+    // A Firestore call that never settles, and what it costs (2026-09-21, 1138.HK).
+    // Offline persistence is deliberately OFF here (the server-read guard exists precisely
+    // because a cached read is what wiped the Jun 16-24 snapshots), so both the pre-write
+    // guard read and the write itself resolve only on a server ACK — and on a link that
+    // drops mid-flight they resolve NEVER. An await with no timeout then hangs
+    // closePosition forever: closeSubmitting stays true, the modal sits on
+    // "Enregistrement...", no alert fires, no rollback runs, and the sale is lost with
+    // nothing on screen saying so. Racing a timer turns that hang into an ordinary
+    // failure the callers already handle. Rolling back on a timeout is safe even if the
+    // write lands late: the cloud is the record and the onSnapshot listener reconciles.
+    const FIRESTORE_TIMEOUT_MS = 30000; // a full-document save is ~0.7 MB, be generous on mobile
+    const withTimeout = (promise, label) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(
+        () => reject(Object.assign(
+          new Error(`${label} : aucune réponse du serveur après ${FIRESTORE_TIMEOUT_MS / 1000} s`),
+          { code: 'timeout' }
+        )),
+        FIRESTORE_TIMEOUT_MS
+      ))
+    ]);
+
     // Firestore helper functions - now require userId
     const createFirestoreStorage = (userId) => ({
       // Save all data to Firestore
+      // Returns { ok: true } or { ok: false, code, message }. The boolean this used to
+      // return threw away the ONE fact a failed sale needs (2026-09-21, 1138.HK): the
+      // caller could only show "règles de sécurité, réseau ou données invalides" — three
+      // causes with three different repairs, and no way to tell them apart after the
+      // fact. Firestore's own code ('permission-denied', 'invalid-argument',
+      // 'unavailable', 'resource-exhausted') names it exactly, so carry it up.
       saveToFirestore: async (data) => {
         try {
-          await db.doc(getPortfolioDoc(userId)).set({
+          await withTimeout(db.doc(getPortfolioDoc(userId)).set({
             ...data,
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-          });
+          }), 'Écriture Firestore');
           console.log('Saved to Firestore for user:', userId);
-          return true;
+          return { ok: true };
         } catch (e) {
           console.error('Firestore save error:', e);
-          return false;
+          return { ok: false, code: e?.code || 'unknown', message: e?.message || String(e) };
         }
       },
 
@@ -1101,13 +1129,17 @@
             // connectivity blip (phone on a weak cell, laptop just woken), and the abort
             // path below then silently discards the user's change. A single retry turns
             // the common transient failure into a normal save.
+            // Both attempts go through withTimeout: source:'server' with persistence off
+            // does not fail fast on a dead link, it simply never resolves, and this read
+            // is the FIRST thing a close does — a hang here is indistinguishable, on
+            // screen, from a hang on the write itself.
             let liveDoc;
             try {
-              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+              liveDoc = await withTimeout(db.doc(getPortfolioDoc(userId)).get({ source: 'server' }), 'Lecture de vérification');
             } catch (firstErr) {
               console.warn('[SAVE GUARD] Server read failed, retrying once in 800ms:', firstErr);
               await new Promise(r => setTimeout(r, 800));
-              liveDoc = await db.doc(getPortfolioDoc(userId)).get({ source: 'server' });
+              liveDoc = await withTimeout(db.doc(getPortfolioDoc(userId)).get({ source: 'server' }), 'Lecture de vérification');
             }
             if (liveDoc.exists) {
               const livePositions = liveDoc.data().positions || [];
@@ -1242,21 +1274,25 @@
             // tab's data; the next online save reconciles against the server.
             console.warn('[SAVE GUARD] Server read failed, aborting save to avoid clobbering cloud data:', guardErr);
             storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
-            const reason = 'Firestore injoignable (vérification pré-écriture impossible)';
+            const reason = `Firestore injoignable (vérification pré-écriture impossible) [${guardErr?.code || 'unknown'}] : ${guardErr?.message || String(guardErr)}`;
             setSaveError({ reason, at: new Date().toISOString() });
+            try { storage.set('hk-portfolio-last-save-error', JSON.stringify({ reason, at: new Date().toISOString() })); } catch {}
             return { ok: false, reason };
           }
         }
         // Save to Firestore (primary)
         const saved = await firestoreStorage.saveToFirestore(dataToSave);
-        if (!saved) {
+        if (!saved.ok) {
           console.error('Firestore save failed, saving to localStorage as backup');
           storage.set('hk-portfolio-v7', JSON.stringify(dataToSave));
           // The localStorage copy is a forensic backup only: loadData reads it back solely
           // when the Firestore document does not exist at all, so a failed write is lost
           // on the next load. The banner is what makes that visible.
-          const reason = "Écriture Firestore refusée (règles de sécurité, réseau ou données invalides)";
+          const reason = `Écriture Firestore refusée [${saved.code}] : ${saved.message}`;
           setSaveError({ reason, at: new Date().toISOString() });
+          // Survive the reload: React state does not, and the reason is the whole
+          // diagnosis. Read it back with localStorage.getItem('hk-portfolio-last-save-error').
+          try { storage.set('hk-portfolio-last-save-error', JSON.stringify({ reason, at: new Date().toISOString() })); } catch {}
           return { ok: false, reason };
         }
         setSaveError(null);
