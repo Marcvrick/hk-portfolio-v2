@@ -562,6 +562,69 @@
       }
     };
 
+    // ===== PENDING-OPERATION LOG =====
+    // Three incidents in three weeks share one shape: Dany did something in the app,
+    // the write never reached Firestore, and the intent vanished with it — 2714.HK
+    // (2026-09-04, optimistic close), 0177.HK (2026-09-17, refresh inside the write
+    // window), 1138.HK (2026-09-21, a write that never ACKed and hung the modal).
+    // Each was fixed at its own call site, and the next one arrived anyway, because
+    // the fixes all assume the failure REACHES the failure path. A refresh, a killed
+    // tab or a promise that never settles reaches nothing.
+    //
+    // So stop trying to make every write succeed and make the INTENT durable instead:
+    // record what Dany asked for in localStorage BEFORE attempting the write, clear it
+    // only once the cloud reflects it. Anything still in the log at load time is an
+    // operation the cloud never got, and it is shown with a button that refills the
+    // form. localStorage is synchronous and survives the refresh and the tab kill,
+    // which is exactly the window every one of these incidents fell into.
+    //
+    // Deliberately NOT auto-replayed: a replay that races a write which did land would
+    // book the sale twice. Dany confirms, the existing code path does the work.
+    const PENDING_OPS_KEY = 'hk-portfolio-pending-ops';
+
+    const readPendingOps = () => {
+      try {
+        const parsed = JSON.parse(storage.get(PENDING_OPS_KEY).value || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    };
+
+    const writePendingOps = (ops) => storage.set(PENDING_OPS_KEY, JSON.stringify(ops));
+
+    // Returns the id used to clear it. Call BEFORE the optimistic state update, so a
+    // tab killed between the click and the write still leaves the record behind.
+    const beginPendingOp = (op) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      writePendingOps([...readPendingOps(), { ...op, id, at: new Date().toISOString() }]);
+      return id;
+    };
+
+    const endPendingOp = (id) => writePendingOps(readPendingOps().filter(o => o.id !== id));
+
+    // Is this operation visible in the data the cloud actually holds? Matched on the
+    // business key, never on the op id: the repair may have been done by an admin
+    // patch script, on another device, or by a retry, and any of those count as done.
+    const isOpReflected = (op, positions, closedTrades) => {
+      const same = (a, b) => convertOldTicker(a) === convertOldTicker(b);
+      if (op.kind === 'close') {
+        return (closedTrades || []).some(t => same(t.ticker, op.ticker)
+          && t.exitDate === op.exitDate && Number(t.quantity) === Number(op.quantity));
+      }
+      if (op.kind === 'add') {
+        // Compare against the TOTAL the add was meant to produce, not the shares added.
+        // Topping up 10,000 by 2,000 against a plain `quantity >= 2000` test would read
+        // as already-done off the pre-existing holding alone.
+        return (positions || []).some(p => same(p.ticker, op.ticker)
+          && Number(p.quantity) >= Number(op.expectedQuantity ?? op.quantity));
+      }
+      if (op.kind === 'delete') {
+        return !(positions || []).some(p => same(p.ticker, op.ticker));
+      }
+      return true; // unknown kind: never nag about something we cannot check
+    };
+
     // ===== PRICE FETCHING (TradingView Scanner API) =====
     // Bulk fetch all HKEX prices in one call, no CORS proxy needed
     const fetchTradingViewPrices = async (tickers) => {
@@ -930,6 +993,7 @@
       // done that the cloud never received (2714.HK, see wiki/incidents.md). Cleared on the
       // next successful save.
       const [saveError, setSaveError] = useState(null); // { reason, at } | null
+      const [unreflectedOps, setUnreflectedOps] = useState([]); // ops the cloud never got
       // IMPORTANT: today must use getMarketToday() (HKT), NOT UTC.
       // today: market-timezone date string (HKT). Stored in state + auto-updated every 60s.
       // Must use HKT, NOT UTC (user may be in a different timezone than the market)
@@ -1303,6 +1367,36 @@
         if (opts.deletions?.length) setPositionDeletions(dataToSave.positionDeletions);
         return { ok: true };
       }, [positions, closedTrades, transactions, priceCache, snapshots, settings, wishlist, wishlistAlertsDismissed, allowedViewers, positionDeletions, savedFriends, viewingFriendEmail, userId]);
+
+      // ===== PENDING-OPERATION RECONCILIATION =====
+      // Reconcile the local intent log against what the cloud actually holds, and
+      // surface whatever it never got. Self-healing: an operation that turns up in the
+      // cloud later — a retry, another device, an admin patch — is pruned on sight, so
+      // the banner cannot nag about something already fixed.
+      //
+      // The grace window matters. closePosition/addPosition update React state
+      // optimistically BEFORE the write resolves, so an op recorded two seconds ago is
+      // legitimately "not reflected yet" and must not flash a warning mid-save. 45 s is
+      // past the 30 s write timeout, so anything still unreflected by then either failed
+      // with an alert Dany may have dismissed, or hung and will never report at all.
+      const OP_GRACE_MS = 45000;
+      useEffect(() => {
+        if (!dataLoaded || viewingFriendEmail) return;
+        const reconcile = () => {
+          const ops = readPendingOps();
+          const live = ops.filter(op => !isOpReflected(op, positions, closedTrades));
+          if (live.length !== ops.length) writePendingOps(live);
+          const cutoff = Date.now() - OP_GRACE_MS;
+          const surfaced = live.filter(op => new Date(op.at).getTime() < cutoff);
+          setUnreflectedOps(prev =>
+            JSON.stringify(prev) === JSON.stringify(surfaced) ? prev : surfaced);
+        };
+        reconcile();
+        // Re-check on a timer too: an op crosses the grace window with no state change
+        // to trigger this effect, and a hang produces no state change by definition.
+        const t = setInterval(reconcile, 20000);
+        return () => clearInterval(t);
+      }, [dataLoaded, positions, closedTrades, viewingFriendEmail]);
 
       // ===== DATA CORRECTION: Clean up stale tracking fields, fix historical data =====
       useEffect(() => {
@@ -2071,6 +2165,19 @@
         // the actual commit) — a refresh inside that window silently dropped the add
         // with no error, no rollback, no banner (0177.HK, see wiki/incidents.md). Same
         // fail-closed shape as closePosition's 2026-09-04 fix (2714.HK).
+        // Same durable intent record as closePosition: written before the optimistic
+        // state change, so a refresh inside the write window (0177.HK) leaves a trace.
+        const opId = beginPendingOp({
+          kind: 'add',
+          ticker,
+          name: newPosition.name || ticker,
+          quantity: newQty,
+          expectedQuantity: (newPos.find(p => convertOldTicker(p.ticker) === convertOldTicker(ticker)) || {}).quantity,
+          entryPrice: newPrice,
+          currentPrice: parseFloat(newPosition.currentPrice) || newPrice,
+          entryDate: newPosition.entryDate
+        });
+
         const prevPositions = positions;
         setPositions(newPos);
         setAddSubmitting(true);
@@ -2089,6 +2196,7 @@
           alert(`⚠️ ${ticker} n'a PAS été enregistré.\n\n${res?.reason || 'Sauvegarde échouée'}\n\nLe formulaire est conservé, réessayez.`);
           return;
         }
+        endPendingOp(opId);
 
         setNewPosition({ ticker: '', name: '', quantity: '', entryPrice: '', currentPrice: '', entryDate: getMarketToday() });
         setPositionAdded(true);
@@ -2224,6 +2332,19 @@
           newPos = positions.filter(p => p.id !== position.id);
         }
 
+        // Record the intent BEFORE touching state or the network: everything below can
+        // be interrupted (refresh, killed tab, a write that never ACKs) and this log is
+        // what makes the sale recoverable when it is. Cleared only on a confirmed save.
+        const opId = beginPendingOp({
+          kind: 'close',
+          ticker: position.ticker,
+          name: position.name,
+          quantity: qty,
+          exitPrice: exitPriceNum,
+          exitDate,
+          positionId: position.id
+        });
+
         const prevPositions = positions;
         const prevClosed = closedTrades;
         setClosedTrades(newClosed);
@@ -2238,6 +2359,8 @@
           setCloseSubmitting(false);
         }
         if (!res?.ok) {
+          // The op stays in the pending log on purpose: the alert below is the only
+          // notice, and it is gone the moment Dany dismisses it.
           // Fail closed: the cloud is the record, so the UI goes back to the cloud's view
           // rather than showing a sale that was never written.
           setPositions(prevPositions);
@@ -2245,6 +2368,7 @@
           alert(`⚠️ La clôture de ${position.ticker} n'a PAS été enregistrée.\n\n${res?.reason || 'Sauvegarde échouée'}\n\nLa position reste ouverte. Vérifiez la connexion et réessayez.`);
           return;
         }
+        endPendingOp(opId);
         setCloseModal({ show: false, position: null, exitPrice: '', exitDate: '', sellQuantity: '' });
       };
 
@@ -3048,6 +3172,66 @@
               </div>
             )}
 
+            {/* Operations the cloud never received. Survives the refresh and the killed
+                tab that every silent-loss incident fell into (2714 / 0177 / 1138). */}
+            {unreflectedOps.length > 0 && (
+              <div className="bg-orange-50 border-2 border-orange-300 rounded-xl px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-orange-600 shrink-0 mt-0.5"><AlertCircle size={18} /></span>
+                  <div className="flex-1">
+                    <div className="text-orange-900 text-sm font-semibold">
+                      {unreflectedOps.length} opération{unreflectedOps.length > 1 ? 's' : ''} jamais enregistrée{unreflectedOps.length > 1 ? 's' : ''} dans le cloud
+                    </div>
+                    <div className="text-orange-800 text-xs mt-0.5">
+                      Vous l'avez saisie dans l'app, Firestore ne l'a jamais reçue. Reprenez-la ou oubliez-la.
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      {unreflectedOps.map(op => (
+                        <div key={op.id} className="flex items-center gap-2 flex-wrap text-xs">
+                          <span className="font-mono font-semibold text-orange-900">
+                            {op.kind === 'close' ? 'VENTE' : op.kind === 'add' ? 'ACHAT' : 'SUPPR.'} {op.ticker}
+                          </span>
+                          <span className="text-orange-800">
+                            {Number(op.quantity).toLocaleString('fr-FR')} sh
+                            {op.kind === 'close' && ` @ ${op.exitPrice} le ${fmtDate(op.exitDate)}`}
+                            {op.kind === 'add' && ` @ ${op.entryPrice} le ${fmtDate(op.entryDate)}`}
+                          </span>
+                          <span className="text-orange-600">
+                            · saisie {new Date(op.at).toLocaleString('fr-FR')}
+                          </span>
+                          {op.kind === 'close' && (
+                            <button
+                              onClick={() => {
+                                const pos = positions.find(p => p.id === op.positionId)
+                                  || positions.find(p => convertOldTicker(p.ticker) === convertOldTicker(op.ticker));
+                                if (!pos) return alert(`${op.ticker} n'est plus dans le portefeuille. Vérifiez les trades clôturés avant de ressaisir.`);
+                                setActiveTab('portfolio');
+                                setCloseModal({ show: true, position: pos, exitPrice: String(op.exitPrice), exitDate: op.exitDate, sellQuantity: String(op.quantity) });
+                              }}
+                              className="bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg px-2.5 py-1 transition-colors"
+                            >Reprendre</button>
+                          )}
+                          {op.kind === 'add' && (
+                            <button
+                              onClick={() => {
+                                setActiveTab('portfolio');
+                                setNewPosition({ ticker: op.ticker.replace(/\.HK$/, ''), name: op.name || '', quantity: String(op.quantity), entryPrice: String(op.entryPrice), currentPrice: String(op.currentPrice ?? ''), entryDate: op.entryDate });
+                              }}
+                              className="bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg px-2.5 py-1 transition-colors"
+                            >Reprendre</button>
+                          )}
+                          <button
+                            onClick={() => { endPendingOp(op.id); setUnreflectedOps(prev => prev.filter(o => o.id !== op.id)); }}
+                            className="bg-white hover:bg-orange-100 text-orange-800 border border-orange-300 font-medium rounded-lg px-2.5 py-1 transition-colors"
+                          >Oublier</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Portfolio Tab */}
             {activeTab === 'portfolio' && (
               <div className="space-y-4">
@@ -3197,7 +3381,7 @@
                             <td className="px-2 py-1.5 text-center">
                               <div className="flex items-center justify-center gap-0.5">
                                 {!viewingFriendEmail && <button onClick={() => setCloseModal({ show: true, position: {...p, currentPrice}, exitPrice: currentPrice.toString(), exitDate: today, sellQuantity: p.quantity.toString() })} className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"><CheckCircle size={14} /></button>}
-                                {!viewingFriendEmail && <button onClick={() => { if (confirm('Supprimer?')) { const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings, undefined, undefined, undefined, { deletions: [mkDeletionReceipt(p, 'manual-delete')] }); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>}
+                                {!viewingFriendEmail && <button onClick={() => { if (confirm('Supprimer?')) { const opId = beginPendingOp({ kind: 'delete', ticker: p.ticker, name: p.name, quantity: p.quantity }); const np = positions.filter(x => x.id !== p.id); setPositions(np); saveData(np, closedTrades, transactions, priceCache, snapshots, settings, undefined, undefined, undefined, { deletions: [mkDeletionReceipt(p, 'manual-delete')] }).then(r => { if (r?.ok) endPendingOp(opId); }); } }} className="p-1 rounded hover:bg-red-50 text-red-600 transition-colors"><Trash2 size={14} /></button>}
                                 <button onClick={() => refreshSinglePrice(p.ticker)} disabled={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')} className="p-1 rounded hover:bg-lime-accent/20 text-lime-hover transition-colors disabled:opacity-50" title="Refresh price"><RefreshCw size={14} className={refreshingTicker === p.ticker.replace(/b\.HK$/, '.HK')? 'animate-spin': ''} /></button>
                               </div>
                             </td>
