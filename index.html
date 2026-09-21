@@ -2404,8 +2404,38 @@
       };
 
       // ===== SNAPSHOT =====
+      // MERGE, never replace (2026-09-21). This button built an 8-field object and
+      // SUBSTITUTED it for whatever was stored for today, so one click threw away
+      // closingPrices, positionsAtClose, dailyPnL, settledAt, sources, provisional,
+      // priceProvenance and hsiClose. That is the browser-minted shape
+      // wiki/reliability-risks.md #14 sweeps for, minted deliberately by a button.
+      //
+      // Merging alone is not enough, and this is the part worth reading. Overlaying
+      // browser totals onto a CRON-SETTLED snapshot would keep its settledAt while
+      // contradicting its own closingPrices — a snapshot whose portfolioValue no longer
+      // equals Sigma(closingPrices x qty), carrying the one flag every sweep in this repo
+      // trusts. That is finding #15's shape, a defect wearing a settledAt, and it is
+      // strictly worse than the loud corruption this fix removes. A settled day is
+      // therefore refused outright rather than merged, which is also exactly what the
+      // subcollection rules will enforce at the server once the snapshots migration lands
+      // (wiki/snapshots-subcollection-migration.md): the client now agrees with the server
+      // instead of issuing a write the server will reject.
+      //
+      // Structural changes after the close are NOT this button's job: they need
+      // positionsAtClose rebuilt, which the auto-snapshot effect above already does.
       const recordSnapshot = () => {
         const m = calculateMetrics;
+        const existing = snapshots.findIndex(e => e.date === today);
+        const prev = existing >= 0 ? snapshots[existing] : null;
+        if (prev?.settledAt) {
+          alert(
+            `Snapshot du ${today} déjà réglé par le cron (${prev.settledAt}).\n\n` +
+            `Ses cours sont réconciliés avec Yahoo. Les recouvrir avec les valeurs du ` +
+            `navigateur donnerait des totaux en désaccord avec ses propres closingPrices, ` +
+            `sous un settledAt qui ferait passer le tout pour vérifié.\n\nRien n'a été écrit.`
+          );
+          return;
+        }
         const point = {
           date: today,
           capitalEngaged: m.capitalEngaged,
@@ -2416,14 +2446,15 @@
           totalDividends: m.totalDividends,
           positionCount: positions.length
         };
-        const existing = snapshots.findIndex(e => e.date === point.date);
-        let newSnap = existing >= 0
-          ? [...snapshots.slice(0, existing), point, ...snapshots.slice(existing + 1)]
-          : [...snapshots, point];
+        // Stored snapshot first: every field this point does not carry survives.
+        const merged = prev ? { ...prev, ...point } : point;
+        const newSnap = existing >= 0
+          ? [...snapshots.slice(0, existing), merged, ...snapshots.slice(existing + 1)]
+          : [...snapshots, merged];
         newSnap.sort((a, b) => new Date(a.date) - new Date(b.date));
         setSnapshots(newSnap);
         saveData(positions, closedTrades, transactions, priceCache, newSnap, settings);
-        alert('Snapshot enregistré!');
+        alert(prev? 'Snapshot mis à jour (champs du cron préservés).': 'Snapshot enregistré.');
       };
 
       // ===== WISHLIST ACTIONS =====
