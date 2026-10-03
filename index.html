@@ -2430,7 +2430,7 @@
       //
       // Structural changes after the close are NOT this button's job: they need
       // positionsAtClose rebuilt, which the auto-snapshot effect above already does.
-      const recordSnapshot = () => {
+      const recordSnapshot = async () => {
         const m = calculateMetrics;
         const existing = snapshots.findIndex(e => e.date === today);
         const prev = existing >= 0 ? snapshots[existing] : null;
@@ -2460,7 +2460,20 @@
           : [...snapshots, merged];
         newSnap.sort((a, b) => new Date(a.date) - new Date(b.date));
         setSnapshots(newSnap);
-        saveData(positions, closedTrades, transactions, priceCache, newSnap, settings);
+        // Await the save and check it, as addPosition/closePosition do: the success alert
+        // used to fire before saveData resolved, whatever it returned (wiki/incidents.md,
+        // 0177.HK, 2026-09-17). On failure the UI goes back to the cloud's view.
+        let res;
+        try {
+          res = await saveData(positions, closedTrades, transactions, priceCache, newSnap, settings);
+        } catch (e) {
+          res = { ok: false, reason: e?.message || String(e) };
+        }
+        if (!res?.ok) {
+          setSnapshots(snapshots);
+          alert(`⚠️ Snapshot du ${today} NON enregistré.\n\n${res?.reason || 'Sauvegarde échouée'}`);
+          return;
+        }
         alert(prev? 'Snapshot mis à jour (champs du cron préservés).': 'Snapshot enregistré.');
       };
 

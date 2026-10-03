@@ -1,5 +1,5 @@
-// Check recordSnapshot: it must MERGE into the stored snapshot, and must refuse a day the
-// cron already settled.
+// Check recordSnapshot: it must MERGE into the stored snapshot, must refuse a day the
+// cron already settled, and must not claim success before saveData says so.
 //
 // recordSnapshot is DEAD CODE, with no call site in either HTML and none in their history.
 // This suite exists anyway, because the function is one onClick away from live and the
@@ -38,12 +38,12 @@ const cronFields = {
   priceProvenance: { '1138.HK': { source: 'yahoo', drift: 0 } },
 };
 
-function run(file) {
+async function run(file) {
   const html = fs.readFileSync(__dirname + '/' + file, 'utf8');
-  const src = html.match(/const recordSnapshot = \(\) => \{[\s\S]*?\n {6}\};/);
+  const src = html.match(/const recordSnapshot = async \(\) => \{[\s\S]*?\n {6}\};/);
   assert.ok(src, `${file}: recordSnapshot not found — did the function get renamed?`);
 
-  const call = (snapshots) => {
+  const call = async (snapshots, saveResult = { ok: true }) => {
     const calls = { saved: [], setTo: null, alerts: [] };
     const ctx = {
       calculateMetrics: METRICS,
@@ -52,20 +52,20 @@ function run(file) {
       closedTrades: [], transactions: [], priceCache: {}, settings: {},
       today: TODAY,
       setSnapshots: (s) => { calls.setTo = s; },
-      saveData: (...a) => { calls.saved.push(a); },
+      saveData: async (...a) => { calls.saved.push(a); return saveResult; },
       alert: (m) => { calls.alerts.push(m); },
     };
-    new Function('ctx', `
+    await new Function('ctx', `
       const { calculateMetrics, snapshots, positions, closedTrades, transactions,
               priceCache, settings, today, setSnapshots, saveData, alert } = ctx;
       ${src[0]}
-      recordSnapshot();
+      return recordSnapshot();
     `)(ctx);
     return calls;
   };
 
   // 1. Nothing stored for today: the button does its original job.
-  let r = call([{ date: '2026-09-18', portfolioValue: 1 }]);
+  let r = await call([{ date: '2026-09-18', portfolioValue: 1 }]);
   assert.strictEqual(r.saved.length, 1, `${file}: a fresh day is written`);
   assert.strictEqual(r.setTo.length, 2, `${file}: appended, not replaced`);
   assert.strictEqual(r.setTo[1].date, TODAY);
@@ -73,7 +73,7 @@ function run(file) {
 
   // 2. An UNSETTLED snapshot exists: merge. This is the case the old code got wrong —
   //    it replaced the object, so every assertion below failed on the pre-fix version.
-  r = call([{ date: TODAY, portfolioValue: 999, ...cronFields }]);
+  r = await call([{ date: TODAY, portfolioValue: 999, ...cronFields }]);
   assert.strictEqual(r.saved.length, 1, `${file}: an unsettled day is still writable`);
   const merged = r.setTo.find(s => s.date === TODAY);
   assert.deepStrictEqual(merged.closingPrices, cronFields.closingPrices, `${file}: closingPrices survive`);
@@ -85,15 +85,27 @@ function run(file) {
 
   // 3. A CRON-SETTLED snapshot exists: refuse, write nothing. Merging here would leave
   //    portfolioValue 1200 against closingPrices worth 1976, under a settledAt.
-  r = call([{ date: TODAY, portfolioValue: 1976, settledAt: '2026-09-21T16:35:00+08:00', ...cronFields }]);
+  r = await call([{ date: TODAY, portfolioValue: 1976, settledAt: '2026-09-21T16:35:00+08:00', ...cronFields }]);
   assert.strictEqual(r.saved.length, 0, `${file}: a settled day is NOT written`);
   assert.strictEqual(r.setTo, null, `${file}: a settled day does not even touch state`);
   assert.strictEqual(r.alerts.length, 1, `${file}: the refusal is stated, not silent`);
   assert.ok(r.alerts[0].includes(TODAY), `${file}: the refusal names the date`);
 
-  console.log(`  ${file}: 3 cases OK`);
+  // 4. The save FAILS: no success alert, state goes back to what it was. Before
+  //    2026-10-03 the success alert fired whatever saveData returned (the 0177.HK shape).
+  const before = [{ date: '2026-09-18', portfolioValue: 1 }];
+  r = await call(before, { ok: false, reason: 'permission-denied' });
+  assert.strictEqual(r.saved.length, 1, `${file}: the write was attempted`);
+  assert.strictEqual(r.setTo, before, `${file}: a failed save rolls state back`);
+  assert.strictEqual(r.alerts.length, 1);
+  assert.ok(r.alerts[0].includes('NON enregistré'), `${file}: the failure is stated`);
+  assert.ok(r.alerts[0].includes('permission-denied'), `${file}: the failure names the reason`);
+
+  console.log(`  ${file}: 4 cases OK`);
 }
 
-console.log('recordSnapshot — merge, and refuse a settled day');
-FILES.forEach(run);
-console.log('ALL PASS');
+(async () => {
+  console.log('recordSnapshot — merge, refuse a settled day, never claim an unconfirmed save');
+  for (const f of FILES) await run(f);
+  console.log('ALL PASS');
+})().catch(e => { console.error(e); process.exit(1); });
