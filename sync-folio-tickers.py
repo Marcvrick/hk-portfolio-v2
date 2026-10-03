@@ -12,9 +12,12 @@ Output shape (portfolio-tickers.json):
 {
   "updated_at": "2026-04-21T10:30:00+00:00",
   "HK": {
+    "currency": "HKD",
     "positions": [
       {"ticker": "113.HK", "name": "Dickson Concept", "quantity": 20000,
-       "entry_price": 6.10, "entry_date": "2026-04-13"},
+       "entry_price": 6.10, "entry_date": "2026-04-13",
+       "current_price": 6.42, "previous_close": 6.35, "day_pct": 1.1024,
+       "price_source": "priceCache", "price_as_of": "2026-04-21T08:12:03.221Z"},
       ...
     ],
     "snapshots": [
@@ -24,6 +27,11 @@ Output shape (portfolio-tickers.json):
   },
   "US": { ... }
 }
+
+Prices come from the portfolio doc's own `priceCache` — the same numbers the
+Tracker UI shows. This script never fetches a quote itself; it only mirrors what
+the app already wrote. Derived columns (market value, P&L, weight) are left to
+the consumer so the arithmetic lives in one place (FinMC's `backend/folio.py`).
 
 Usage (standalone):
   python3 sync-folio-tickers.py
@@ -39,6 +47,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +60,7 @@ DEFAULT_CRED_PATH = (
     "hk-portfolio-sync-firebase-adminsdk-fbsvc-5beeec05f3.json"
 )
 COLLECTIONS = {"HK": "portfolios", "US": "us-portfolios"}
+CURRENCIES = {"HK": "HKD", "US": "USD"}
 # Cap the history series at 2 years — FinMC's chart window.
 SNAPSHOT_CAP_DAYS = 365 * 2
 
@@ -108,14 +118,68 @@ def _cap_snapshots(snapshots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
-def _strip(p: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep only the fields FinMC needs for charting + display."""
+def _cache_entry(price_cache: Dict[str, Any], ticker: str) -> Dict[str, Any]:
+    """Look up a position's priceCache entry, mirroring the app's cleanTicker.
+
+    The app keys the cache on `ticker.replace(/b\\.HK$/, '.HK')`. HK codes are
+    written both bare ("14.HK") and zero-padded ("0014.HK") depending on which
+    code path wrote them, so fall back across the padding variants rather than
+    silently returning no price for a position that does have one.
+    """
+    t = re.sub(r"b\.HK$", ".HK", ticker or "")
+    entry = price_cache.get(t)
+    if entry:
+        return entry
+    if t.endswith(".HK"):
+        code = t[:-3].lstrip("0")
+        for alt in (f"{code}.HK", f"{code.zfill(4)}.HK", f"{code.zfill(5)}.HK"):
+            entry = price_cache.get(alt)
+            if entry:
+                return entry
+    return {}
+
+
+def _strip(p: Dict[str, Any], price_cache: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep only the fields FinMC needs for charting + display.
+
+    Price resolution follows index.html: the live `priceCache` entry wins when it
+    reports success, otherwise the position's own last-known `currentPrice`. The
+    day move uses the cache's official `changePercent` when it is available and
+    no manual `previousCloseOverride` is in force, matching the app's
+    "never recompute TradingView's %" rule; otherwise it is derived from the
+    previous close. `dailyChangeDollar` is not mirrored — it needs the
+    intraday-add history from `transactions`, and FinMC's table has no dollar
+    day column.
+    """
+    cached = _cache_entry(price_cache, p.get("ticker") or "")
+    live = cached if cached.get("success") else {}
+
+    current = live.get("price")
+    source = "priceCache" if current is not None else None
+    if current is None:
+        current = p.get("currentPrice")
+        source = "position" if current is not None else None
+
+    override = cached.get("previousCloseOverride")
+    previous = override or live.get("previousClose")
+
+    day_pct = None
+    if not override and live.get("changePercent") is not None:
+        day_pct = live["changePercent"]
+    elif previous and current is not None:
+        day_pct = (current - previous) / previous * 100.0
+
     return {
         "ticker": p.get("ticker"),
         "name": p.get("name") or "",
         "quantity": p.get("quantity"),
         "entry_price": p.get("entryPrice"),
         "entry_date": p.get("entryDate"),
+        "current_price": current,
+        "previous_close": previous,
+        "day_pct": day_pct,
+        "price_source": source,
+        "price_as_of": cached.get("lastUpdated"),
     }
 
 
@@ -143,13 +207,21 @@ def main() -> int:
         try:
             doc = _pick_doc(db, collection, uid)
             positions = doc.get("positions") or []
+            price_cache = doc.get("priceCache") or {}
             snapshots = _cap_snapshots(doc.get("snapshots") or [])
-            rows = [_strip(p) for p in positions if p.get("ticker")]
-            out[market] = {"positions": rows, "snapshots": snapshots}
-            per_market_status[market] = f"{len(rows)} pos + {len(snapshots)} snapshots"
+            rows = [_strip(p, price_cache) for p in positions if p.get("ticker")]
+            out[market] = {
+                "currency": CURRENCIES[market],
+                "positions": rows,
+                "snapshots": snapshots,
+            }
+            priced = sum(1 for r in rows if r["current_price"] is not None)
+            per_market_status[market] = (
+                f"{len(rows)} pos ({priced} priced) + {len(snapshots)} snapshots"
+            )
         except Exception as e:
             print(f"WARN: {market} read failed: {e}", file=sys.stderr)
-            out[market] = {"positions": [], "snapshots": []}
+            out[market] = {"currency": CURRENCIES[market], "positions": [], "snapshots": []}
             per_market_status[market] = f"ERROR: {e}"
 
     if dry_run:
