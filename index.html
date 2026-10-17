@@ -4733,8 +4733,8 @@
                             ['Achat', fmtDate(peekPos.entryDate)],
                           ];
                           return (
-                            <tr className="bg-gray-50/70">
-                              <td colSpan={showPrevClose? 8: 7} className="px-3 py-2">
+                            <tr className="bg-gray-50">
+                              <td colSpan={showPrevClose? 8: 7} className="px-3 py-2 border-l-4 border-lime-accent">
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 items-baseline">
                                   {cells.map(([k, v]) => (
                                     <span key={k}><span className="text-muted">{k}</span> <span className="font-mono">{v}</span></span>
